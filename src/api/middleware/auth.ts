@@ -28,7 +28,7 @@ export const authMiddleware = createMiddleware(async (c, next) => {
         return APIResponse.unauthorized(c, "Invalid or expired token");
     }
 
-    c.set("authContext", authContext);
+    AuthHandler.AuthContext.set(c, authContext);
 
     return await next();
 

@@ -1,111 +1,174 @@
-import { Hono } from "hono";
+import { Context, Hono } from "hono";
 import { MailAccountsModel } from './model';
-import { validator } from "hono-openapi";
 import { DB } from "../../../db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
 import { router as mailsRouter } from "./mails";
 import { z } from "zod";
+import { AuthHandler } from "../../utils/authHandler";
+import { validator } from "hono-openapi";
 
-export const router = new Hono().basePath('/mail-accounts/:accountId');
+export const router = new Hono().basePath('/mail-accounts');
 
-router.route('/mails', mailsRouter);
+router.get('/',
 
-router.get('/:id',
     APIRouteSpec.authenticated({
-        summary: "Get Mail Account info",
-        description: "Retrieve information about a specific mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MANAGEMENT],
+        summary: "List Mail Accounts",
+        description: "Retrieve a list of mail accounts.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
         responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail account retrieved successfully", MailAccountsModel.Get.Response),
-            APIResponseSpec.notFound("Mail account not found")
+            APIResponseSpec.success("Mail accounts retrieved successfully", MailAccountsModel.GetAllMailAccounts.Response)
         )
     }),
+
     async (c) => {
-        const id = parseInt(c.req.param('id'));
-        if (isNaN(id)) {
-            return APIResponse.badRequest(c, "Invalid ID format");
-        }
 
-        const mailAccount = await DB.instance().select().from(DB.Schema.mailAccounts).where(eq(DB.Schema.mailAccounts.id, id)).get();
+        const authContext = AuthHandler.AuthContext.get(c);
 
-        if (!mailAccount) {
-            return APIResponse.notFound(c, "Mail account not found");
-        }
+        const mailAccounts = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+        ).all();
 
-        return APIResponse.success(c, "Mail account retrieved successfully", mailAccount);
+        return APIResponse.success(c, "Mail accounts retrieved successfully", mailAccounts satisfies MailAccountsModel.GetAllMailAccounts.Response);
     }
 );
 
 router.post('/',
+
     APIRouteSpec.authenticated({
         summary: "Create mail account",
         description: "Create a new mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MANAGEMENT],
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
         responses: APIResponseSpec.describeWithWrongInputs(
-            APIResponseSpec.success("Mail account created successfully", MailAccountsModel.Get.Response)
+            APIResponseSpec.success("Mail account created successfully", MailAccountsModel.CreateMailAccount.Response)
         )
     }),
-    validator("json", MailAccountsModel.Create.Body),
+
+    validator("json", MailAccountsModel.CreateMailAccount.Body),
+
     async (c) => {
         const body = c.req.valid("json");
-        const result = await DB.instance().insert(DB.Schema.mailAccounts).values(body).returning().get();
-        return APIResponse.success(c, "Mail account created successfully", result);
+
+        const authContext = AuthHandler.AuthContext.get(c);
+
+        const result = await DB.instance().insert(DB.Schema.mailAccounts).values({
+            ...body,
+            owner_user_id: authContext.user_id
+        }).returning().get().id;
+
+        return APIResponse.success(c, "Mail account created successfully", { id: result } satisfies MailAccountsModel.CreateMailAccount.Response);
     }
 );
 
-router.patch('/:id',
+router.use("/:mailAccountID/*",
+
+    validator("param", MailAccountsModel.MailAccountIDParams),
+
+    async (c, next) => {
+        
+        const authContext = AuthHandler.AuthContext.get(c);
+
+        // @ts-ignore
+        const { mailAccountID } = c.req.valid("param") as MailAccountsModel.MailAccountIDParams;
+
+        const mailAccount = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            and(
+                eq(DB.Schema.mailAccounts.id, mailAccountID),
+                eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+            )
+        ).get();
+
+        if (!mailAccount) {
+            return APIResponse.notFound(c, "Mail Account with the specified ID not found");
+        }
+        
+        // @ts-ignore
+        c.set("mailAccount", mailAccount as MailAccountsModel.BASE);
+
+        await next();
+    }
+);
+
+router.get('/:mailAccountID',
+
+    APIRouteSpec.authenticated({
+        summary: "Get Mail Account info",
+        description: "Retrieve information about a specific mail account.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Mail account retrieved successfully", MailAccountsModel.GetMailAccount.Response),
+            APIResponseSpec.notFound("Mail Account with the specified ID not found")
+        )
+    }),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        return APIResponse.success(c, "Mail account retrieved successfully", mailAccount satisfies MailAccountsModel.GetMailAccount.Response);
+    }
+);
+
+
+router.put('/:mailAccountID',
+
     APIRouteSpec.authenticated({
         summary: "Update mail account",
         description: "Update a field in a mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MANAGEMENT],
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
         responses: APIResponseSpec.describeWithWrongInputs(
-            APIResponseSpec.success("Mail account updated successfully", MailAccountsModel.Get.Response),
-            APIResponseSpec.notFound("Mail account not found")
+            APIResponseSpec.successNoData("Mail account updated successfully"),
+            APIResponseSpec.notFound("Mail account with the specified ID not found")
         )
     }),
-    validator("json", MailAccountsModel.Update.Body),
+
+    validator("json", MailAccountsModel.UpdateMailAccount.Body),
+
     async (c) => {
-        const id = parseInt(c.req.param('id'));
-        if (isNaN(id)) {
-            return APIResponse.badRequest(c, "Invalid ID format");
-        }
         const body = c.req.valid("json");
 
-        const existing = await DB.instance().select().from(DB.Schema.mailAccounts).where(eq(DB.Schema.mailAccounts.id, id)).get();
-        if (!existing) {
-            return APIResponse.notFound(c, "Mail account not found");
-        }
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        const result = await DB.instance().update(DB.Schema.mailAccounts).set(body).where(eq(DB.Schema.mailAccounts.id, id)).returning().get();
-        return APIResponse.success(c, "Mail account updated successfully", result);
+        await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
+            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        )
+
+        return APIResponse.successNoData(c, "Mail account updated successfully");
     }
 );
 
-router.delete('/:id',
+router.delete('/:mailAccountID',
+
     APIRouteSpec.authenticated({
         summary: "Delete mail account",
         description: "Delete a mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MANAGEMENT],
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.successNoData("Mail account deleted successfully"),
-            APIResponseSpec.notFound("Mail account not found")
+            APIResponseSpec.notFound("Mail account with the specified ID not found")
         )
     }),
+
     async (c) => {
-        const id = parseInt(c.req.param('id'));
-        if (isNaN(id)) {
-            return APIResponse.badRequest(c, "Invalid ID format");
-        }
 
-        const existing = await DB.instance().select().from(DB.Schema.mailAccounts).where(eq(DB.Schema.mailAccounts.id, id)).get();
-        if (!existing) {
-            return APIResponse.notFound(c, "Mail account not found");
-        }
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        await DB.instance().delete(DB.Schema.mailAccounts).where(eq(DB.Schema.mailAccounts.id, id)).run();
+        await DB.instance().delete(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        );
+
         return APIResponse.successNoData(c, "Mail account deleted successfully");
+        
     }
 );
+
+router.route('/mails', mailsRouter);

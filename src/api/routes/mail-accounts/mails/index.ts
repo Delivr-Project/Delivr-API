@@ -6,4 +6,3 @@ export const router = new Hono().basePath("/:mailId");
 
 router.route('/attachments/:attachmentId', attachmentsRouter);
 
-router.get

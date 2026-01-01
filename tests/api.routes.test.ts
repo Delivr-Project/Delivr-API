@@ -200,6 +200,33 @@ describe("Account routes", async () => {
         session_token = data.token;
     });
 
+    test("DELETE /account fails because of existing mail accounts", async () => {
+        
+        // Seed a mail account
+        const mailAccountID = await DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: testUser.id,
+            smtp_host: "smtp.example.com",
+            smtp_port: 587,
+            smtp_encryption: "STARTTLS",
+            smtp_username: "smtpuser",
+            smtp_password: "smtppass",
+            imap_host: "imap.example.com",
+            imap_port: 993,
+            imap_encryption: "SSL",
+            imap_username: "imapuser",
+            imap_password: "imappass"
+        }).returning().get().id;
+
+        await makeAPIRequest("/account", {
+            method: "DELETE",
+            authToken: session_token
+        }, 400);
+
+        await DB.instance().delete(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        ).run();
+    });
+
     test("DELETE /account removes user data", async () => {
         
         await makeAPIRequest("/account", {

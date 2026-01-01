@@ -13,8 +13,8 @@ export const router = new Hono().basePath('/account');
 
 // all routes below require authentication via session
 router.use("*", async (c, next) => {
-    // @ts-ignore
-    const authContext = c.get("authContext") as AuthHandler.AuthContext;
+
+    const authContext = AuthHandler.AuthContext.get(c);
 
     if (authContext.type !== 'session') {
         return APIResponse.unauthorized(c, "Your Auth Context is not a session");
@@ -37,8 +37,8 @@ router.get('/',
     }),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
+
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
 
         const user = DB.instance().select().from(DB.Schema.users).where(
             eq(DB.Schema.users.id, authContext.user_id)
@@ -70,8 +70,8 @@ router.put('/',
     validator("json", AccountModel.UpdateInfo.Body),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
+
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
 
         const body = c.req.valid("json") as AccountModel.UpdateInfo.Body;
 
@@ -100,8 +100,8 @@ router.put('/password',
     validator("json", AccountModel.UpdatePassword.Body),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
+
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
 
         if (authContext.type !== 'session') {
             return APIResponse.unauthorized(c, "Your Auth Context is not a session");
@@ -145,18 +145,25 @@ router.delete('/',
 
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.successNoData("Account deleted successfully"),
-            APIResponseSpec.unauthorized("Your Auth Context is not a session")
+            APIResponseSpec.unauthorized("Your Auth Context is not a session"),
+            APIResponseSpec.badRequest("Please delete all mail accounts associated with this account before deleting the account")
         )
     }),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
 
-        // check for user created resources and handle them accordingly later
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const mailAccounts = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+        ).all();
+
+        if (mailAccounts.length > 0) {
+            return APIResponse.badRequest(c, "Please delete all mail accounts associated with this account before deleting the account");
+        }
 
         // invalidate all sessions for the user
-        await SessionHandler.inValidateAllSessionsForUser(authContext.user_id);
+        await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id);
 
         // delete password resets
         DB.instance().delete(DB.Schema.passwordResets).where(

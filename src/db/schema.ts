@@ -6,6 +6,8 @@ import {
     text
 } from 'drizzle-orm/sqlite-core';
 import { SQLUtils } from './utils';
+import { UserAccountSettings } from '../api/utils/shared-models/accountData';
+import { InetModels } from '../api/utils/shared-models/inetModels';
 
 /**
  * @deprecated Use DB.Schema.users instead
@@ -18,7 +20,7 @@ export const users = sqliteTable('users', {
     email: text().notNull().unique(),
     password_hash: text().notNull(),
     role: text({
-        enum: ["admin", "user"]
+        enum: UserAccountSettings.Roles
     }).default("user").notNull()
 });
 
@@ -40,7 +42,7 @@ export const sessions = sqliteTable('sessions', {
     hashed_token: text().notNull(),
     user_id: int().notNull().references(() => users.id),
     user_role: text({
-        enum: ["admin", "user"]
+        enum: UserAccountSettings.Roles
     }).notNull().references(() => users.role),
     created_at: SQLUtils.getCreatedAtColumn(),
     expires_at: int().notNull()
@@ -54,11 +56,37 @@ export const apiKeys = sqliteTable('api_keys', {
     hashed_token: text().notNull(),
     user_id: int().notNull().references(() => users.id),
     user_role: text({
-        enum: ["admin", "user"]
+        enum: UserAccountSettings.Roles
     }).notNull().references(() => users.role),
     description: text().notNull(),
     created_at: SQLUtils.getCreatedAtColumn(),
     expires_at: int(),
+});
+
+
+/**
+ * @deprecated Use DB.Schema.mailAccounts instead
+ */
+export const mailAccounts = sqliteTable('mail_accounts', {
+    id: int().primaryKey({ autoIncrement: true }),
+    owner_user_id: int().notNull().references(() => users.id),
+    created_at: SQLUtils.getCreatedAtColumn(),
+
+    smtp_host: text().notNull(),
+    smtp_port: int().notNull(),
+    smtp_username: text().notNull(),
+    smtp_password: text().notNull(),
+    smtp_encryption: text({
+        enum: InetModels.Mail.EncryptionTypes
+    }).notNull(),
+    
+    imap_host: text().notNull(),
+    imap_port: int().notNull(),
+    imap_username: text().notNull(),
+    imap_password: text().notNull(),
+    imap_encryption: text({
+        enum: InetModels.Mail.EncryptionTypes
+    }).notNull()
 });
 
 
@@ -68,26 +96,4 @@ export const apiKeys = sqliteTable('api_keys', {
 export const metadata = sqliteTable('metadata', {
     key: text().primaryKey(),
     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
-});
-
-/**
- * @deprecated Use DB.Schema.mailAccounts instead
- */
-export const mail_accounts = sqliteTable('mail_accounts', {
-    id: int().primaryKey({ autoIncrement: true }),
-    created_at: SQLUtils.getCreatedAtColumn(),
-    smtp_host: text().notNull().unique(),
-    smtp_port: int().notNull(),
-    smtp_username: text().notNull(),
-    smtp_password: text().notNull(),
-    smtp_encryption: text({
-        enum: ["SSL", "STARTTLS", "NONE"]
-    }).notNull(),
-    imap_host: text().notNull().unique(),
-    imap_port: int().notNull(),
-    imap_username: text().notNull(),
-    imap_password: text().notNull(),
-    imap_encryption: text({
-        enum: ["SSL", "STARTTLS", "NONE"]
-    }).notNull()
 });

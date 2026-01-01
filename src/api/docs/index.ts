@@ -128,6 +128,6 @@ export const DOCS_TAGS = {
 
     MAIL_ACCOUNTS: {
         BASE: "Mail Accounts",
-        MANAGEMENT: "Management",
+        MAILS: "Mail Accounts / Mails"
     }
 }

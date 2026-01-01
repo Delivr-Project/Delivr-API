@@ -101,8 +101,8 @@ router.get('/session',
     }),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.AuthContext;
+
+        const authContext = AuthHandler.AuthContext.get(c);
         if (authContext.type !== 'session') {
             return APIResponse.unauthorized(c, "Your Auth Context is not a session");
         }
@@ -131,8 +131,8 @@ router.post('/logout',
     }),
 
     async (c) => {
-        // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.AuthContext;
+
+        const authContext = AuthHandler.AuthContext.get(c);
 
         if (authContext.type !== 'session') {
             return APIResponse.unauthorized(c, "Your Auth Context is not a session");
