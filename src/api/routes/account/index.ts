@@ -153,14 +153,7 @@ router.delete('/',
         // @ts-ignore
         const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
 
-        // check if it have still packages owned
-        const ownedPackages = await DB.instance().select().from(DB.Schema.packages).where(
-            eq(DB.Schema.packages.owner_user_id, authContext.user_id)
-        );
-
-        if (ownedPackages.length > 0) {
-            return APIResponse.badRequest(c, "You must delete all your packages before deleting your account.");
-        }
+        // check for user created resources and handle them accordingly later
 
         // invalidate all sessions for the user
         await SessionHandler.inValidateAllSessionsForUser(authContext.user_id);

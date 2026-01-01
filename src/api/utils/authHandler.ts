@@ -75,7 +75,7 @@ export class SessionHandler {
             id: tokenID,
             hashed_token: await AuthUtils.hashTokenBase(tokenBase),
             user_id: userID,
-            user_role: await AuthUtils.getUserRole(userID) || 'user',
+            user_role: await AuthUtils.getUserRole(userID) || "user",
             expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).getTime() // 7 days from now
         }).returning().get();
         
@@ -131,7 +131,7 @@ export class SessionHandler {
         await DB.instance().delete(DB.Schema.sessions).where(eq(DB.Schema.sessions.id, tokenID));
     }
 
-    static async changeUserRoleInSessions(userID: number, newRole: 'admin' | 'developer' | 'user') {
+    static async changeUserRoleInSessions(userID: number, newRole: "admin" | "user") {
         await DB.instance().update(DB.Schema.sessions).set({
             user_role: newRole
         }).where(
@@ -161,7 +161,7 @@ export class APIKeyHandler {
             id: tokenID,
             hashed_token: await AuthUtils.hashTokenBase(tokenBase),
             user_id: userID,
-            user_role: await AuthUtils.getUserRole(userID) || 'user',
+            user_role: await AuthUtils.getUserRole(userID) || "user",
             description: description,
             expires_at: expiresAt
         }).returning().get();
@@ -217,7 +217,7 @@ export class APIKeyHandler {
         await DB.instance().delete(DB.Schema.apiKeys).where(eq(DB.Schema.apiKeys.id, apiKeyID));
     }
 
-    static async changeUserRoleInApiKeys(userID: number, newRole: 'admin' | 'developer' | 'user') {
+    static async changeUserRoleInApiKeys(userID: number, newRole: "admin" | "user") {
         await DB.instance().update(DB.Schema.apiKeys).set({
             user_role: newRole
         }).where(
@@ -300,7 +300,7 @@ export class AuthHandler {
         ]).then(() => { return; });
     }
 
-    static async changeUserRoleInAuthContexts(userID: number, newRole: 'admin' | 'developer' | 'user'): Promise<void> {
+    static async changeUserRoleInAuthContexts(userID: number, newRole: "admin" | "user"): Promise<void> {
         return await Promise.all([
             SessionHandler.changeUserRoleInSessions(userID, newRole),
             APIKeyHandler.changeUserRoleInApiKeys(userID, newRole)

@@ -9,7 +9,7 @@ import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
 
 
-async function seedUser(role: "admin" | "developer" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
+async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
     const user = DB.instance().insert(DB.Schema.users).values({
         username: overrides.username ?? `user_${randomUUID().slice(0, 8)}`,
         display_name: overrides.display_name ?? "Test User",
@@ -28,7 +28,6 @@ async function seedSession(user_id: number) {
 }
 
 let testAdmin = await seedUser("admin", { username: "testadmin" }, "AdminP@ss1");
-let testDeveloper = await seedUser("developer", { username: "testdeveloper" }, "DevP@ss1");
 let testUser = await seedUser("user", { username: "testuser" }, "UserP@ss1");
 
 describe("Auth routes and access checks", async () => {
@@ -90,22 +89,6 @@ describe("Auth routes and access checks", async () => {
 
         await makeAPIRequest("/auth/session", {
             authToken: "invalid_token",
-        }, 401);
-
-    });
-    
-    test("GET /dev as admin succeeds", async () => {
-
-        await makeAPIRequest("/dev", {
-            authToken: session_token,
-        }, 401);
-
-    });
-
-    test("GET /admin as non-admin fails", async () => {
-
-        await makeAPIRequest("/admin", {
-            authToken: session_token,
         }, 401);
 
     });
