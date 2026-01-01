@@ -24,3 +24,11 @@ export namespace UserDataPolicys {
 
     export type Password = z.infer<typeof Password>;
 }
+
+export namespace UserAccountSettings {
+
+    export const Roles = ["admin", "user"] as const;
+    export const Role = z.enum(Roles);
+    export type Role = z.infer<typeof Role>;
+
+}

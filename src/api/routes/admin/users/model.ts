@@ -1,7 +1,7 @@
 import { createInsertSchema, createSelectSchema, createUpdateSchema } from "drizzle-zod";
 import { DB } from "../../../../db";
 import z from "zod";
-import { UserDataPolicys } from "../../../utils/shared-models/accountData";
+import { UserAccountSettings, UserDataPolicys } from "../../../utils/shared-models/accountData";
 
 export namespace AdminUsersModel {
 
@@ -12,7 +12,7 @@ export namespace AdminUsersModel {
 
     export namespace GetAll {
         export const Query = z.object({
-            role: z.enum(["admin", "user"]).optional(),
+            role: UserAccountSettings.Role.optional(),
             search: z.string().min(1).max(64).optional(),
             limit: z.coerce.number().int().min(1).max(100).optional(),
             offset: z.coerce.number().int().min(0).optional(),

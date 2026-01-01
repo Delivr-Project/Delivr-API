@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../db";
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
+import { Context } from "hono";
 
 export class AuthUtils {
 
@@ -327,6 +328,31 @@ export namespace AuthHandler {
         readonly prefix: TOKEN_PREFIX;
         readonly id: string;
         readonly base: string;
+    }
+
+}
+
+export namespace AuthHandler.AuthContext {
+
+    export function get(c: Context): AuthHandler.AuthContext {
+        // @ts-ignore
+        const authContext = c.get("authContext") as AuthHandler.AuthContext | undefined;
+        if (!authContext) {
+            throw new Error("Auth context not set in context");
+        }
+        return authContext;
+    }
+
+    export function getAsSession(c: Context): AuthHandler.SessionAuthContext {
+        return AuthHandler.AuthContext.get(c) as AuthHandler.SessionAuthContext;
+    }
+
+    export function getAsApiKey(c: Context): AuthHandler.ApiKeyAuthContext {
+        return AuthHandler.AuthContext.get(c) as AuthHandler.ApiKeyAuthContext;
+    }
+
+    export function set(c: Context, authContext: AuthHandler.AuthContext) {
+        return c.set("authContext", authContext);
     }
 
 }
