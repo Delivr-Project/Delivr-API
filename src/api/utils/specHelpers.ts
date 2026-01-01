@@ -2,7 +2,6 @@ import { describeRoute, DescribeRouteOptions, resolver } from "hono-openapi";
 import { type MiddlewareHandler } from "hono";
 import { APIResponse } from "./api-res";
 import { z } from "zod";
-import { de } from "zod/v4/locales";
 import { Utils } from "../../utils";
 
 export class APIRouteSpec {
