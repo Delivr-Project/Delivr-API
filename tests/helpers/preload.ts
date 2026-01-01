@@ -6,7 +6,7 @@ import { DB } from "../../src/db";
 import { API } from "../../src/api";
 
 // Allow overriding the env file used for tests without clobbering existing env vars.
-const TEST_ENV_FILE = process.env.TEST_ENV_FILE ?? ".env.test.local";
+const TEST_ENV_FILE = process.env.TEST_ENV_FILE ?? ".env.local";
 
 async function loadTestEnv(filePath: string) {
     try {
