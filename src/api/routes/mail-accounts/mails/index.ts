@@ -5,3 +5,5 @@ import { router as attachmentsRouter } from "./attachments";
 export const router = new Hono().basePath("/:mailId");
 
 router.route('/attachments/:attachmentId', attachmentsRouter);
+
+router.get

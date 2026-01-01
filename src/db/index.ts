@@ -82,7 +82,7 @@ export namespace DB.Schema {
     export const sessions = TableSchema.sessions;
     export const passwordResets = TableSchema.passwordResets;
     export const apiKeys = TableSchema.apiKeys;
-
+    export const mailAccounts = TableSchema.mail_accounts;
 
     export const metadata = TableSchema.metadata;
 }
@@ -92,6 +92,7 @@ export namespace DB.Models {
     export type Session = typeof DB.Schema.sessions.$inferSelect;
     export type PasswordReset = typeof DB.Schema.passwordResets.$inferSelect;
     export type ApiKey = typeof DB.Schema.apiKeys.$inferSelect;
+    export type MailAccount = typeof DB.Schema.mailAccounts.$inferSelect;
 
     export type Metadata = typeof DB.Schema.metadata.$inferSelect;
 }

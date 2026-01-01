@@ -63,10 +63,31 @@ export const apiKeys = sqliteTable('api_keys', {
 
 
 /**
- * @deprecated Use DB.Schema.tmp_data instead
+ * @deprecated Use DB.Schema.metadata instead
  */
 export const metadata = sqliteTable('metadata', {
     key: text().primaryKey(),
     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
 });
 
+/**
+ * @deprecated Use DB.Schema.mailAccounts instead
+ */
+export const mail_accounts = sqliteTable('mail_accounts', {
+    id: int().primaryKey({ autoIncrement: true }),
+    created_at: SQLUtils.getCreatedAtColumn(),
+    smtp_host: text().notNull().unique(),
+    smtp_port: int().notNull(),
+    smtp_username: text().notNull(),
+    smtp_password: text().notNull(),
+    smtp_encryption: text({
+        enum: ["SSL", "STARTTLS", "NONE"]
+    }).notNull(),
+    imap_host: text().notNull().unique(),
+    imap_port: int().notNull(),
+    imap_username: text().notNull(),
+    imap_password: text().notNull(),
+    imap_encryption: text({
+        enum: ["SSL", "STARTTLS", "NONE"]
+    }).notNull()
+});
