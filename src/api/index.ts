@@ -13,7 +13,8 @@ export class API {
 
 	protected static routers = [
 		(import('./routes/auth')),
-		(import('./routes/account'))
+		(import('./routes/account')),
+		(import('./routes/admin'))
 	];
 
 	static async init(

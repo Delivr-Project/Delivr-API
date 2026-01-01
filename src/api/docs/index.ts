@@ -50,7 +50,13 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                     "Account / API Keys",
                     "Authentication",
                 ]
-            }
+            },
+            {
+                name: "Admin API",
+                tags: [
+                    "Admin API / Users"
+                ]
+            },
         ],
 
         tags: [
@@ -70,7 +76,16 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
             {
                 name: "Authentication",
                 description: "Endpoints for authentication and authorization",
-            }
+            },
+
+            {
+                name: "Admin API / Users",
+                // @ts-ignore
+                "x-displayName": "Users",
+                summary: "Users",
+                parent: "Admin API",
+                description: "Endpoints for user management",
+            },
         ]
     }
 }
@@ -91,4 +106,10 @@ export const DOCS_TAGS = {
     ACCOUNT_API_KEYS: "Account / API Keys",
 
     AUTHENTICATION: "Authentication",
+
+    ADMIN_API: {
+        BASE: "Admin API",
+
+        USERS: "Admin API / Users",
+    }
 }
