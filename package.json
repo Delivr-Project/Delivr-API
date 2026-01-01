@@ -1,0 +1,34 @@
+{
+    "name": "delivr-api",
+    "module": "index.ts",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "test": "bun test",
+        "dev": "bun run --watch src/index.ts",
+        "db:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle.config.ts",
+        "db:migrate": "bun scripts/db-utils && drizzle-kit migrate --config=drizzle.config.ts",
+        "db:push": "echo 'Use db:generate db:migrate instead' && exit 1 && bun scripts/db-utils && drizzle-kit push --config=drizzle.config.ts",
+        "start": "bun run scripts/entrypoint.ts"
+    },
+    "devDependencies": {
+        "@cleverjs/cli": "^1.1.8",
+        "@hey-api/openapi-ts": "0.89.2",
+        "@types/bun": "^1.3.5",
+        "drizzle-kit": "^0.31.8"
+    },
+    "peerDependencies": {
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "@cleverjs/utils": "^1.1.9",
+        "@hono/standard-validator": "^0.2.1",
+        "@libsql/client": "^0.15.15",
+        "@scalar/hono-api-reference": "^0.9.30",
+        "drizzle-orm": "^0.45.1",
+        "drizzle-zod": "^0.8.3",
+        "hono": "^4.11.3",
+        "hono-openapi": "^1.1.2",
+        "zod": "^4.3.4"
+    }
+}
