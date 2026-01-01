@@ -57,6 +57,12 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                     "Admin API / Users"
                 ]
             },
+            {
+                name: "Mail Accounts",
+                tags: [
+                    "Management"
+                ]
+            }
         ],
 
         tags: [
@@ -86,6 +92,13 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 parent: "Admin API",
                 description: "Endpoints for user management",
             },
+            {
+                name: "Management",
+                description: "Endpoints for managing mail accounts",
+                // @ts-ignore
+                "x-displayName": "Management",
+                parent: "Mail Accounts",
+            }
         ]
     }
 }
@@ -97,7 +110,7 @@ export function setupDocs(app: Hono) {
         openAPIRouteHandler(app, openAPIConfig),
     );
 
-    app.get('/docs', Scalar({ url: '/docs/openapi' }))
+    app.get('/docs', Scalar({ url: '/docs/openapi', theme: 'purple' }));
 
 }
 
@@ -111,5 +124,10 @@ export const DOCS_TAGS = {
         BASE: "Admin API",
 
         USERS: "Admin API / Users",
+    },
+
+    MAIL_ACCOUNTS: {
+        BASE: "Mail Accounts",
+        MANAGEMENT: "Management",
     }
 }
