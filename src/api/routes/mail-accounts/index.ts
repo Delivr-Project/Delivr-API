@@ -158,7 +158,7 @@ router.get('/:mailAccountID/folders',
 router.put('/:mailAccountID',
 
     APIRouteSpec.authenticated({
-        summary: "Update mail account",
+        summary: "Update mail account info",
         description: "Update a field in a mail account.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
 
@@ -168,7 +168,7 @@ router.put('/:mailAccountID',
         )
     }),
 
-    validator("json", MailAccountsModel.UpdateMailAccount.Body),
+    validator("json", MailAccountsModel.UpdateMailAccountInfo.Body),
 
     async (c) => {
 
@@ -177,8 +177,6 @@ router.put('/:mailAccountID',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        // delete cached mail client data to force re-creation with updated settings
-        await MailClientsCache.deleteClientData(mailAccount.id);
 
         if (body.is_default && !mailAccount.is_default) {
             // If setting this mail account as default, unset all other mail accounts for this user
@@ -198,6 +196,39 @@ router.put('/:mailAccountID',
         )
 
         return APIResponse.successNoData(c, "Mail account updated successfully");
+    }
+);
+
+router.put('/:mailAccountID/credentials',
+
+    APIRouteSpec.authenticated({
+        summary: "Update mail account credentials",
+        description: "Update the SMTP/IMAP credentials for a mail account.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Mail account credentials updated successfully"),
+            APIResponseSpec.notFound("Mail account with the specified ID not found")
+        )
+    }),
+
+    validator("json", MailAccountsModel.UpdateMailAccountCredentials.Body),
+
+    async (c) => {
+
+        const body = c.req.valid("json");
+
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        // delete cached mail client data to force re-creation with updated settings
+        await MailClientsCache.deleteClientData(mailAccount.id);
+
+        await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
+            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        )
+
+        return APIResponse.successNoData(c, "Mail account credentials updated successfully");
     }
 );
 

@@ -213,7 +213,7 @@ router.get('/:mailUID',
 //     }
 // );
 
-// router.patch('/:mailUID',
+// router.put('/:mailUID',
     
 //     APIRouteSpec.authenticated({
 //         summary: "Update Mail",

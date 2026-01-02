@@ -74,8 +74,39 @@ export namespace MailAccountsModel.CreateMailAccount {
     export type Response = z.infer<typeof Response>;
 }
 
-export namespace MailAccountsModel.UpdateMailAccount {
-    export const Body = MailAccountsModel.CreateMailAccount.Body.partial();
+export namespace MailAccountsModel.UpdateMailAccountInfo {
+
+    export const Body = MailAccountsModel.CreateMailAccount.Body.partial().omit({
+        smtp_host: true,
+        smtp_port: true,
+        smtp_username: true,
+        smtp_password: true,
+        smtp_encryption: true,
+        imap_host: true,
+        imap_port: true,
+        imap_username: true,
+        imap_password: true,
+        imap_encryption: true
+    });
+
+    export type Body = z.infer<typeof Body>;
+}
+
+export namespace MailAccountsModel.UpdateMailAccountCredentials {
+
+    export const Body = MailAccountsModel.CreateMailAccount.Body.pick({
+        smtp_host: true,
+        smtp_port: true,
+        smtp_username: true,
+        smtp_password: true,
+        smtp_encryption: true,
+
+        imap_host: true,
+        imap_port: true,
+        imap_username: true,
+        imap_password: true,
+        imap_encryption: true
+    });
 
     export type Body = z.infer<typeof Body>;
 }
