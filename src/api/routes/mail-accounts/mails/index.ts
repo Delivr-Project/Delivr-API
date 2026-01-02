@@ -29,7 +29,7 @@ router.get('/',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        
+        //@TODO implement mail fetching and searching
 
     }
 );

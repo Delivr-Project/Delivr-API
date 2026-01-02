@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export namespace MailsModel {
     
-    // @TODO: Define mail model properties
+    // @TODO: Define mail model properties based on MailRessource
     export const BASE = z.object({})
 
     export type BASE = z.infer<typeof BASE>;

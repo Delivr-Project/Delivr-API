@@ -1,7 +1,5 @@
 "use strict";
 
-// TODO: Implement missing FETCH handlers
-
 var fetchHandlers = {},
     mimeParser = require("../../mimeparser"),
     bodystructure = require("../../bodystructure"),

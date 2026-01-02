@@ -116,28 +116,32 @@ router.get('/:mailAccountID',
     }
 );
 
-// router.get('/:mailAccountID/folders',
+router.get('/:mailAccountID/folders',
 
-//     APIRouteSpec.authenticated({
-//         summary: "List Mail Folders",
-//         description: "Retrieve a list of mail folders for a specific mail account.",
-//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+    // APIRouteSpec.authenticated({
+    //     summary: "List Mail Folders",
+    //     description: "Retrieve a list of mail folders for a specific mail account.",
+    //     tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
 
-//         responses: APIResponseSpec.describeBasic(
-//             APIResponseSpec.success("Mail folders retrieved successfully", MailAccountsModel.GetMailFolders.Response),
-//             APIResponseSpec.notFound("Mail Account with the specified ID not found")
-//         )
-//     }),
+    //     responses: APIResponseSpec.describeBasic(
+    //         APIResponseSpec.success("Mail folders retrieved successfully", MailAccountsModel.GetMailFolders.Response),
+    //         APIResponseSpec.notFound("Mail Account with the specified ID not found")
+    //     )
+    // }),
 
-//     async (c) => {
-//         // @ts-ignore
-//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+    // async (c) => {
+    //     // @ts-ignore
+    //     const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-//         const mailClient = await MailClientsCache.createOrGetClientData(mailAccount.id, mailAccount);
+    //     const mailClient = await MailClientsCache.createOrGetClientData(mailAccount.id, mailAccount);
 
-//         const folders = await mailClient.imap.listMailboxes();
+    //     const folders = await mailClient.imap.listMailboxes();
 
-//         return APIResponse.success(c, "Mail folders retrieved successfully", { folders } satisfies MailAccountsModel.GetMailFolders.Response);
+    //     return APIResponse.success(c, "Mail folders retrieved successfully", { folders } satisfies MailAccountsModel.GetMailFolders.Response);
+    // }
+
+    //@TODO implement mail folder fetching
+);
 
 router.put('/:mailAccountID',
 
