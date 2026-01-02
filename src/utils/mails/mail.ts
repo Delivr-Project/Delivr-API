@@ -5,12 +5,13 @@ export class MailRessource implements MailRessource.IMail {
 
     readonly uid: number;
     readonly rawHeaders: MailRessource.MailHeaders = {};
-    readonly from?: MailRessource.EmailAddress[];
+    readonly from?: MailRessource.EmailAddress;
     readonly to?: MailRessource.EmailAddress[];
     readonly cc?: MailRessource.EmailAddress[];
     readonly bcc?: MailRessource.EmailAddress[];
     readonly subject?: string;
     readonly inReplyTo?: string;
+    readonly replyTo?: MailRessource.EmailAddress;
     readonly references?: string | string[];
     readonly date?: number;
     readonly attachments: MailRessource.MailAttachment[] = [];
@@ -25,6 +26,7 @@ export class MailRessource implements MailRessource.IMail {
         this.bcc = data.bcc;
         this.subject = data.subject;
         this.inReplyTo = data.inReplyTo;
+        this.replyTo = data.replyTo;
         this.references = data.references;
         this.date = data.date;
         this.attachments = data.attachments;
@@ -94,13 +96,14 @@ export namespace MailRessource {
     export interface IMail {
         uid: number;
         rawHeaders: MailHeaders;
-        from?: EmailAddress[];
+        from?: EmailAddress;
         to?: EmailAddress[];
         cc?: EmailAddress[];
         bcc?: EmailAddress[];
         subject?: string;
         // @todo add replyTo
         inReplyTo?: string;
+        replyTo?: EmailAddress
         references?: string | string[];
         date?: number;
         attachments: MailAttachment[];
@@ -116,21 +119,18 @@ export namespace MailRessource {
         filename?: string;
         contentType: string;
         size: number;
-        content: Buffer;
+        // @TODO return url to get the content from later
+        // content: Buffer;
         contentId?: string;
         contentDisposition?: string;
     }
 
 
-    export interface MailHeaders {
-        [key: string]: string;
-    }
+    export type MailHeaders = Record<string, string>;
 
     export interface MailBody {
-        contentType: MailContentTypes;
-        content: string;
+        text?: string;
+        html?: string;
     }
-
-    export type MailContentTypes = "text" | "html";
 
 }

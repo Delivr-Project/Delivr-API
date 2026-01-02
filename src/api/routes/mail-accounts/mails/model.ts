@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MailRessource } from "../../../../utils/mails/mail";
+import type { Utils } from "../../../../utils";
 
 export namespace MailsModel {
 
@@ -8,36 +9,49 @@ export namespace MailsModel {
         address: z.string()
     });
 
+    export type EmailAddress = Utils.SameType<z.infer<typeof EmailAddress>, MailRessource.EmailAddress>;
+
     export const MailAttachment = z.object({
         filename: z.string().optional(),
         contentType: z.string(),
         size: z.number(),
-        // content: z.any(), // Exclude content from API response to keep it light
         contentId: z.string().optional(),
         contentDisposition: z.string().optional()
     });
 
+    export type MailAttachment = Utils.SameType<z.infer<typeof MailAttachment>, MailRessource.MailAttachment>;
+
     export const MailBody = z.object({
-        contentType: z.enum(["text", "html"]),
-        content: z.string()
+        text: z.string().optional(),
+        html: z.string().optional()
     });
 
-    export const BASE = z.object({
+    export type MailBody = Utils.SameType<z.infer<typeof MailBody>, MailRessource.MailBody>;
+
+    export const Mail = z.object({
         uid: z.number(),
         rawHeaders: z.record(z.string(), z.string()),
-        from: z.array(EmailAddress).optional(),
+        from: EmailAddress.optional(),
         to: z.array(EmailAddress).optional(),
         cc: z.array(EmailAddress).optional(),
         bcc: z.array(EmailAddress).optional(),
         subject: z.string().optional(),
         inReplyTo: z.string().optional(),
+        replyTo: EmailAddress.optional(),
         references: z.union([z.string(), z.array(z.string())]).optional(),
         date: z.number().optional(),
         attachments: z.array(MailAttachment),
         body: MailBody.optional()
     });
 
-    export type BASE = z.infer<typeof BASE>;
+    export type Mail = Utils.SameType<z.infer<typeof Mail>, MailRessource.IMail>;
+
+
+    export const Param = z.object({
+        mailUID: z.coerce.number()
+    });
+    
+    export type Param = z.infer<typeof Param>;
 }
 
 export namespace MailsModel.GetByUID {
@@ -46,7 +60,7 @@ export namespace MailsModel.GetByUID {
         mailbox: z.string().default("INBOX")
     });
 
-    export const Response = MailsModel.BASE;
+    export const Response = MailsModel.Mail;
 
     export type Response = z.infer<typeof Response>;
 }
@@ -58,44 +72,43 @@ export namespace MailsModel.GetAll {
         limit: z.coerce.number().default(50)
     });
 
-    export const Response = z.array(MailsModel.BASE);
+    export const Response = z.array(MailsModel.Mail);
 
     export type Response = z.infer<typeof Response>;
 }
 
-export namespace MailsModel.Create {
-    export const Request = z.object({
-        from: z.array(MailsModel.EmailAddress).optional(),
-        to: z.array(MailsModel.EmailAddress).optional(),
-        cc: z.array(MailsModel.EmailAddress).optional(),
-        bcc: z.array(MailsModel.EmailAddress).optional(),
-        subject: z.string().optional(),
-        body: MailsModel.MailBody,
+export namespace MailsModel.CreateDraft {
+
+    export const Body = MailsModel.Mail.omit({
+        uid: true,
+        rawHeaders: true,
+        attachments: true,
+        date: true
     });
-    export type Request = z.infer<typeof Request>;
+
+    export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        uid: z.number()
+    });
 }
 
 export namespace MailsModel.Move {
-    export const Request = z.object({
+
+    export const Body = z.object({
         targetMailbox: z.string()
     });
-    export type Request = z.infer<typeof Request>;
+
+    export type Body = z.infer<typeof Body>;
 }
 
-export namespace MailsModel.Patch {
-    export const Request = z.object({
-        flags: z.object({
-            add: z.array(z.string()).optional(),
-            remove: z.array(z.string()).optional()
-        }).optional(),
-        from: z.array(MailsModel.EmailAddress).optional(),
-        to: z.array(MailsModel.EmailAddress).optional(),
-        cc: z.array(MailsModel.EmailAddress).optional(),
-        bcc: z.array(MailsModel.EmailAddress).optional(),
-        subject: z.string().optional(),
-        body: MailsModel.MailBody.optional(),
-    });
-    export type Request = z.infer<typeof Request>;
+export namespace MailsModel.Update {
+
+    export const Body = MailsModel.CreateDraft.Body.partial().omit({
+
+    })
+
+    export type Body = z.infer<typeof Body>;
 }
 
 

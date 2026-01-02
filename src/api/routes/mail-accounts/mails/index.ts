@@ -11,324 +11,308 @@ import { IMAPAccount } from "../../../../utils/mails/backends/imap";
 import { SMTPAccount } from "../../../../utils/mails/backends/smtp";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
+import { Logger } from "../../../../utils/logger";
 
 export const router = new Hono();
 
-router.get('/',
+// router.get('/',
 
-    APIRouteSpec.authenticated({
-        summary: "List Mails",
-        description: "Retrieve a list of mails for a specific mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+//     APIRouteSpec.authenticated({
+//         summary: "List Mails",
+//         description: "Retrieve a list of mails for a specific mail account.",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response)
-        )
-    }),
-    validator('query', MailsModel.GetAll.Query),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const query = c.req.valid('query');
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response)
+//         )
+//     }),
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+//     validator('query', MailsModel.GetAll.Query),
 
-        try {
-            await imap.connect();
-            const mails = await imap.getMails(query.mailbox, query.limit);
+//     async (c) => {
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         const query = c.req.valid('query');
 
-            const responseMails = mails.map(mail => ({
-                ...mail,
-                attachments: mail.attachments.map(att => {
-                    const { content, ...rest } = att;
-                    return rest;
-                })
-            }));
+//         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
-            return APIResponse.success(c, "Mails retrieved successfully", responseMails satisfies MailsModel.GetAll.Response);
-        } catch (e) {
-            return APIResponse.serverError(c, "Failed to fetch mails");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+//         try {
+//             await imap.connect();
+//             const mails = await imap.getMails(query.mailbox, query.limit);
 
-router.get('/:mailID',
-    APIRouteSpec.authenticated({
-        summary: "Get Mail",
-        description: "Retrieve a specific mail.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail retrieved successfully", MailsModel.GetByUID.Response),
-            APIResponseSpec.notFound("Mail not found")
-        )
-    }),
-    validator('query', MailsModel.GetByUID.Query),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const mailID = parseInt(c.req.param('mailID'));
-        const query = c.req.valid('query');
+//             return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
+//         } catch (e) {
+//             Logger.error("Failed to fetch mails", e);
+//             return APIResponse.serverError(c, "Failed to fetch mails");
+//         }
+//     }
+// );
 
-        if (isNaN(mailID)) {
-            return APIResponse.badRequest(c, "Invalid mail ID");
-        }
+// // router.post('/',
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+// //     APIRouteSpec.authenticated({
+// //         summary: "Create Mail Draft",
+// //         description: "Create a new mail draft.",
+// //         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
-        try {
-            await imap.connect();
-            const mail = await imap.getMail(query.mailbox, mailID);
+// //         responses: APIResponseSpec.describeWithWrongInputs(
+// //             APIResponseSpec.success("Draft created successfully", MailsModel.CreateDraft.Response)
+// //         )
+// //     }),
 
-            if (!mail) {
-                return APIResponse.notFound(c, "Mail not found");
-            }
+// //     validator('json', MailsModel.CreateDraft.Body),
 
-            const responseMail = {
-                ...mail,
-                attachments: mail.attachments.map(att => {
-                    const { content, ...rest } = att;
-                    return rest;
-                })
-            };
+// //     async (c) => {
+// //         // @ts-ignore
+// //         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-            return APIResponse.success(c, "Mail retrieved successfully", responseMail satisfies MailsModel.GetByUID.Response);
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to fetch mail");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+// //         const body = c.req.valid('json');
 
-router.post('/:mailID/send',
-    APIRouteSpec.authenticated({
-        summary: "Send Mail",
-        description: "Send an existing mail (e.g. draft).",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail sent successfully", z.object({ messageId: z.string() })),
-            APIResponseSpec.notFound("Mail not found")
-        )
-    }),
-    validator('query', z.object({ mailbox: z.string().default("Drafts") })),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const mailID = parseInt(c.req.param('mailID'));
-        const query = c.req.valid('query');
+// //         const imap = IMAPAccount.fromSettings(mailAccount);
 
-        if (isNaN(mailID)) {
-            return APIResponse.badRequest(c, "Invalid mail ID");
-        }
+// //         try {
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
-        const smtp = SMTPAccount.fromSettings(mailAccount);
+// //             // @TODO handle Mail Creation properly
 
-        try {
-            await imap.connect();
-            const mail = await imap.getMail(query.mailbox, mailID);
+// //             await imap.connect();
+// //             await imap.createMail('Drafts', message);
 
-            if (!mail) {
-                return APIResponse.notFound(c, "Mail not found");
-            }
+// //             return APIResponse.success(c, "Draft created successfully", { uid: 0 });
+// //         } catch (e) {
+// //             Logger.error(e);
+// //             return APIResponse.serverError(c, "Failed to create draft");
+// //         }
+// //     }
+// // );
 
-            const info = await smtp.sendMail(mail);
+// router.use('/:mailUID/*',
 
-            return APIResponse.success(c, "Mail sent successfully", { messageId: info.messageId });
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to send mail");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+//     validator('param', MailsModel.Param),
 
-router.post('/',
-    APIRouteSpec.authenticated({
-        summary: "Create Draft",
-        description: "Create a new mail draft.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Draft created successfully", z.object({ success: z.boolean() }))
-        )
-    }),
-    validator('json', MailsModel.Create.Request),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const body = c.req.valid('json');
+//     async (c, next) => {
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         // @ts-ignore
+//         const { mailUID } = c.req.valid('param') as MailsModel.Param;
+        
+//         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
+//         try {
+//             await imap.connect();
+//             const mail = await imap.getMail('INBOX', mailUID);
 
-        try {
-            const composer = new MailComposer({
+//             if (!mail) {
+//                 return APIResponse.notFound(c, "Mail with specified UID not found");
+//             }
 
-            });
+//             // @ts-ignore
+//             c.set("mailData", mail);
 
-            const message = await composer.compile().build();
+//             await next();
+//         } catch (e) {
+//             Logger.error(`Failed to fetch mail with UID ${mailUID}`, e);
+//             return APIResponse.serverError(c, `Failed to fetch mail with UID ${mailUID}`);
+//         }
+//     }
+// );
 
-            await imap.connect();
-            await imap.createMail('Drafts', message);
+// router.get('/:mailUID',
 
-            return APIResponse.success(c, "Draft created successfully", { success: true });
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to create draft");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+//     APIRouteSpec.authenticated({
+//         summary: "Get Mail",
+//         description: "Retrieve a specific mail.",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
-router.post('/:mailID/move',
-    APIRouteSpec.authenticated({
-        summary: "Move Mail",
-        description: "Move a mail to another folder.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail moved successfully", z.object({ success: z.boolean() }))
-        )
-    }),
-    validator('query', z.object({ mailbox: z.string().default("INBOX") })),
-    validator('json', MailsModel.Move.Request),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const mailID = parseInt(c.req.param('mailID'));
-        const query = c.req.valid('query');
-        const body = c.req.valid('json');
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.success("Mail retrieved successfully", MailsModel.GetByUID.Response),
+//             APIResponseSpec.notFound("Mail with specified UID not found")
+//         )
+//     }),
 
-        if (isNaN(mailID)) {
-            return APIResponse.badRequest(c, "Invalid mail ID");
-        }
+//     async (c) => {
+//         // @ts-ignore
+//         const mailData = c.get("mailData") as MailRessource.IMail;
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
+//         return APIResponse.success(c, "Mail retrieved successfully", mailData satisfies MailsModel.GetByUID.Response);
+//     }
+// );
 
-        try {
-            await imap.connect();
-            await imap.moveToMailbox(query.mailbox, [mailID], body.targetMailbox);
-            return APIResponse.success(c, "Mail moved successfully", { success: true });
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to move mail");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+// router.post('/:mailUID/send',
 
-router.patch('/:mailID',
-    APIRouteSpec.authenticated({
-        summary: "Update Mail",
-        description: "Update mail flags or content (drafts).",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail updated successfully", z.object({ success: z.boolean() }))
-        )
-    }),
-    validator('query', z.object({ mailbox: z.string().default("INBOX") })),
-    validator('json', MailsModel.Patch.Request),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const mailID = parseInt(c.req.param('mailID'));
-        const query = c.req.valid('query');
-        const body = c.req.valid('json');
+//     APIRouteSpec.authenticated({
+//         summary: "Send Mail",
+//         description: "Send an existing mail (e.g. draft).",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.successNoData("Mail sent successfully"),
+//             APIResponseSpec.notFound("Mail with specified UID not found")
+//         )
+//     }),
 
-        if (isNaN(mailID)) {
-            return APIResponse.badRequest(c, "Invalid mail ID");
-        }
+//     validator('query', z.object({ mailbox: z.string().default("Drafts") })),
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
+//     async (c) => {
+        
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         // @ts-ignore
+//         const mailData = c.get("mailData") as MailRessource.IMail;
+//         const query = c.req.valid('query');
 
-        try {
-            await imap.connect();
+//         const smtp = SMTPAccount.fromSettings(mailAccount);
+//         const imap = IMAPAccount.fromSettings(mailAccount);
 
-            // Handle flags
-            if (body.flags) {
-                if (body.flags.add && body.flags.add.length > 0) {
-                    await imap.addFlags(query.mailbox, [mailID], body.flags.add);
-                }
-                if (body.flags.remove && body.flags.remove.length > 0) {
-                    await imap.removeFlags(query.mailbox, [mailID], body.flags.remove);
-                }
-            }
+//         try {
+//             await smtp.sendMail(mailData);
 
-            // Handle content update (only if body is provided)
-            if (body.body) {
-                const composer = new MailComposer({
+//             // After sending, move the mail from Drafts to Sent
+//             await imap.connect();
+//             await imap.moveToMailbox(query.mailbox, [mailData.uid], 'Sent');
 
-                });
+//             return APIResponse.successNoData(c, "Mail sent successfully");
+//         } catch (e) {
+//             Logger.error(e);
+//             return APIResponse.serverError(c, "Failed to send mail");
+//         }
 
-                const message = await composer.compile().build();
+//     }
+// );
 
-                await imap.createMail(query.mailbox, message);
-                await imap.moveToTrash(query.mailbox, [mailID]);
-            }
+// router.post('/:mailUID/move',
 
-            return APIResponse.success(c, "Mail updated successfully", { success: true });
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to update mail");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+//     APIRouteSpec.authenticated({
+//         summary: "Move Mail",
+//         description: "Move a mail to another folder.",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+        
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.successNoData("Mail moved successfully")
+//         )
+//     }),
 
-router.delete('/:mailID',
-    APIRouteSpec.authenticated({
-        summary: "Delete Mail",
-        description: "Move a mail to trash (or delete).",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
-        responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail deleted successfully", z.object({ success: z.boolean() }))
-        )
-    }),
-    validator('query', z.object({ mailbox: z.string().default("INBOX") })),
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        const mailID = parseInt(c.req.param('mailID'));
-        const query = c.req.valid('query');
+//     validator('query', z.object({ sourceMailbox: z.string(), mailbox: z.string() })),
 
-        if (isNaN(mailID)) {
-            return APIResponse.badRequest(c, "Invalid mail ID");
-        }
+//     async (c) => {
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         // @ts-ignore
+//         const mailData = c.get("mailData") as MailRessource.IMail;
+//         const query = c.req.valid('query');
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
+//         const imap = IMAPAccount.fromSettings(mailAccount);
 
-        try {
-            await imap.connect();
-            await imap.moveToTrash(query.mailbox, [mailID]);
-            return APIResponse.success(c, "Mail deleted successfully", { success: true });
-        } catch (e) {
-            console.error(e);
-            return APIResponse.serverError(c, "Failed to delete mail");
-        } finally {
-            if (imap.connected) {
-                await imap.disconnect();
-            }
-        }
-    }
-);
+//         try {
+//             await imap.connect();
+//             await imap.moveToMailbox(query.sourceMailbox, [mailData.uid], query.mailbox);
+
+//             return APIResponse.successNoData(c, "Mail moved successfully");
+//         } catch (e) {
+//             Logger.error(e);
+//             return APIResponse.serverError(c, "Failed to move mail");
+//         }
+//     }
+// );
+
+// router.patch('/:mailUID',
+    
+//     APIRouteSpec.authenticated({
+//         summary: "Update Mail",
+//         description: "Update mail flags or content (drafts).",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.success("Mail updated successfully", z.object({ success: z.boolean() }))
+//         )
+//     }),
+
+//     validator('json', MailsModel.Update.Body),
+
+//     async (c) => {
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         const mailUID = parseInt(c.req.param('mailUID'));
+//         const query = c.req.valid('query');
+//         const body = c.req.valid('json');
+
+//         if (isNaN(mailUID)) {
+//             return APIResponse.badRequest(c, "Invalid mail ID");
+//         }
+
+//         const imap = IMAPAccount.fromSettings(mailAccount);
+
+//         try {
+//             await imap.connect();
+
+//             // Handle flags
+//             if (body.flags) {
+//                 if (body.flags.add && body.flags.add.length > 0) {
+//                     await imap.addFlags(query.mailbox, [mailUID], body.flags.add);
+//                 }
+//                 if (body.flags.remove && body.flags.remove.length > 0) {
+//                     await imap.removeFlags(query.mailbox, [mailUID], body.flags.remove);
+//                 }
+//             }
+
+//             // Handle content update (only if body is provided)
+//             if (body.body) {
+//                 const composer = new MailComposer({
+
+//                 });
+
+//                 const message = await composer.compile().build();
+
+//                 await imap.createMail(query.mailbox, message);
+//                 await imap.moveToTrash(query.mailbox, [mailUID]);
+//             }
+
+//             return APIResponse.success(c, "Mail updated successfully", { success: true });
+//         } catch (e) {
+//             Logger.error(e);
+//             return APIResponse.serverError(c, "Failed to update mail");
+//         } finally {
+//             if (imap.connected) {
+//                 await imap.disconnect();
+//             }
+//         }
+//     }
+// );
+
+// router.delete('/:mailUID',
+//     APIRouteSpec.authenticated({
+//         summary: "Delete Mail",
+//         description: "Move a mail to trash (or delete).",
+//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+//         responses: APIResponseSpec.describeBasic(
+//             APIResponseSpec.success("Mail deleted successfully", z.object({ success: z.boolean() }))
+//         )
+//     }),
+//     validator('query', z.object({ mailbox: z.string().default("INBOX") })),
+//     async (c) => {
+//         // @ts-ignore
+//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+//         const mailUID = parseInt(c.req.param('mailUID'));
+//         const query = c.req.valid('query');
+
+//         if (isNaN(mailUID)) {
+//             return APIResponse.badRequest(c, "Invalid mail ID");
+//         }
+
+//         const imap = IMAPAccount.fromSettings(mailAccount);
+
+//         try {
+//             await imap.connect();
+//             await imap.moveToTrash(query.mailbox, [mailUID]);
+//             return APIResponse.success(c, "Mail deleted successfully", { success: true });
+//         } catch (e) {
+//             Logger.error(e);
+//             return APIResponse.serverError(c, "Failed to delete mail");
+//         } finally {
+//             if (imap.connected) {
+//                 await imap.disconnect();
+//             }
+//         }
+//     }
+// );
 
 
-router.route('/:mailID/attachments', attachmentsRouter);
+router.route('/:mailUID/attachments', attachmentsRouter);
 
