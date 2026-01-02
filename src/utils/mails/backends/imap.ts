@@ -108,6 +108,15 @@ export class IMAPAccount {
         }
     }
 
+    async moveToMailbox(mailbox: string, uids: number[], targetMailbox: string) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageMove(uids, targetMailbox, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
     async moveToTrash(mailbox: string, uids: number[]) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
