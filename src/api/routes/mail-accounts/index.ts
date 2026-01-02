@@ -102,7 +102,7 @@ router.get('/:mailAccountID',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
 
         responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mail account retrieved successfully", MailAccountsModel.GetMailAccount.Response),
+            APIResponseSpec.success("Mail account retrieved successfully", MailAccountsModel.GetMailAccountByID.Response),
             APIResponseSpec.notFound("Mail Account with the specified ID not found")
         )
     }),
@@ -111,7 +111,7 @@ router.get('/:mailAccountID',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        return APIResponse.success(c, "Mail account retrieved successfully", mailAccount satisfies MailAccountsModel.GetMailAccount.Response);
+        return APIResponse.success(c, "Mail account retrieved successfully", mailAccount satisfies MailAccountsModel.GetMailAccountByID.Response);
     }
 );
 

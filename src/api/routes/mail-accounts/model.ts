@@ -34,7 +34,7 @@ export namespace MailAccountsModel {
     export type MailAccountIDParams = z.infer<typeof MailAccountIDParams>;
 }
 
-export namespace MailAccountsModel.GetMailAccount {
+export namespace MailAccountsModel.GetMailAccountByID {
 
     export const Response = MailAccountsModel.BASE.omit({
         imap_password: true,
@@ -46,7 +46,7 @@ export namespace MailAccountsModel.GetMailAccount {
 
 export namespace MailAccountsModel.GetAllMailAccounts {
 
-    export const Response = z.array(MailAccountsModel.GetMailAccount.Response);
+    export const Response = z.array(MailAccountsModel.GetMailAccountByID.Response);
 
     export type Response = z.infer<typeof Response>;
 
