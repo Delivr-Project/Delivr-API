@@ -50,37 +50,24 @@ export class SMTPAccount {
     }
 
     async sendMail(mail: MailRessource.IMail) {
-        const sender = mail.from?.[0];
+        const sender = mail.from;
         if (!sender) {
             return null;
         }
 
         const from = SMTPAccount.formatAddress(sender);
 
-        // Prepare text and html based on body content type
-        let text: string | undefined;
-        let html: string | undefined;
-        
-        if (mail.body) {
-            if (mail.body.contentType === 'html') {
-                html = mail.body.content;
-            } else {
-                text = mail.body.content;
-            }
-        }
-
         return await this.client.sendMail({
-            from: from,
+            from,
             to: mail.to?.map(SMTPAccount.formatAddress),
             cc: mail.cc?.map(SMTPAccount.formatAddress),
             bcc: mail.bcc?.map(SMTPAccount.formatAddress),
-            // @todo add replyTo
-            // replyTo: mail.replyTo?,
+            replyTo: mail.replyTo ? SMTPAccount.formatAddress(mail.replyTo) : undefined,
             inReplyTo: mail.inReplyTo,
             references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
             subject: mail.subject,
-            text: text,
-            html: html,
+            text: mail.body?.text,
+            html: mail.body?.html,
             date: mail.date ? new Date(mail.date) : undefined
         });
     }
