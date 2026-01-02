@@ -1,3 +1,4 @@
+import { MailAccountsModel } from "../../api/routes/mail-accounts/model";
 import { IMAPAccount } from "./backends/imap";
 
 export class MailClientsCache {
@@ -16,20 +17,26 @@ export class MailClientsCache {
         return data;
     }
 
-    static createClientData(accountID: number, data: MailClientsCache.BaseClientsData): MailClientsCache.ClientsData {
+    static createClientData(accountID: number, settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
         return this.clients.set(accountID, {
-            ...data,
+            imap: new IMAPAccount(
+                settings.imap_host,
+                settings.imap_port,
+                settings.imap_username,
+                settings.imap_password,
+                settings.imap_encryption
+            ),
             lastUsedAt: Date.now()
         })
         .get(accountID)!;
     }
 
-    static createOrGetClientData(accountID: number, data: MailClientsCache.BaseClientsData): MailClientsCache.ClientsData {
+    static createOrGetClientData(accountID: number, settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
         const existingData = this.getClientData(accountID);
         if (existingData) {
             return existingData;
         }
-        return this.createClientData(accountID, data);
+        return this.createClientData(accountID, settings);
     }
 
     static deleteClientData(accountID: number): void {
