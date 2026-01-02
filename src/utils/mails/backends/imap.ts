@@ -26,7 +26,8 @@ export class IMAPAccount {
             auth: {
                 user: this.username,
                 pass: this.password
-            }
+            },
+            logger: false
         });
 
         const thisRef = this;
