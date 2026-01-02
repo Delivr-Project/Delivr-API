@@ -8,10 +8,6 @@ var fs = require("fs");
 var imapHandler = require("imap-handler");
 //var starttls = require("./starttls");
 
-module.exports = function(options) {
-    return new IMAPServer(options);
-};
-
 const DEFAULT_TLS_PRIVATE_KEY = Buffer.from([
     '2d2d2d2d2d424547494e205253412050524956415445204b45592d2d2d2d2d0a4d4949457041494241414b4341514541365a',
     '35517168772b6f5766687445694d48453332487439346d7754427041666a743376507058384d37444d43547748730a317863',
@@ -1215,3 +1211,7 @@ IMAPConnection.prototype.expungeSpecificMessages = function(mailbox, messagesOrF
         }, mailbox, ignoreSelf || ignoreExists ? this : false);
     }
 };
+
+module.exports = {
+    MockIMAPServer: IMAPServer,
+}

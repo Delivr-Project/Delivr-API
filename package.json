@@ -4,7 +4,7 @@
     "type": "module",
     "private": true,
     "scripts": {
-        "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json",
+        "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json && echo 'Typecheck passed!'",
         "test": "bun test",
         "dev": "bun run --watch src/index.ts",
         "db:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle.config.ts",
@@ -19,7 +19,9 @@
         "@types/jsdom": "^27.0.0",
         "@types/mailparser": "^3.4.6",
         "@types/nodemailer": "^7.0.4",
-        "drizzle-kit": "^0.31.8"
+        "big.js": "^7.0.1",
+        "drizzle-kit": "^0.31.8",
+        "imap-handler": "^0.1.12"
     },
     "peerDependencies": {
         "typescript": "^5.9.3"

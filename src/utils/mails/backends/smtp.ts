@@ -53,7 +53,7 @@ export class SMTPAccount {
         this.client.sendMail({
         
         })
-        Buffer.from(mail.content).su
+        
     }
 
 }

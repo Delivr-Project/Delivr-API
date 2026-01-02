@@ -110,7 +110,8 @@ export class IMAPAccount {
         }
     }
 
-    async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
+    // async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
+    async getMail(mailbox: string, uid: number) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let message = await this.client.fetchOne(uid, {
@@ -120,10 +121,11 @@ export class IMAPAccount {
             }, { uid: true });
 
             if (!message) return null;
+            return message;
 
-            return new MailRessource({
-                uid: message.uid
-            });
+            // return new MailRessource({
+            //     uid: message.uid
+            // });
         } finally {
             lock.release();
         }

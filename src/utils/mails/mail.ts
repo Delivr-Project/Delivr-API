@@ -2,11 +2,13 @@
 export class MailRessource implements MailRessource.IMail {
 
     readonly uid: number;
-    readonly contentType: MailRessource.ContentTypes;
+    readonly headers: MailRessource.IMailHeaders;
+    readonly body: MailRessource.IMailBody;
 
     constructor(data: MailRessource.IMail) {
         this.uid = data.uid;
-        this.contentType = data.contentType;
+        this.headers = data.headers;
+        this.body = data.body;
     }
 
 }
@@ -15,7 +17,7 @@ export namespace MailRessource {
 
     export interface IMail {
         uid: number;
-        rawHeaders: IMailHeaders;
+        headers: IMailHeaders;
         body: IMailBody;
     }
 
