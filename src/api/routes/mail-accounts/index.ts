@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MailAccountsModel } from './model';
 import { DB } from "../../../db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
@@ -56,6 +56,18 @@ router.post('/',
         const body = c.req.valid("json");
 
         const authContext = AuthHandler.AuthContext.get(c);
+
+        if (body.is_default) {
+            // If setting this mail account as default, unset all other mail accounts for this user
+            await DB.instance().update(DB.Schema.mailAccounts).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id),
+                    eq(DB.Schema.mailAccounts.is_default, true),
+                )
+            );
+        }
 
         const result = await DB.instance().insert(DB.Schema.mailAccounts).values({
             ...body,
@@ -167,6 +179,19 @@ router.put('/:mailAccountID',
 
         // delete cached mail client data to force re-creation with updated settings
         await MailClientsCache.deleteClientData(mailAccount.id);
+
+        if (body.is_default && !mailAccount.is_default) {
+            // If setting this mail account as default, unset all other mail accounts for this user
+            await DB.instance().update(DB.Schema.mailAccounts).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailAccounts.owner_user_id, mailAccount.owner_user_id),
+                    eq(DB.Schema.mailAccounts.is_default, true),
+                    ne(DB.Schema.mailAccounts.id, mailAccount.id)
+                )
+            );
+        }
 
         await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
             eq(DB.Schema.mailAccounts.id, mailAccount.id)

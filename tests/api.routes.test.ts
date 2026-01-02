@@ -262,7 +262,9 @@ describe("Mail Account Routes", async () => {
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "imapuser",
-            imap_password: "imappass"
+            imap_password: "imappass",
+
+            is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
         const data = await makeAPIRequest("/mail-accounts", {
@@ -291,6 +293,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_encryption).toBe(mailAccountData.imap_encryption);
         expect(dbresult.imap_username).toBe(mailAccountData.imap_username);
         expect(dbresult.imap_password).toBe(mailAccountData.imap_password);
+
+        expect(dbresult.is_default).toBe(mailAccountData.is_default);
 
         mailAccountIDs.push(data.id);
     });
@@ -386,7 +390,8 @@ describe("Mail Account Routes", async () => {
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
+            imap_password: "updatedimappass",
+            is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
@@ -412,6 +417,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_encryption).toBe(updatedData.imap_encryption);
         expect(dbresult.imap_username).toBe(updatedData.imap_username);
         expect(dbresult.imap_password).toBe(updatedData.imap_password);
+
+        expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
     test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
@@ -428,7 +435,8 @@ describe("Mail Account Routes", async () => {
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
+            imap_password: "updatedimappass",
+            is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
         await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
@@ -502,6 +510,7 @@ describe("Mail Identity Routes", async () => {
         const mailIdentityData = {
             display_name: "Test Identity",
             email_address: "test@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
@@ -522,6 +531,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(mailIdentityData.display_name);
         expect(dbresult.email_address).toBe(mailIdentityData.email_address);
+        expect(dbresult.is_default).toBe(mailIdentityData.is_default);
 
         mailIdentityIDs.push(data.id);
     });
@@ -598,7 +608,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
@@ -616,6 +627,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(updatedData.display_name);
         expect(dbresult.email_address).toBe(updatedData.email_address);
+        expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
     test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
@@ -624,7 +636,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
