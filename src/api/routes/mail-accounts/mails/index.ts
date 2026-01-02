@@ -1,18 +1,16 @@
 import { Hono } from "hono";
 import { MailsModel } from "./model";
-import { DB } from "../../../../db";
-import { and, eq } from "drizzle-orm";
 import { APIResponse } from "../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../docs";
 import { z } from "zod";
-import { AuthHandler } from "../../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailAccountsModel } from "../model";
 import { router as attachmentsRouter } from "./attachments";
 import { IMAPAccount } from "../../../../utils/mails/backends/imap";
 import { SMTPAccount } from "../../../../utils/mails/backends/smtp";
 import MailComposer from "nodemailer/lib/mail-composer";
+import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
 
 export const router = new Hono();
 
@@ -33,12 +31,12 @@ router.get('/',
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         const query = c.req.valid('query');
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
-        
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
         try {
             await imap.connect();
             const mails = await imap.getMails(query.mailbox, query.limit);
-            
+
             const responseMails = mails.map(mail => ({
                 ...mail,
                 attachments: mail.attachments.map(att => {
@@ -47,7 +45,7 @@ router.get('/',
                 })
             }));
 
-            return APIResponse.successNoData(c, responseMails);
+            return APIResponse.success(c, "Mails retrieved successfully", responseMails satisfies MailsModel.GetAll.Response);
         } catch (e) {
             return APIResponse.serverError(c, "Failed to fetch mails");
         } finally {
@@ -76,15 +74,15 @@ router.get('/:mailID',
         const query = c.req.valid('query');
 
         if (isNaN(mailID)) {
-            return APIResponse.error(c, "Invalid mail ID", 400);
+            return APIResponse.badRequest(c, "Invalid mail ID");
         }
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
-        
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
         try {
             await imap.connect();
             const mail = await imap.getMail(query.mailbox, mailID);
-            
+
             if (!mail) {
                 return APIResponse.notFound(c, "Mail not found");
             }
@@ -97,10 +95,10 @@ router.get('/:mailID',
                 })
             };
 
-            return APIResponse.success(c, responseMail);
+            return APIResponse.success(c, "Mail retrieved successfully", responseMail satisfies MailsModel.GetByUID.Response);
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to fetch mail", 500);
+            return APIResponse.serverError(c, "Failed to fetch mail");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();
@@ -127,10 +125,10 @@ router.post('/:mailID/send',
         const query = c.req.valid('query');
 
         if (isNaN(mailID)) {
-            return APIResponse.error(c, "Invalid mail ID", 400);
+            return APIResponse.badRequest(c, "Invalid mail ID");
         }
 
-        const imap = IMAPAccount.fromSettings(mailAccount);
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
         const smtp = SMTPAccount.fromSettings(mailAccount);
 
         try {
@@ -142,11 +140,11 @@ router.post('/:mailID/send',
             }
 
             const info = await smtp.sendMail(mail);
-            
-            return APIResponse.success(c, { messageId: info.messageId });
+
+            return APIResponse.success(c, "Mail sent successfully", { messageId: info.messageId });
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to send mail", 500);
+            return APIResponse.serverError(c, "Failed to send mail");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();
@@ -171,16 +169,10 @@ router.post('/',
         const body = c.req.valid('json');
 
         const imap = IMAPAccount.fromSettings(mailAccount);
-        
+
         try {
             const composer = new MailComposer({
-                from: body.from ? body.from.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                to: body.to ? body.to.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                cc: body.cc ? body.cc.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                bcc: body.bcc ? body.bcc.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                subject: body.subject,
-                text: body.body.contentType === 'text' ? body.body.content : undefined,
-                html: body.body.contentType === 'html' ? body.body.content : undefined,
+
             });
 
             const message = await composer.compile().build();
@@ -188,10 +180,10 @@ router.post('/',
             await imap.connect();
             await imap.createMail('Drafts', message);
 
-            return APIResponse.success(c, { success: true });
+            return APIResponse.success(c, "Draft created successfully", { success: true });
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to create draft", 500);
+            return APIResponse.serverError(c, "Failed to create draft");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();
@@ -219,18 +211,18 @@ router.post('/:mailID/move',
         const body = c.req.valid('json');
 
         if (isNaN(mailID)) {
-            return APIResponse.error(c, "Invalid mail ID", 400);
+            return APIResponse.badRequest(c, "Invalid mail ID");
         }
 
         const imap = IMAPAccount.fromSettings(mailAccount);
-        
+
         try {
             await imap.connect();
             await imap.moveToMailbox(query.mailbox, [mailID], body.targetMailbox);
-            return APIResponse.success(c, { success: true });
+            return APIResponse.success(c, "Mail moved successfully", { success: true });
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to move mail", 500);
+            return APIResponse.serverError(c, "Failed to move mail");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();
@@ -258,11 +250,11 @@ router.patch('/:mailID',
         const body = c.req.valid('json');
 
         if (isNaN(mailID)) {
-            return APIResponse.error(c, "Invalid mail ID", 400);
+            return APIResponse.badRequest(c, "Invalid mail ID");
         }
 
         const imap = IMAPAccount.fromSettings(mailAccount);
-        
+
         try {
             await imap.connect();
 
@@ -279,25 +271,19 @@ router.patch('/:mailID',
             // Handle content update (only if body is provided)
             if (body.body) {
                 const composer = new MailComposer({
-                    from: body.from ? body.from.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                    to: body.to ? body.to.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                    cc: body.cc ? body.cc.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                    bcc: body.bcc ? body.bcc.map(a => ({ name: a.name || '', address: a.address })) : undefined,
-                    subject: body.subject,
-                    text: body.body.contentType === 'text' ? body.body.content : undefined,
-                    html: body.body.contentType === 'html' ? body.body.content : undefined,
+
                 });
 
                 const message = await composer.compile().build();
-                
+
                 await imap.createMail(query.mailbox, message);
                 await imap.moveToTrash(query.mailbox, [mailID]);
             }
 
-            return APIResponse.success(c, { success: true });
+            return APIResponse.success(c, "Mail updated successfully", { success: true });
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to update mail", 500);
+            return APIResponse.serverError(c, "Failed to update mail");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();
@@ -323,18 +309,18 @@ router.delete('/:mailID',
         const query = c.req.valid('query');
 
         if (isNaN(mailID)) {
-            return APIResponse.error(c, "Invalid mail ID", 400);
+            return APIResponse.badRequest(c, "Invalid mail ID");
         }
 
         const imap = IMAPAccount.fromSettings(mailAccount);
-        
+
         try {
             await imap.connect();
             await imap.moveToTrash(query.mailbox, [mailID]);
-            return APIResponse.success(c, { success: true });
+            return APIResponse.success(c, "Mail deleted successfully", { success: true });
         } catch (e) {
             console.error(e);
-            return APIResponse.error(c, "Failed to delete mail", 500);
+            return APIResponse.serverError(c, "Failed to delete mail");
         } finally {
             if (imap.connected) {
                 await imap.disconnect();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MailRessource } from "../../../../utils/mails/mail";
 
 export namespace MailsModel {
 
@@ -23,7 +24,7 @@ export namespace MailsModel {
 
     export const BASE = z.object({
         uid: z.number(),
-        rawHeaders: z.record(z.string()),
+        rawHeaders: z.record(z.string(), z.string()),
         from: z.array(EmailAddress).optional(),
         to: z.array(EmailAddress).optional(),
         cc: z.array(EmailAddress).optional(),
