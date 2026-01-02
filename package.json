@@ -4,6 +4,7 @@
     "type": "module",
     "private": true,
     "scripts": {
+        "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json",
         "test": "bun test",
         "dev": "bun run --watch src/index.ts",
         "db:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle.config.ts",
