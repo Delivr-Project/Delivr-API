@@ -127,7 +127,8 @@ export const DOCS_TAGS = {
     },
 
     MAIL_ACCOUNTS: {
-        BASE: "Mail Accounts",
+        B0ASE: "Mail Accounts",
+        IDENTITYS: "Mail Accounts / Identitys",
         MAILS: "Mail Accounts / Mails"
     }
 }
