@@ -82,6 +82,7 @@ export namespace MailAccountsModel.UpdateMailAccountInfo {
         smtp_username: true,
         smtp_password: true,
         smtp_encryption: true,
+        
         imap_host: true,
         imap_port: true,
         imap_username: true,
