@@ -58,9 +58,10 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 ]
             },
             {
-                name: "Mail Accounts",
+                name: "Mail",
                 tags: [
-                    "Management"
+                    "Mail Accounts",
+                    "Mail Accounts / Identities",
                 ]
             }
         ],
@@ -92,12 +93,22 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 parent: "Admin API",
                 description: "Endpoints for user management",
             },
+
+
             {
-                name: "Management",
+                name: "Mail Accounts",
                 description: "Endpoints for managing mail accounts",
                 // @ts-ignore
-                "x-displayName": "Management",
+                "x-displayName": "Mail Accounts",
+                parent: "Mail",
+            },
+            {
+                name: "Mail Accounts / Identities",
+                // @ts-ignore
+                "x-displayName": "Identities",
+                summary: "Identities",
                 parent: "Mail Accounts",
+                description: "Endpoints for managing mail identities",
             }
         ]
     }
@@ -128,7 +139,7 @@ export const DOCS_TAGS = {
 
     MAIL_ACCOUNTS: {
         BASE: "Mail Accounts",
-        IDENTITYS: "Mail Accounts / Identitys",
+        IDENTITIES: "Mail Accounts / Identities",
         MAILS: "Mail Accounts / Mails"
     }
 }

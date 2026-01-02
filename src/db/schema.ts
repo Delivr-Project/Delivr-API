@@ -89,6 +89,17 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     }).notNull()
 });
 
+/**
+ * @deprecated Use DB.Schema.mailIdentities instead
+ */
+export const mailIdentities = sqliteTable('mail_identities', {
+    id: int().primaryKey({ autoIncrement: true }),
+    mail_account_id: int().notNull().references(() => mailAccounts.id),
+    created_at: SQLUtils.getCreatedAtColumn(),
+    
+    display_name: text().notNull(),
+    email_address: text().notNull(),
+});
 
 /**
  * @deprecated Use DB.Schema.metadata instead

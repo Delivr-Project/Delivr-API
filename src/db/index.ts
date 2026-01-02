@@ -84,6 +84,7 @@ export namespace DB.Schema {
     export const apiKeys = TableSchema.apiKeys;
     
     export const mailAccounts = TableSchema.mailAccounts;
+    export const mailIdentities = TableSchema.mailIdentities;
 
     export const metadata = TableSchema.metadata;
 }
@@ -95,6 +96,7 @@ export namespace DB.Models {
     export type ApiKey = typeof DB.Schema.apiKeys.$inferSelect;
 
     export type MailAccount = typeof DB.Schema.mailAccounts.$inferSelect;
+    export type MailIdentity = typeof DB.Schema.mailIdentities.$inferSelect;
 
     export type Metadata = typeof DB.Schema.metadata.$inferSelect;
 }

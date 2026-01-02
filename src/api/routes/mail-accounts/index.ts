@@ -6,6 +6,7 @@ import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
 import { router as mailsRouter } from "./mails";
+import { router as identitiesRouter } from "./identities";
 import { z } from "zod";
 import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
@@ -162,6 +163,11 @@ router.delete('/:mailAccountID',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
+        // Delete all mail identities linked to this mail account
+        await DB.instance().delete(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id)
+        );
+
         await DB.instance().delete(DB.Schema.mailAccounts).where(
             eq(DB.Schema.mailAccounts.id, mailAccount.id)
         );
@@ -171,4 +177,5 @@ router.delete('/:mailAccountID',
     }
 );
 
-router.route('/mails', mailsRouter);
+router.route("/:mailAccountID/mails", mailsRouter);
+router.route("/:mailAccountID/identities", identitiesRouter);
