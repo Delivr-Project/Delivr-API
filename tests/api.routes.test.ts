@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
@@ -8,6 +8,7 @@ import { AuthModel } from "../src/api/routes/auth/model";
 import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
+import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
@@ -25,7 +26,6 @@ async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.Use
 async function seedSession(user_id: number) {
     const session = await SessionHandler.createSession(user_id);
     return session;
-    
 }
 
 let testAdmin = await seedUser("admin", { username: "testadmin" }, "AdminP@ss1");
@@ -245,8 +245,8 @@ describe("Account routes", async () => {
 
 describe("Mail Account Routes", async () => {
 
-    const testUser = await seedUser("user", { username: "mailaccountuser" }, "MailAccP@ss1");
-    const session_token = await seedSession(testUser.id).then(s => s.token);
+    const mailAccountTestUser = await seedUser("user", { username: "mailaccountuser" }, "MailAccP@ss1");
+    const session_token = await seedSession(mailAccountTestUser.id).then(s => s.token);
 
     const mailAccountIDs: number[] = [];
 
@@ -305,7 +305,7 @@ describe("Mail Account Routes", async () => {
         expect(Array.isArray(data)).toBe(true);
 
         const dbresults = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.owner_user_id, testUser.id)
+            eq(DB.Schema.mailAccounts.owner_user_id, mailAccountTestUser.id)
         ).orderBy(desc(DB.Schema.mailAccounts.id)).all();
 
         expect(data.length).toBe(dbresults.length);
@@ -454,4 +454,201 @@ describe("Mail Account Routes", async () => {
         }, 404);
     });
 
+    afterAll(async () => {
+        SessionHandler.inValidateAllSessionsForUser(mailAccountTestUser.id);
+
+        DB.instance().delete(DB.Schema.users).where(
+            eq(DB.Schema.users.id, mailAccountTestUser.id)
+        ).run();
+    });
+
+});
+
+describe("Mail Identity Routes", async () => {
+    
+    const mailIdentityTestUser = await seedUser("user", { username: "mailidentityuser" }, "MailIdentP@ss1");
+    const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+
+    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        owner_user_id: mailIdentityTestUser.id,
+        smtp_host: "smtp.example.com",
+        smtp_port: 587,
+        smtp_encryption: "STARTTLS",
+        smtp_username: "smtpuser",
+        smtp_password: "smtppass",
+        imap_host: "imap.example.com",
+        imap_port: 993,
+        imap_encryption: "SSL",
+        imap_username: "imapuser",
+        imap_password: "imappass"
+    }).returning().get().id;
+    
+    const mailIdentityIDs: number[] = [];
+
+    test("POST /mail-accounts/:mailAccountID/identities creates mail identity", async () => {
+
+        const mailIdentityData = {
+            display_name: "Test Identity",
+            email_address: "test@example.com",
+        } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
+            method: "POST",
+            authToken: session_token,
+            body: mailIdentityData,
+            expectedBodySchema: MailIdentitiesModel.CreateMailIdentity.Response
+        });
+
+        expect(data.id).toBeGreaterThan(0);
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.id, data.id)
+        ).get();
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        expect(dbresult.display_name).toBe(mailIdentityData.display_name);
+        expect(dbresult.email_address).toBe(mailIdentityData.email_address);
+
+        mailIdentityIDs.push(data.id);
+    });
+
+    test("GET /mail-accounts/:mailAccountID/identities retrieves mail identities", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
+            authToken: session_token,
+            expectedBodySchema: MailIdentitiesModel.GetAll.Response
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+
+        const dbresults = DB.instance().select().from(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.mail_account_id, mailAccountID)
+        ).orderBy(desc(DB.Schema.mailIdentities.id)).all();
+
+        expect(data.length).toBe(dbresults.length);
+
+        expect(data[0].id).toBe(dbresults[0]?.id);
+        expect(data[0].display_name).toBe(dbresults[0]?.display_name);
+        expect(data[0].email_address).toBe(dbresults[0]?.email_address);
+
+    });
+
+    test("GET /mail-accounts/:mailAccountID/identities/:mailIdentityID retrieves specific mail identity", async () => {
+
+        const mailIdentityID = mailIdentityIDs[0];
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+            authToken: session_token,
+            expectedBodySchema: MailIdentitiesModel.GetByID.Response
+        });
+
+        expect(data).toBeDefined();
+        if (!data) return;
+
+        expect(data.id).toBe(mailIdentityID);
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        ).get();
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        expect(data.display_name).toBe(dbresult.display_name);
+        expect(data.email_address).toBe(dbresult.email_address);
+    });
+
+    test("GET /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+        
+        const invalidMailIdentityID = 999999;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+            authToken: session_token
+        }, 404);
+
+    });
+
+    test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID updates specific mail identity", async () => {
+
+        const mailIdentityID = mailIdentityIDs[0];
+
+        const updatedData = {
+            display_name: "Updated Identity",
+            email_address: "new@example.com"
+        } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        });
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        ).get();
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        expect(dbresult.display_name).toBe(updatedData.display_name);
+        expect(dbresult.email_address).toBe(updatedData.email_address);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+        
+        const invalidMailIdentityID = 999999;
+
+        const updatedData = {
+            display_name: "Updated Identity",
+            email_address: "new@example.com"
+        } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        }, 404);
+    });
+
+    test("DELETE /mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity", async () => {
+
+        const mailIdentityID = mailIdentityIDs[0];
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+            method: "DELETE",
+            authToken: session_token,
+        });
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
+            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        ).get();
+
+        expect(dbresult).toBeUndefined();
+    });
+
+    test("DELETE /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+        
+        const invalidMailIdentityID = 999999;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+            method: "DELETE",
+            authToken: session_token,
+        }, 404);
+    
+    });
+
+    afterAll(async () => {
+
+        SessionHandler.inValidateAllSessionsForUser(mailIdentityTestUser.id);
+
+        DB.instance().delete(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        ).run();
+
+        DB.instance().delete(DB.Schema.users).where(
+            eq(DB.Schema.users.id, mailIdentityTestUser.id)
+        ).run();
+    });
 });
