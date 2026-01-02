@@ -37,5 +37,16 @@ export class IMAPAccount {
             this.isConnected = true;
         }
     }
+
+    async disconnect() {
+        if (this.isConnected) {
+            await this.client.logout();
+            this.isConnected = false;
+        }
+    }
+
+    get connected() {
+        return this.isConnected;
+    }
     
 }

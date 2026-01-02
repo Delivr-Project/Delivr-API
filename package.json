@@ -28,6 +28,7 @@
         "@hono/standard-validator": "^0.2.1",
         "@libsql/client": "^0.15.15",
         "@scalar/hono-api-reference": "^0.9.30",
+        "cron": "^4.4.0",
         "dompurify": "^3.3.1",
         "drizzle-orm": "^0.45.1",
         "drizzle-zod": "^0.8.3",

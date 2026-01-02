@@ -10,6 +10,7 @@ import { router as identitiesRouter } from "./identities";
 import { z } from "zod";
 import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
+import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 
 export const router = new Hono().basePath('/mail-accounts');
 
@@ -132,10 +133,14 @@ router.put('/:mailAccountID',
     validator("json", MailAccountsModel.UpdateMailAccount.Body),
 
     async (c) => {
+
         const body = c.req.valid("json");
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        // delete cached mail client data to force re-creation with updated settings
+        await MailClientsCache.deleteClientData(mailAccount.id);
 
         await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
             eq(DB.Schema.mailAccounts.id, mailAccount.id)
@@ -162,6 +167,8 @@ router.delete('/:mailAccountID',
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        await MailClientsCache.deleteClientData(mailAccount.id);
 
         // Delete all mail identities linked to this mail account
         await DB.instance().delete(DB.Schema.mailIdentities).where(
