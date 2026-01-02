@@ -55,22 +55,38 @@ export class SMTPAccount {
             return null;
         }
 
-        const from = sender.name ? `"${sender.name}" <${sender.address}>` : sender.address;
+        const from = SMTPAccount.formatAddress(sender);
+
+        // Prepare text and html based on body content type
+        let text: string | undefined;
+        let html: string | undefined;
+        
+        if (mail.body) {
+            if (mail.body.contentType === 'html') {
+                html = mail.body.content;
+            } else {
+                text = mail.body.content;
+            }
+        }
 
         return await this.client.sendMail({
             from: from,
-            to: mail.to?.map(recipient => recipient.address),
-            cc: mail.cc?.map(recipient => recipient.address),
-            bcc: mail.bcc?.map(recipient => recipient.address),
+            to: mail.to?.map(SMTPAccount.formatAddress),
+            cc: mail.cc?.map(SMTPAccount.formatAddress),
+            bcc: mail.bcc?.map(SMTPAccount.formatAddress),
             // @todo add replyTo
             // replyTo: mail.replyTo?,
             inReplyTo: mail.inReplyTo,
-            references: mail.references,
+            references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
             subject: mail.subject,
-            text: mail.text,
-            html: mail.html,
-            
+            text: text,
+            html: html,
+            date: mail.date ? new Date(mail.date) : undefined
         });
+    }
+
+    protected static formatAddress(addr: MailRessource.EmailAddress) {
+        return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
     }
 
 }
