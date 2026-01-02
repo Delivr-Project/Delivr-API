@@ -1,4 +1,4 @@
-import { Context, Hono } from "hono";
+import { Hono } from "hono";
 import { MailIdentitiesModel } from "./model";
 import { DB } from "../../../../db";
 import { and, eq } from "drizzle-orm";

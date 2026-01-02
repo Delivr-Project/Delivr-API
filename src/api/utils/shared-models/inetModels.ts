@@ -22,9 +22,19 @@ export namespace InetModels {
 export namespace InetModels.Mail {
 
     export const Protocol = z.enum(['IMAP', 'POP3', 'SMTP']);
+    export enum ProtocolEnum {
+        IMAP = "IMAP",
+        POP3 = "POP3",
+        SMTP = "SMTP"
+    }
     export type Protocol = z.infer<typeof Protocol>;
 
     export const EncryptionTypes = ["SSL", "STARTTLS", "NONE"] as const;
+    export enum EncryptionEnum {
+        SSL = "SSL",
+        STARTTLS = "STARTTLS",
+        NONE = "NONE"
+    }
     export const Encryption = z.enum(EncryptionTypes);
     export type Encryption = z.infer<typeof Encryption>;
 

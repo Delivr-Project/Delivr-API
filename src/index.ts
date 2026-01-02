@@ -3,6 +3,8 @@ import { DB } from "./db";
 import { ConfigHandler } from "./utils/config";
 import { Logger } from "./utils/logger";
 import { Utils } from "./utils";
+import { MailClientsCache } from "./utils/mails/mail-clients-cache";
+import { CronJobHandler } from "./utils/cron";
 
 export class Main {
 
@@ -27,6 +29,10 @@ export class Main {
 
         await Utils.ensureDirectoryExists(config.DLA_LOG_DIR ?? "./data/logs");
 
+        
+        await CronJobHandler.init();
+        await CronJobHandler.startAll();
+
 
         await API.init([config.DLA_APP_URL || "https://api.delivr.local"]);
 
@@ -40,7 +46,10 @@ export class Main {
     private static async gracefulShutdown(type: NodeJS.Signals, code: number) {
         try {
             Logger.log(`Received ${type}, shutting down...`);
+
+            await CronJobHandler.stopAll();
             await API.stop();
+            await MailClientsCache.clearAllClients();
             Logger.log("Shutdown complete, exiting.");
             process.exit(code);
         } catch {

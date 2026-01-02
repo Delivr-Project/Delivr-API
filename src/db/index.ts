@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as TableSchema from './schema';
 import { randomBytes as crypto_randomBytes } from 'crypto';
-import { DrizzleDB } from './utils';
+import { type DrizzleDB } from './utils';
 import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';

@@ -1,4 +1,4 @@
-import { describeRoute, DescribeRouteOptions, resolver } from "hono-openapi";
+import { describeRoute, type DescribeRouteOptions, resolver } from "hono-openapi";
 import { type MiddlewareHandler } from "hono";
 import { APIResponse } from "./api-res";
 import { z } from "zod";

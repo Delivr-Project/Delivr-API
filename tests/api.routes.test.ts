@@ -310,6 +310,12 @@ describe("Mail Account Routes", async () => {
 
         expect(data.length).toBe(dbresults.length);
 
+        expect(data[0]).toBeDefined();
+        if (!data[0]) return;
+
+        expect(dbresults[0]).toBeDefined();
+        if (!dbresults[0]) return;
+
         expect(data[0].id).toBe(dbresults[0]?.id);
         expect(data[0].smtp_host).toBe(dbresults[0]?.smtp_host);
         expect(data[0].imap_host).toBe(dbresults[0]?.imap_host);
@@ -325,6 +331,8 @@ describe("Mail Account Routes", async () => {
     test("Get /mail-accounts/:mailAccountID retrieves specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
             authToken: session_token,
@@ -365,6 +373,8 @@ describe("Mail Account Routes", async () => {
     test("PUT /mail-accounts/:mailAccountID updates specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
 
         const updatedData = {
             smtp_host: "smtp.updated.com",
@@ -431,6 +441,8 @@ describe("Mail Account Routes", async () => {
     test("DELETE /mail-accounts/:mailAccountID deletes specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
             method: "DELETE",
@@ -529,6 +541,12 @@ describe("Mail Identity Routes", async () => {
 
         expect(data.length).toBe(dbresults.length);
 
+        expect(data[0]).toBeDefined();
+        if (!data[0]) return;
+
+        expect(dbresults[0]).toBeDefined();
+        if (!dbresults[0]) return;
+
         expect(data[0].id).toBe(dbresults[0]?.id);
         expect(data[0].display_name).toBe(dbresults[0]?.display_name);
         expect(data[0].email_address).toBe(dbresults[0]?.email_address);
@@ -538,6 +556,8 @@ describe("Mail Identity Routes", async () => {
     test("GET /mail-accounts/:mailAccountID/identities/:mailIdentityID retrieves specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
+        expect(mailIdentityID).toBeNumber();
+        if (!mailIdentityID) return;
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             authToken: session_token,
@@ -573,6 +593,8 @@ describe("Mail Identity Routes", async () => {
     test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID updates specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
+        expect(mailIdentityID).toBeNumber();
+        if (!mailIdentityID) return;
 
         const updatedData = {
             display_name: "Updated Identity",
@@ -615,6 +637,8 @@ describe("Mail Identity Routes", async () => {
     test("DELETE /mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
+        expect(mailIdentityID).toBeNumber();
+        if (!mailIdentityID) return;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             method: "DELETE",

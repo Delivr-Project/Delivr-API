@@ -1,4 +1,4 @@
-import { Context, Hono } from "hono";
+import { Hono } from "hono";
 import { MailAccountsModel } from './model';
 import { DB } from "../../../db";
 import { and, eq } from "drizzle-orm";
@@ -10,6 +10,7 @@ import { router as identitiesRouter } from "./identities";
 import { z } from "zod";
 import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
+import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 
 export const router = new Hono().basePath('/mail-accounts');
 
@@ -115,6 +116,32 @@ router.get('/:mailAccountID',
     }
 );
 
+router.get('/:mailAccountID/folders',
+
+    // APIRouteSpec.authenticated({
+    //     summary: "List Mail Folders",
+    //     description: "Retrieve a list of mail folders for a specific mail account.",
+    //     tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
+    //     responses: APIResponseSpec.describeBasic(
+    //         APIResponseSpec.success("Mail folders retrieved successfully", MailAccountsModel.GetMailFolders.Response),
+    //         APIResponseSpec.notFound("Mail Account with the specified ID not found")
+    //     )
+    // }),
+
+    // async (c) => {
+    //     // @ts-ignore
+    //     const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+    //     const mailClient = await MailClientsCache.createOrGetClientData(mailAccount.id, mailAccount);
+
+    //     const folders = await mailClient.imap.listMailboxes();
+
+    //     return APIResponse.success(c, "Mail folders retrieved successfully", { folders } satisfies MailAccountsModel.GetMailFolders.Response);
+    // }
+
+    //@TODO implement mail folder fetching
+);
 
 router.put('/:mailAccountID',
 
@@ -132,10 +159,14 @@ router.put('/:mailAccountID',
     validator("json", MailAccountsModel.UpdateMailAccount.Body),
 
     async (c) => {
+
         const body = c.req.valid("json");
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        // delete cached mail client data to force re-creation with updated settings
+        await MailClientsCache.deleteClientData(mailAccount.id);
 
         await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
             eq(DB.Schema.mailAccounts.id, mailAccount.id)
@@ -162,6 +193,8 @@ router.delete('/:mailAccountID',
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        await MailClientsCache.deleteClientData(mailAccount.id);
 
         // Delete all mail identities linked to this mail account
         await DB.instance().delete(DB.Schema.mailIdentities).where(
