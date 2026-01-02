@@ -19,13 +19,7 @@ export class MailClientsCache {
 
     static createClientData(accountID: number, settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
         return this.clients.set(accountID, {
-            imap: new IMAPAccount(
-                settings.imap_host,
-                settings.imap_port,
-                settings.imap_username,
-                settings.imap_password,
-                settings.imap_encryption
-            ),
+            imap: IMAPAccount.fromSettings(settings),
             lastUsedAt: Date.now()
         })
         .get(accountID)!;

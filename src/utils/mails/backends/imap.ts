@@ -1,12 +1,17 @@
-import { ImapFlow } from "imapflow";
+import { ImapFlow, type ListResponse, type ListTreeResponse } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
+import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
+import { MailRessource } from "../mail";
 
 export class IMAPAccount {
 
     protected readonly client: ImapFlow;
     protected isConnected: boolean = false;
 
-    constructor(
+    /**
+     * Use {@link IMAPAccount.fromSettings} or {@link IMAPAccount.fromConfig} to create an instance.
+     */
+    protected constructor(
         readonly host: string,
         readonly port: number,
         readonly username: string,
@@ -31,6 +36,26 @@ export class IMAPAccount {
         });
     }
 
+    static fromConfig(config: IMAPAccount.ConfigOptions) {
+        return new IMAPAccount(
+            config.host,
+            config.port,
+            config.username,
+            config.password,
+            config.useSSL
+        );
+    }
+
+    static fromSettings(config: MailAccountsModel.BASE) {
+        return new IMAPAccount(
+            config.imap_host,
+            config.imap_port,
+            config.imap_username,
+            config.imap_password,
+            config.imap_encryption
+        );
+    }
+
     async connect() {
         if (!this.isConnected) {
             await this.client.connect();
@@ -49,14 +74,15 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getFolders() {
-        await this.connect();
-        return this.client.listTree();
-        
-    }
-
-    async getMailboxes() {
-        return await this.client.list();
+    async getMailboxes(asTree?: false): Promise<ListResponse[]>;
+    async getMailboxes(asTree: true): Promise<ListTreeResponse>;
+    async getMailboxes(asTree: boolean): Promise<ListResponse[] | ListTreeResponse>
+    async getMailboxes(asTree = false) {
+        if (asTree) {
+            return await this.client.listTree();
+        } else {
+            return await this.client.list();
+        }
     }
 
     async getMailboxStatus(path: string) {
@@ -67,7 +93,7 @@ export class IMAPAccount {
         });
     }
 
-    async getMessages(mailbox: string, limit = 50) {
+    async getMails(mailbox: string, limit = 50) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let total = this.client.mailbox ? this.client.mailbox.exists : 0;
@@ -84,7 +110,7 @@ export class IMAPAccount {
         }
     }
 
-    async getMessage(mailbox: string, uid: number) {
+    async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let message = await this.client.fetchOne(uid, {
@@ -93,7 +119,11 @@ export class IMAPAccount {
                 source: true
             }, { uid: true });
 
-            return message;
+            if (!message) return null;
+
+            return new MailRessource({
+                uid: message.uid
+            });
         } finally {
             lock.release();
         }
@@ -131,5 +161,16 @@ export class IMAPAccount {
         } finally {
             lock.release();
         }
+    }
+}
+
+export namespace IMAPAccount {
+
+    export interface ConfigOptions {
+        host: string;
+        port: number;
+        username: string;
+        password: string;
+        useSSL: InetModels.Mail.Encryption;
     }
 }

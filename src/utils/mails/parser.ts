@@ -1,6 +1,5 @@
-
-import { simpleParser, type ParsedMail, type Attachment, type AddressObject, Headers as MailHeaders } from 'mailparser';
-import DOMPurify, { WindowLike } from 'dompurify';
+import { simpleParser, type ParsedMail, type Attachment, type AddressObject, type Headers as MailHeaders } from 'mailparser';
+import DOMPurify, { type WindowLike } from 'dompurify';
 import { JSDOM } from 'jsdom';
 
 // Create a DOMPurify instance with JSDOM for server-side usage
