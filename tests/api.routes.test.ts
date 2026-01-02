@@ -206,16 +206,21 @@ describe("Account routes", async () => {
         // Seed a mail account
         const mailAccountID = await DB.instance().insert(DB.Schema.mailAccounts).values({
             owner_user_id: testUser.id,
+
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS",
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL",
             imap_username: "imapuser",
             imap_password: "imappass"
+
         }).returning().get().id;
 
         await makeAPIRequest("/account", {
@@ -253,11 +258,14 @@ describe("Mail Account Routes", async () => {
     test("POST /mail-accounts creates mail account", async () => {
 
         const mailAccountData = {
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS" as const,
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
@@ -381,16 +389,20 @@ describe("Mail Account Routes", async () => {
         if (!mailAccountID) return;
 
         const updatedData = {
+            display_name: "Updated Mail Account",
+
             smtp_host: "smtp.updated.com",
             smtp_port: 465,
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
             imap_password: "updatedimappass",
+            
             is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
@@ -426,16 +438,20 @@ describe("Mail Account Routes", async () => {
         const invalidMailAccountID = 999999;
 
         const updatedData = {
+            display_name: "Updated Mail Account",
+
             smtp_host: "smtp.updated.com",
             smtp_port: 465,
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
             imap_password: "updatedimappass",
+
             is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
@@ -491,16 +507,21 @@ describe("Mail Identity Routes", async () => {
 
     const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
         owner_user_id: mailIdentityTestUser.id,
+
+        display_name: "Test Mail Account",
+
         smtp_host: "smtp.example.com",
         smtp_port: 587,
         smtp_encryption: "STARTTLS",
         smtp_username: "smtpuser",
         smtp_password: "smtppass",
+
         imap_host: "imap.example.com",
         imap_port: 993,
         imap_encryption: "SSL",
         imap_username: "imapuser",
         imap_password: "imappass"
+
     }).returning().get().id;
     
     const mailIdentityIDs: number[] = [];

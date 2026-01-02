@@ -10,6 +10,10 @@ export namespace MailAccountsModel {
         id: z.int().positive(),
         created_at: z.int().positive(),
 
+        owner_user_id: z.int().positive(),
+
+        display_name: z.string().min(1, "Display name must not be empty").max(255, "Display name must be at most 255 characters"),
+
         smtp_host: InetModels.Host,
         smtp_port: InetModels.PORT,
         smtp_encryption: InetModels.Mail.Encryption,
@@ -20,8 +24,9 @@ export namespace MailAccountsModel {
         imap_port: InetModels.PORT,
         imap_encryption: InetModels.Mail.Encryption,
         imap_username: z.string().min(1, "IMAP username must not be empty").max(255, "IMAP username must be at most 255 characters"),
-        imap_password: z.string().min(1, "IMAP password must not be empty").max(1023, "IMAP password must be at most 1023 characters")
+        imap_password: z.string().min(1, "IMAP password must not be empty").max(1023, "IMAP password must be at most 1023 characters"),
         
+        is_default: z.boolean(),
     });
 
     export type BASE = z.infer<typeof BASE>;
@@ -57,6 +62,8 @@ export namespace MailAccountsModel.CreateMailAccount {
         id: true,
         created_at: true,
         owner_user_id: true
+    }).extend({
+        is_default: z.boolean().optional()
     });
     
     export type Body = z.infer<typeof Body>;

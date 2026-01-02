@@ -72,6 +72,8 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     owner_user_id: int().notNull().references(() => users.id),
     created_at: SQLUtils.getCreatedAtColumn(),
 
+    display_name: text().notNull(),
+
     smtp_host: text().notNull(),
     smtp_port: int().notNull(),
     smtp_username: text().notNull(),
