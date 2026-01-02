@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MailIdentitiesModel } from "./model";
 import { DB } from "../../../../db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../docs";
@@ -55,6 +55,18 @@ router.post('/',
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+        if (body.is_default) {
+            // If setting this mail identity as default, unset all other identities for this mail account
+            await DB.instance().update(DB.Schema.mailIdentities).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id),
+                    eq(DB.Schema.mailIdentities.is_default, true),
+                )
+            );
+        }
 
         const result = await DB.instance().insert(DB.Schema.mailIdentities).values({
             ...body,
@@ -135,6 +147,19 @@ router.put('/:mailIdentityID',
 
         // @ts-ignore
         const mailIdentity = c.get("mailIdentity") as MailIdentitiesModel.BASE;
+
+        if (body.is_default && !mailIdentity.is_default) {
+            // If setting this mail identity as default, unset all other identities for this mail account
+            await DB.instance().update(DB.Schema.mailIdentities).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
+                    eq(DB.Schema.mailIdentities.is_default, true),
+                    ne(DB.Schema.mailIdentities.id, mailIdentity.id)
+                )
+            );
+        }
 
         await DB.instance().update(DB.Schema.mailIdentities).set({
             ...body
