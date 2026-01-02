@@ -36,7 +36,7 @@ let TMP_ROOT: string | null = null;
 beforeAll(async () => {
     await loadTestEnv(TEST_ENV_FILE);
 
-    const config = await ConfigHandler.loadConfig();
+    // const config = await ConfigHandler.loadConfig();
 
     TMP_ROOT = await createIsolatedDataDir();
 
