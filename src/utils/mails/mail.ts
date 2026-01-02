@@ -99,6 +99,7 @@ export namespace MailRessource {
         cc?: EmailAddress[];
         bcc?: EmailAddress[];
         subject?: string;
+        // @todo add replyTo
         inReplyTo?: string;
         references?: string | string[];
         date?: number;

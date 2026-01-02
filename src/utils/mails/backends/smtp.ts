@@ -56,12 +56,20 @@ export class SMTPAccount {
         }
 
         const from = sender.name ? `"${sender.name}" <${sender.address}>` : sender.address;
-        const to = mail.to?.map(recipient => recipient.address) ?? [];
-        
 
         return await this.client.sendMail({
             from: from,
-            to: to,
+            to: mail.to?.map(recipient => recipient.address),
+            cc: mail.cc?.map(recipient => recipient.address),
+            bcc: mail.bcc?.map(recipient => recipient.address),
+            // @todo add replyTo
+            // replyTo: mail.replyTo?,
+            inReplyTo: mail.inReplyTo,
+            references: mail.references,
+            subject: mail.subject,
+            text: mail.text,
+            html: mail.html,
+            
         });
     }
 
