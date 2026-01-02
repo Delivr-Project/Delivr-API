@@ -62,6 +62,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 tags: [
                     "Mail Accounts",
                     "Mail Accounts / Identities",
+                    "Mail Accounts / Mails"
                 ]
             }
         ],
@@ -110,6 +111,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Mail Identities",
                 parent: "Mail Accounts",
                 description: "Endpoints for managing mail identities",
+            },
+            {
+                name: "Mail Accounts / Mails",
+                // @ts-ignore
+                "x-displayName": "Mails",
+                summary: "Mails",
+                parent: "Mail Accounts",
+                description: "Endpoints for managing mails",
             }
         ]
     }

@@ -15,127 +15,127 @@ import { Logger } from "../../../../utils/logger";
 
 export const router = new Hono();
 
-// router.get('/',
+router.get('/',
+
+    APIRouteSpec.authenticated({
+        summary: "List Mails",
+        description: "Retrieve a list of mails for a specific mail account.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response)
+        )
+    }),
+
+    validator('query', MailsModel.GetAll.Query),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        const query = c.req.valid('query');
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            const mails = await imap.getMails(query.mailbox, query.limit);
+
+            return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
+        } catch (e) {
+            Logger.error("Failed to fetch mails", e);
+            return APIResponse.serverError(c, "Failed to fetch mails");
+        }
+    }
+);
+
+// router.post('/',
 
 //     APIRouteSpec.authenticated({
-//         summary: "List Mails",
-//         description: "Retrieve a list of mails for a specific mail account.",
+//         summary: "Create Mail Draft",
+//         description: "Create a new mail draft.",
 //         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
-//         responses: APIResponseSpec.describeBasic(
-//             APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response)
+//         responses: APIResponseSpec.describeWithWrongInputs(
+//             APIResponseSpec.success("Draft created successfully", MailsModel.CreateDraft.Response)
 //         )
 //     }),
 
-//     validator('query', MailsModel.GetAll.Query),
+//     validator('json', MailsModel.CreateDraft.Body),
 
 //     async (c) => {
 //         // @ts-ignore
 //         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-//         const query = c.req.valid('query');
 
-//         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+//         const body = c.req.valid('json');
+
+//         const imap = IMAPAccount.fromSettings(mailAccount);
 
 //         try {
-//             await imap.connect();
-//             const mails = await imap.getMails(query.mailbox, query.limit);
 
-//             return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
+//             // @TODO handle Mail Creation properly
+
+//             await imap.connect();
+//             await imap.createMail('Drafts', message);
+
+//             return APIResponse.success(c, "Draft created successfully", { uid: 0 });
 //         } catch (e) {
-//             Logger.error("Failed to fetch mails", e);
-//             return APIResponse.serverError(c, "Failed to fetch mails");
+//             Logger.error(e);
+//             return APIResponse.serverError(c, "Failed to create draft");
 //         }
 //     }
 // );
 
-// // router.post('/',
+router.use('/:mailUID/*',
 
-// //     APIRouteSpec.authenticated({
-// //         summary: "Create Mail Draft",
-// //         description: "Create a new mail draft.",
-// //         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+    validator('param', MailsModel.Param),
 
-// //         responses: APIResponseSpec.describeWithWrongInputs(
-// //             APIResponseSpec.success("Draft created successfully", MailsModel.CreateDraft.Response)
-// //         )
-// //     }),
-
-// //     validator('json', MailsModel.CreateDraft.Body),
-
-// //     async (c) => {
-// //         // @ts-ignore
-// //         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-
-// //         const body = c.req.valid('json');
-
-// //         const imap = IMAPAccount.fromSettings(mailAccount);
-
-// //         try {
-
-// //             // @TODO handle Mail Creation properly
-
-// //             await imap.connect();
-// //             await imap.createMail('Drafts', message);
-
-// //             return APIResponse.success(c, "Draft created successfully", { uid: 0 });
-// //         } catch (e) {
-// //             Logger.error(e);
-// //             return APIResponse.serverError(c, "Failed to create draft");
-// //         }
-// //     }
-// // );
-
-// router.use('/:mailUID/*',
-
-//     validator('param', MailsModel.Param),
-
-//     async (c, next) => {
-//         // @ts-ignore
-//         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-//         // @ts-ignore
-//         const { mailUID } = c.req.valid('param') as MailsModel.Param;
+    async (c, next) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const { mailUID } = c.req.valid('param') as MailsModel.Param;
         
-//         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
-//         try {
-//             await imap.connect();
-//             const mail = await imap.getMail('INBOX', mailUID);
+        try {
+            await imap.connect();
+            const mail = await imap.getMail('INBOX', mailUID);
 
-//             if (!mail) {
-//                 return APIResponse.notFound(c, "Mail with specified UID not found");
-//             }
+            if (!mail) {
+                return APIResponse.notFound(c, "Mail with specified UID not found");
+            }
 
-//             // @ts-ignore
-//             c.set("mailData", mail);
+            // @ts-ignore
+            c.set("mailData", mail);
 
-//             await next();
-//         } catch (e) {
-//             Logger.error(`Failed to fetch mail with UID ${mailUID}`, e);
-//             return APIResponse.serverError(c, `Failed to fetch mail with UID ${mailUID}`);
-//         }
-//     }
-// );
+            await next();
+        } catch (e) {
+            Logger.error(`Failed to fetch mail with UID ${mailUID}`, e);
+            return APIResponse.serverError(c, `Failed to fetch mail with UID ${mailUID}`);
+        }
+    }
+);
 
-// router.get('/:mailUID',
+router.get('/:mailUID',
 
-//     APIRouteSpec.authenticated({
-//         summary: "Get Mail",
-//         description: "Retrieve a specific mail.",
-//         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+    APIRouteSpec.authenticated({
+        summary: "Get Mail",
+        description: "Retrieve a specific mail.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
-//         responses: APIResponseSpec.describeBasic(
-//             APIResponseSpec.success("Mail retrieved successfully", MailsModel.GetByUID.Response),
-//             APIResponseSpec.notFound("Mail with specified UID not found")
-//         )
-//     }),
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Mail retrieved successfully", MailsModel.GetByUID.Response),
+            APIResponseSpec.notFound("Mail with specified UID not found")
+        )
+    }),
 
-//     async (c) => {
-//         // @ts-ignore
-//         const mailData = c.get("mailData") as MailRessource.IMail;
+    async (c) => {
+        // @ts-ignore
+        const mailData = c.get("mailData") as MailRessource.IMail;
 
-//         return APIResponse.success(c, "Mail retrieved successfully", mailData satisfies MailsModel.GetByUID.Response);
-//     }
-// );
+        return APIResponse.success(c, "Mail retrieved successfully", mailData satisfies MailsModel.GetByUID.Response);
+    }
+);
 
 // router.post('/:mailUID/send',
 
@@ -225,7 +225,7 @@ export const router = new Hono();
 //     }),
 
 //     validator('json', MailsModel.Update.Body),
-
+    
 //     async (c) => {
 //         // @ts-ignore
 //         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
