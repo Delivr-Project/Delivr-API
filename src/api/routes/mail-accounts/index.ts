@@ -140,7 +140,7 @@ router.get('/:mailAccountID/folders',
     //     return APIResponse.success(c, "Mail folders retrieved successfully", { folders } satisfies MailAccountsModel.GetMailFolders.Response);
     // }
 
-    //@TODO implement mail folder fetching
+    // @TODO implement mail folder fetching
 );
 
 router.put('/:mailAccountID',

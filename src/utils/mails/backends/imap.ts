@@ -114,6 +114,15 @@ export class IMAPAccount {
         }
     }
 
+    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.append(mailbox, content, flags);
+        } finally {
+            lock.release();
+        }
+    }
+
     // async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
     async getMail(mailbox: string, uid: number) {
         let lock = await this.client.getMailboxLock(mailbox);
@@ -135,6 +144,24 @@ export class IMAPAccount {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             await this.client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async addFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsAdd(uids, flags, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async removeFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsRemove(uids, flags, { uid: true });
         } finally {
             lock.release();
         }

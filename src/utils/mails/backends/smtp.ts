@@ -50,10 +50,19 @@ export class SMTPAccount {
     }
 
     async sendMail(mail: MailRessource.IMail) {
-        this.client.sendMail({
+        const sender = mail.from?.[0];
+        if (!sender) {
+            return null;
+        }
+
+        const from = sender.name ? `"${sender.name}" <${sender.address}>` : sender.address;
+        const to = mail.to?.map(recipient => recipient.address) ?? [];
         
-        })
-        
+
+        return await this.client.sendMail({
+            from: from,
+            to: to,
+        });
     }
 
 }
