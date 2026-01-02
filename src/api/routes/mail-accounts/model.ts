@@ -22,8 +22,6 @@ export namespace MailAccountsModel {
         imap_username: z.string().min(1, "IMAP username must not be empty").max(255, "IMAP username must be at most 255 characters"),
         imap_password: z.string().min(1, "IMAP password must not be empty").max(1023, "IMAP password must be at most 1023 characters")
         
-    }).omit({
-        owner_user_id: true
     });
 
     export type BASE = z.infer<typeof BASE>;
@@ -38,7 +36,8 @@ export namespace MailAccountsModel.GetMailAccountByID {
 
     export const Response = MailAccountsModel.BASE.omit({
         imap_password: true,
-        smtp_password: true
+        smtp_password: true,
+        owner_user_id: true
     });
 
     export type Response = z.infer<typeof Response>;
@@ -56,7 +55,8 @@ export namespace MailAccountsModel.CreateMailAccount {
 
     export const Body = MailAccountsModel.BASE.omit({
         id: true,
-        created_at: true
+        created_at: true,
+        owner_user_id: true
     });
     
     export type Body = z.infer<typeof Body>;
@@ -68,10 +68,7 @@ export namespace MailAccountsModel.CreateMailAccount {
 }
 
 export namespace MailAccountsModel.UpdateMailAccount {
-    export const Body = MailAccountsModel.BASE.omit({
-        id: true,
-        created_at: true,
-    }).partial();
+    export const Body = MailAccountsModel.CreateMailAccount.Body.partial();
 
     export type Body = z.infer<typeof Body>;
 }
