@@ -12,7 +12,7 @@
 
         // Module and Emit options
         "moduleResolution": "bundler",
-        "declaration": true,
+        // "declaration": true,
         "incremental": true,
         "verbatimModuleSyntax": true,
         "esModuleInterop": true,

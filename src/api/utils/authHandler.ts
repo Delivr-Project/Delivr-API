@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../db";
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
-import { Context } from "hono";
+import type { Context } from "hono";
 
 export class AuthUtils {
 
@@ -26,7 +26,7 @@ export class AuthUtils {
     }
 
     static getTokenParts(fullToken: string) {
-        const parts = fullToken.split(':');
+        const parts = fullToken.split(':') as [string, string];
         if (parts.length !== 2) {
             return null;
         }
