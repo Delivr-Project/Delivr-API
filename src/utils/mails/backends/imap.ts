@@ -94,18 +94,21 @@ export class IMAPAccount {
         });
     }
 
-    async getMails(mailbox: string, limit = 50) {
+    async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let total = this.client.mailbox ? this.client.mailbox.exists : 0;
             if (total === 0) return [];
 
             let start = Math.max(1, total - limit + 1);
-            return await this.client.fetchAll(`${start}:*`, {
+
+            const rawMails = await this.client.fetchAll(`${start}:*`, {
                 envelope: true,
                 flags: true,
                 bodyStructure: true
             });
+
+            return await MailRessource.fromIMAPMessages(rawMails);
         } finally {
             lock.release();
         }
@@ -122,11 +125,7 @@ export class IMAPAccount {
             }, { uid: true });
 
             if (!message) return null;
-            return message;
-
-            // return new MailRessource({
-            //     uid: message.uid
-            // });
+            return await MailRessource.fromIMAPMessage(message);
         } finally {
             lock.release();
         }

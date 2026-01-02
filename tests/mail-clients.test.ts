@@ -95,9 +95,22 @@ describe("IMAP Mail Client Tests", () => {
     
     test("Get All Mailboxes", async () => {
         const mailboxes = await account.getMailboxes();
-        console.log(mailboxes);
         expect(mailboxes).toBeDefined();
         expect(mailboxes.length).toBeGreaterThan(0);
+
+        expect(mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();
     });
+
+    test("Get INBOX Status", async () => {
+
+        const inbox = await account.getMailboxStatus("INBOX");
+        expect(inbox).toBeDefined();
+        expect(inbox.messages).toBe(6);
+        expect(inbox.recent).toBe(0);
+        expect(inbox.unseen).toBe(5);
+
+    });
+
+    test
 
 });
