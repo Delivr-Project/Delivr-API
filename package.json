@@ -2,6 +2,7 @@
     "name": "delivr-api",
     "module": "index.ts",
     "type": "module",
+    "version": "0.8.0",
     "private": true,
     "scripts": {
         "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json && echo 'Typecheck passed!'",
