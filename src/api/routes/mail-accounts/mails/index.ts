@@ -9,24 +9,24 @@ import { MailAccountsModel } from "../model";
 import { router as attachmentsRouter } from "./attachments";
 import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../utils/logger";
-import { MailAccountsFoldersModel } from "../folders/model";
-import { MailFolderService } from "../../../utils/services/mailFolderService";
+import { MailboxModel } from "../folders/model";
+import { MailboxService } from "../../../utils/services/mailFolderService";
 
 export const router = new Hono();
 
-router.use('/:folderPath/*',
+router.use('/:mailboxPath/*',
 
-    validator('param', MailAccountsFoldersModel.Params),
+    validator('param', MailboxModel.Params),
 
     async (c, next) => {
         // @ts-ignore
-        const { folderPath } = c.req.valid('param') as MailAccountsFoldersModel.Params;
+        const { mailboxPath } = c.req.valid('param') as MailboxModel.Params;
         
-        return MailFolderService.folderMiddleware(c, next, folderPath);
+        return MailboxService.mailboxMiddleware(c, next, mailboxPath);
     }
 );
 
-router.get('/',
+router.get('/:mailboxPath/*',
 
     APIRouteSpec.authenticated({
         summary: "List Mails",
@@ -34,7 +34,8 @@ router.get('/',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
 
         responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response)
+            APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
         )
     }),
 
@@ -43,13 +44,17 @@ router.get('/',
     async (c) => {
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxModel.Base;
+
         const query = c.req.valid('query');
+        
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
             await imap.connect();
-            const mails = await imap.getMails(query.mailbox, query.limit);
+            const mails = await imap.getMails(mailbox.path, query.limit);
 
             return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
         } catch (e) {
@@ -96,21 +101,24 @@ router.get('/',
 //     }
 // );
 
-router.use('/:mailUID/*',
-
+router.use('/:mailboxPath/:mailUID/*',
+    
     validator('param', MailsModel.Param),
 
     async (c, next) => {
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxModel.Base;
+
+        // @ts-ignore
         const { mailUID } = c.req.valid('param') as MailsModel.Param;
-        
+
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
             await imap.connect();
-            const mail = await imap.getMail('INBOX', mailUID);
+            const mail = await imap.getMail(mailbox.path, mailUID);
 
             if (!mail) {
                 return APIResponse.notFound(c, "Mail with specified UID not found");
@@ -127,7 +135,7 @@ router.use('/:mailUID/*',
     }
 );
 
-router.get('/:mailUID',
+router.get('/:mailboxPath/:mailUID',
 
     APIRouteSpec.authenticated({
         summary: "Get Mail",
@@ -325,5 +333,5 @@ router.get('/:mailUID',
 // );
 
 
-router.route('/:mailUID/attachments', attachmentsRouter);
+router.route('/:mailboxPath/:mailUID/attachments', attachmentsRouter);
 

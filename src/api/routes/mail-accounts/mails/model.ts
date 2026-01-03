@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MailRessource } from "../../../../utils/mails/ressources/mail";
 import type { Utils } from "../../../../utils";
+import { ApiHelperModels } from "../../../utils/shared-models/api-helper-models";
 
 export namespace MailsModel {
 
@@ -56,10 +57,6 @@ export namespace MailsModel {
 
 export namespace MailsModel.GetByUID {
     
-    export const Query = z.object({
-        mailbox: z.string().default("INBOX")
-    });
-
     export const Response = MailsModel.Mail;
 
     export type Response = z.infer<typeof Response>;
@@ -67,10 +64,7 @@ export namespace MailsModel.GetByUID {
 
 export namespace MailsModel.GetAll {
 
-    export const Query = z.object({
-        mailbox: z.string().default("INBOX"),
-        limit: z.coerce.number().default(50)
-    });
+    export const Query = ApiHelperModels.ListAll.QueryWithSearch;
 
     export const Response = z.array(MailsModel.Mail);
 

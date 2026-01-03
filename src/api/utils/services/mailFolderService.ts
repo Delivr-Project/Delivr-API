@@ -2,10 +2,12 @@ import type { Context } from "hono";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 import { APIResponse } from "../api-res";
 import { Logger } from "../../../utils/logger";
+import type { MailboxModel } from "../../routes/mail-accounts/folders/model";
 
-export class MailFolderService {
 
-    static async folderMiddleware(c: Context, next: () => Promise<void>, folderPath: string) {
+export class MailboxService {
+
+    static async mailboxMiddleware(c: Context, next: () => Promise<void>, mailboxPath: string) {
 
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
@@ -14,16 +16,19 @@ export class MailFolderService {
 
         try {
             await imap.connect();
-            const folderExists = await imap.getMailboxStatus(folderPath) !== null;
+            const mailbox = await imap.getMailbox(mailboxPath) satisfies MailboxModel.Base | null;
 
-            if (!folderExists) {
-                return APIResponse.notFound(c, "Folder with specified path not found");
+            if (!mailbox) {
+                return APIResponse.notFound(c, "Mailbox with specified path not found");
             }
+
+            // @ts-ignore
+            c.set("mailboxData", mailbox);
 
             await next();
         } catch (e) {
-            Logger.error(`Failed to access folder with path ${folderPath}`, e);
-            return APIResponse.serverError(c, `Failed to access folder with path ${folderPath}`);
+            Logger.error(`Failed to access mailbox with path ${mailboxPath}`, e);
+            return APIResponse.serverError(c, `Failed to access mailbox with path ${mailboxPath}`);
         }
     }
     

@@ -1,6 +1,6 @@
 import { type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
 
-export class MailboxFolderRessource implements MailboxFolderRessource.IFolder {
+export class MailboxRessource implements MailboxRessource.IMailbox {
 
     readonly name: string;
     readonly path: string;
@@ -10,7 +10,7 @@ export class MailboxFolderRessource implements MailboxFolderRessource.IFolder {
     readonly flags: string[];
     readonly specialUse?: string;
 
-    constructor(data: MailboxFolderRessource.IFolder) {
+    constructor(data: MailboxRessource.IMailbox) {
         this.name = data.name;
         this.path = data.path;
         this.delimiter = data.delimiter;
@@ -20,8 +20,8 @@ export class MailboxFolderRessource implements MailboxFolderRessource.IFolder {
         this.specialUse = data.specialUse;
     }
 
-    static async fromIMAPMailbox(mailbox: MailboxListResponse): Promise<MailboxFolderRessource> {
-        return new MailboxFolderRessource({
+    static async fromIMAPMailbox(mailbox: MailboxListResponse): Promise<MailboxRessource> {
+        return new MailboxRessource({
             name: mailbox.name,
             path: mailbox.path,
             delimiter: mailbox.delimiter,
@@ -32,14 +32,14 @@ export class MailboxFolderRessource implements MailboxFolderRessource.IFolder {
         });
     }
 
-    static fromIMAPMailboxes(mailboxes: MailboxListResponse[]): Promise<MailboxFolderRessource[]> {
+    static fromIMAPMailboxes(mailboxes: MailboxListResponse[]): Promise<MailboxRessource[]> {
         return Promise.all(mailboxes.map(mailbox => this.fromIMAPMailbox(mailbox)));
     }
 }
 
-export namespace MailboxFolderRessource {
+export namespace MailboxRessource {
 
-    export interface IFolder {
+    export interface IMailbox {
         /** Mailbox name (last part of path after delimiter) */
         name: string;
         /** Mailbox path (unicode string) */

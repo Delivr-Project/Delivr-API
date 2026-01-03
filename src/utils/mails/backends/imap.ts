@@ -2,7 +2,7 @@ import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeRespon
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
-import { MailboxFolderRessource } from "../ressources/folder";
+import { MailboxRessource } from "../ressources/folder";
 
 export class IMAPAccount {
 
@@ -76,15 +76,22 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getMailboxes(asTree?: false): Promise<MailboxFolderRessource[]>;
+    async getMailboxes(asTree?: false): Promise<MailboxRessource[]>;
     async getMailboxes(asTree: true): Promise<MailboxTreeResponse>;
-    async getMailboxes(asTree: boolean): Promise<MailboxFolderRessource[] | MailboxTreeResponse>
+    async getMailboxes(asTree: boolean): Promise<MailboxRessource[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
             return await this.client.listTree();
         } else {
-            return MailboxFolderRessource.fromIMAPMailboxes(await this.client.list());
+            return MailboxRessource.fromIMAPMailboxes(await this.client.list());
         }
+    }
+
+    async getMailbox(path: string): Promise<MailboxRessource | null> {
+        const mailboxes = await this.client.list();
+        const mailbox = mailboxes.find(mb => mb.path === path);
+        if (!mailbox) return null;
+        return MailboxRessource.fromIMAPMailbox(mailbox);
     }
 
     async getMailboxStatus(path: string) {
@@ -97,6 +104,18 @@ export class IMAPAccount {
         } catch (err) {
             return null;
         }
+    }
+
+    async createMailbox(path: string) {
+        await this.client.mailboxCreate(path);
+    }
+
+    async renameMailbox(oldPath: string, newPath: string) {
+        await this.client.mailboxRename(oldPath, newPath);
+    }
+
+    async deleteMailbox(path: string) {
+        await this.client.mailboxDelete(path);
     }
 
     async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {
