@@ -71,14 +71,14 @@ const mockIMAPServer = new MockIMAPServer({
                     raw: "Subject: hello 6\r\n\r\nWorld 6!"
                 }
             ],
-            separator: ".",
+            separator: "/",
             folders: {
                 "Privat": {},
                 "Work": {}
             }
         },
         "": {
-            separator: ".",
+            separator: "/",
             folders: {
                 // "All Mail": {
                 //     "special-use": "\\All"

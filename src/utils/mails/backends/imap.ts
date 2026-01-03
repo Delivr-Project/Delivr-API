@@ -63,6 +63,7 @@ export class IMAPAccount {
             await this.client.connect();
             this.isConnected = true;
         }
+        return this;
     }
 
     async disconnect() {

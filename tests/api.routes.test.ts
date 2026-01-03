@@ -10,6 +10,7 @@ import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
+import { IMAPAccount } from "../src/utils/mails/backends/imap";
 
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
@@ -752,11 +753,7 @@ describe("Mail Mailbox Routes", async () => {
     const mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
     const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
 
-    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
-        owner_user_id: mailIdentityTestUser.id,
-
-        display_name: "Test Mail Account",
-
+    const connectionSettings = {
         smtp_host: "127.0.0.1",
         smtp_port: 11125,
         smtp_encryption: "NONE",
@@ -768,9 +765,39 @@ describe("Mail Mailbox Routes", async () => {
         imap_encryption: "NONE",
         imap_username: "testuser",
         imap_password: "testpass"
+    } as const;
 
+    const testIMAPClient = await IMAPAccount.fromConfig({
+        host: connectionSettings.imap_host,
+        port: connectionSettings.imap_port,
+        username: connectionSettings.imap_username,
+        password: connectionSettings.imap_password,
+        useSSL: connectionSettings.imap_encryption
+    }).connect();
+
+    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        owner_user_id: mailIdentityTestUser.id,
+        display_name: "Test Mail Account",
+        ...connectionSettings
     }).returning().get().id;
     
+    test("POST /mail-accounts/:mailAccountID/mailboxes creates new mailbox / folder", async () => {
+
+        const mailboxData = {
+            path: "INBOX/Social Media",
+        } satisfies MailboxesModel.Create.Body;
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+            method: "POST",
+            authToken: session_token,
+            body: mailboxData
+        });
+
+        expect(data).toBeNull();
+
+        expect(await testIMAPClient.getMailbox(mailboxData.path)).not.toBeNull();
+    });
+
     test("GET /mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
@@ -782,8 +809,8 @@ describe("Mail Mailbox Routes", async () => {
         expect(data.length).toBeGreaterThan(0);
 
         expect(data.find(mb => mb.name === "INBOX")).toBeDefined();
-        expect(data.find(mb => mb.path === "INBOX.Privat" && mb.name === "Privat")).toBeDefined();
-        expect(data.find(mb => mb.path === "INBOX.Work" && mb.name === "Work")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX/Work" && mb.name === "Work")).toBeDefined();
         expect(data.find(mb => mb.name === "Sent")).toBeDefined();
         expect(data.find(mb => mb.name === "Drafts")).toBeDefined();
         expect(data.find(mb => mb.name === "Spam")).toBeDefined();
@@ -796,9 +823,39 @@ describe("Mail Mailbox Routes", async () => {
         expect(inbox.name).toBe("INBOX");
         expect(inbox.path).toBe("INBOX");
         expect(inbox.flags).toBeArray();
-        expect(inbox.delimiter).toBe(".");
-        expect(inbox.parentPath).toBe("");
+        expect(inbox.delimiter).toBe("/");
         expect(inbox.parent.length).toBe(0);
+        expect(inbox.parentPath).toBe("");
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath retrieves specific mail mailbox", async () => {
+
+        const mailboxPath = "INBOX/Social Media";
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetByPath.Response
+        });
+
+        expect(data).toBeDefined();
+        if (!data) return;
+
+        expect(data.name).toBe("Social Media");
+        expect(data.path).toBe("INBOX/Social Media");
+        expect(data.flags).toBeArray();
+        expect(data.delimiter).toBe("/");
+        expect(data.parent[0]).toBe("INBOX");
+        expect(data.parentPath).toBe("INBOX");
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+        
+        const invalidMailboxPath = "NONEXISTENT";
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+            authToken: session_token
+        }, 404);
+
     });
 
 });
