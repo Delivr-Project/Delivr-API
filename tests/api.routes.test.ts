@@ -860,7 +860,7 @@ describe("Mail Mailbox Routes", async () => {
 });
 
 describe("Docs Routes", async () => {
-    
+
     test("GET /docs/openapi returns API docs if enabled", async () => {
         await makeAPIRequest(`/docs/openapi`, {}, 200);
     });
@@ -876,5 +876,10 @@ describe("Docs Routes", async () => {
         await API.start(14123, "::");
 
         await makeAPIRequest(`/docs/openapi`, {}, 404);
+    });
+
+    test("GET /docs returns 404 if disabled", async () => {
+
+        await makeAPIRequest(`/docs`, {}, 404);
     });
 });
