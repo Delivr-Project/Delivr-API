@@ -2,7 +2,7 @@ import { simpleParser, type ParsedMail, type Attachment, type AddressObject, typ
 import DOMPurify, { type WindowLike } from 'dompurify';
 import { JSDOM } from 'jsdom';
 import type { Stream } from 'nodemailer/lib/xoauth2';
-import type { MailRessource } from './mail';
+import type { MailRessource } from './ressources/mail';
 
 export class MailParser {
 
@@ -21,11 +21,12 @@ export class MailParser {
         return {
             uid,
             from: this.parseAddresses(parsed.from),
-            to: this.parseAddresses(parsed.to),
-            cc: this.parseAddresses(parsed.cc),
-            bcc: this.parseAddresses(parsed.bcc),
+            to: this.parseAddresses(parsed.to, true),
+            cc: this.parseAddresses(parsed.cc, true),
+            bcc: this.parseAddresses(parsed.bcc, true),
             subject: parsed.subject,
             inReplyTo: parsed.inReplyTo,
+            replyTo: this.parseAddresses(parsed.replyTo),
             references: parsed.references,
             date: parsed.date?.getTime(),
             attachments: this.parseAttachments(parsed.attachments),
@@ -34,16 +35,31 @@ export class MailParser {
         };
     }
 
+    static async convertToBuffer(source: MailRessource.IMail) {
+        let mailOptions: any = {};
+
+        
+    }
+    
     /**
      * Parse email addresses from ParsedMail format
      * @param addressObject - Address object from mailparser
      * @returns Array of parsed email addresses
      */
-    private static parseAddresses(addressObject?: AddressObject | AddressObject[]): MailRessource.EmailAddress[] | undefined {
+    private static parseAddresses(addressObject?: AddressObject, forceArray?: false): MailRessource.EmailAddress | undefined;
+    private static parseAddresses(addressObject: AddressObject | undefined, forceArray: true): MailRessource.EmailAddress[];
+    private static parseAddresses(addressObject: AddressObject | undefined, forceArray: boolean): MailRessource.EmailAddress | MailRessource.EmailAddress[] | undefined;
+
+    private static parseAddresses(addressObject?: AddressObject | AddressObject[], forceArray?: false): MailRessource.EmailAddress | MailRessource.EmailAddress[] | undefined;
+    private static parseAddresses(addressObject: AddressObject | AddressObject[] | undefined, forceArray: boolean): MailRessource.EmailAddress[] | undefined;
+
+    private static parseAddresses(addressObject?: AddressObject | AddressObject[], forceArray: boolean = false) {
         if (!addressObject) return undefined;
+        
+        const isArray = Array.isArray(addressObject);
 
         const addresses: MailRessource.EmailAddress[] = [];
-        const addressArray = Array.isArray(addressObject) ? addressObject : [addressObject];
+        const addressArray = isArray ? addressObject : [addressObject];
 
         for (const addr of addressArray) {
             if (addr.value) {
@@ -54,7 +70,15 @@ export class MailParser {
             }
         }
 
-        return addresses.length > 0 ? addresses : undefined;
+        if (isArray) {
+            return addresses.length > 0 ? addresses : undefined;
+        } else {
+            if (forceArray) {
+                return addresses.length > 0 ? addresses : undefined;
+            }
+            return addresses.length > 0 ? addresses[0] : undefined;
+        }
+
     }
 
     /**
@@ -69,26 +93,26 @@ export class MailParser {
             filename: attachment.filename,
             contentType: attachment.contentType,
             size: attachment.size,
-            content: attachment.content,
+            // content: attachment.content,
             contentId: attachment.contentId,
             contentDisposition: attachment.contentDisposition,
         }));
     }
 
     private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody | undefined {
-        if (html) {
-            return {
-                contentType: "html",
-                content: this.sanitizeHtml(html)
-            };
-        }
+        const body: MailRessource.MailBody = {};
+
         if (text) {
-            return {
-                contentType: "text",
-                content: text
-            };
+            body.text = text;
         }
-        return undefined;
+
+        if (html) {
+            body.html = this.sanitizeHtml(html);
+        }
+        
+        if (Object.keys(body).length === 0) {
+            return undefined;
+        }
     }
 
     /**

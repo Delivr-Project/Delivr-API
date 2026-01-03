@@ -17,20 +17,20 @@ export class MailClientsCache {
         return data;
     }
 
-    static createClientData(accountID: number, settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
-        return this.clients.set(accountID, {
+    static createClientData(settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
+        return this.clients.set(settings.id, {
             imap: IMAPAccount.fromSettings(settings),
             lastUsedAt: Date.now()
         })
-        .get(accountID)!;
+        .get(settings.id)!;
     }
 
-    static createOrGetClientData(accountID: number, settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
-        const existingData = this.getClientData(accountID);
+    static createOrGetClientData(settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
+        const existingData = this.getClientData(settings.id);
         if (existingData) {
             return existingData;
         }
-        return this.createClientData(accountID, settings);
+        return this.createClientData(settings);
     }
 
     static deleteClientData(accountID: number): void {

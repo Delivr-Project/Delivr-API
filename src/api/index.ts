@@ -5,6 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 import { setupDocs } from "./docs";
 import { cors } from "hono/cors";
 import { HTTPException } from 'hono/http-exception'
+import { ConfigHandler } from "../utils/config";
 
 export class API {
 
@@ -18,7 +19,8 @@ export class API {
 	];
 
 	static async init(
-		frontendUrls: string[] = []
+		frontendUrls: string[] = [],
+		disableDocs = false,
 	) {
 
 		this.app = new Hono();
@@ -68,11 +70,12 @@ export class API {
 			return c.json({ status: "Delivr API is running" });
 		});
 
-        this.app.get("/", (c) => {
-            return c.redirect("/docs");
-        });
-
-		setupDocs(this.app);
+		if (!disableDocs) {
+			this.app.get("/", (c) => {
+				return c.redirect("/docs");
+			});
+			setupDocs(this.app);
+		}
 
 	}
 

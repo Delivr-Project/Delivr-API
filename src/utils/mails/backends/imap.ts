@@ -1,7 +1,8 @@
-import { ImapFlow, type ListResponse, type ListTreeResponse } from "imapflow";
+import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
-import { MailRessource } from "../mail";
+import { MailRessource } from "../ressources/mail";
+import { MailboxRessource } from "../ressources/mailbox";
 
 export class IMAPAccount {
 
@@ -62,6 +63,7 @@ export class IMAPAccount {
             await this.client.connect();
             this.isConnected = true;
         }
+        return this;
     }
 
     async disconnect() {
@@ -75,23 +77,54 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getMailboxes(asTree?: false): Promise<ListResponse[]>;
-    async getMailboxes(asTree: true): Promise<ListTreeResponse>;
-    async getMailboxes(asTree: boolean): Promise<ListResponse[] | ListTreeResponse>
+    async getMailboxes(asTree?: false): Promise<MailboxRessource[]>;
+    async getMailboxes(asTree: true): Promise<MailboxTreeResponse>;
+    async getMailboxes(asTree: boolean): Promise<MailboxRessource[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
             return await this.client.listTree();
         } else {
-            return await this.client.list();
+            return MailboxRessource.fromIMAPMailboxes(await this.client.list());
         }
     }
 
-    async getMailboxStatus(path: string) {
-        return await this.client.status(path, {
-            messages: true,
-            unseen: true,
-            recent: true
-        });
+    async getMailbox(path: string): Promise<MailboxRessource | null> {
+        const mailboxes = await this.client.list();
+        const mailbox = mailboxes.find(mb => mb.path === path);
+        if (!mailbox) return null;
+        return MailboxRessource.fromIMAPMailbox(mailbox);
+    }
+
+    async getMailboxStatus(path: string): Promise<MailboxRessource.MailboxStatus | null> {
+        try {
+            const raw_status = await this.client.status(path, {
+                messages: true,
+                unseen: true,
+                recent: true
+            });
+            if (!raw_status || !raw_status.messages || !raw_status.unseen || !raw_status.recent) {
+                return null;
+            }
+            return {
+                messages: raw_status.messages,
+                unseen: raw_status.unseen,
+                recent: raw_status.recent
+            };
+        } catch (err) {
+            return null;
+        }
+    }
+
+    async createMailbox(path: string) {
+        await this.client.mailboxCreate(path);
+    }
+
+    async renameMailbox(oldPath: string, newPath: string) {
+        await this.client.mailboxRename(oldPath, newPath);
+    }
+
+    async deleteMailbox(path: string) {
+        await this.client.mailboxDelete(path);
     }
 
     async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {
@@ -105,10 +138,20 @@ export class IMAPAccount {
             const rawMails = await this.client.fetchAll(`${start}:*`, {
                 envelope: true,
                 flags: true,
-                bodyStructure: true
+                bodyStructure: true,
+                source: true
             });
 
             return await MailRessource.fromIMAPMessages(rawMails);
+        } finally {
+            lock.release();
+        }
+    }
+
+    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.append(mailbox, content, flags);
         } finally {
             lock.release();
         }
@@ -135,6 +178,24 @@ export class IMAPAccount {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             await this.client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async addFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsAdd(uids, flags, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async removeFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsRemove(uids, flags, { uid: true });
         } finally {
             lock.release();
         }

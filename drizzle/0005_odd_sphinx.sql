@@ -1,0 +1,1 @@
+ALTER TABLE `mail_accounts` ADD `display_name` text DEFAULT 'Change Me' NOT NULL;

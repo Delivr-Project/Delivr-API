@@ -2,6 +2,7 @@
     "name": "delivr-api",
     "module": "index.ts",
     "type": "module",
+    "version": "0.8.0",
     "private": true,
     "scripts": {
         "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json && echo 'Typecheck passed!'",
@@ -10,6 +11,7 @@
         "db:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle.config.ts",
         "db:migrate": "bun scripts/db-utils && drizzle-kit migrate --config=drizzle.config.ts",
         "db:push": "echo 'Use db:generate db:migrate instead' && exit 1 && bun scripts/db-utils && drizzle-kit push --config=drizzle.config.ts",
+        "compile": "bun run ./scripts/compile",
         "start": "bun run scripts/entrypoint.ts"
     },
     "devDependencies": {

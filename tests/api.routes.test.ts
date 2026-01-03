@@ -9,7 +9,8 @@ import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
-
+import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
+import { IMAPAccount } from "../src/utils/mails/backends/imap";
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
     const user = DB.instance().insert(DB.Schema.users).values({
@@ -206,16 +207,21 @@ describe("Account routes", async () => {
         // Seed a mail account
         const mailAccountID = await DB.instance().insert(DB.Schema.mailAccounts).values({
             owner_user_id: testUser.id,
+
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS",
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL",
             imap_username: "imapuser",
             imap_password: "imappass"
+
         }).returning().get().id;
 
         await makeAPIRequest("/account", {
@@ -253,16 +259,21 @@ describe("Mail Account Routes", async () => {
     test("POST /mail-accounts creates mail account", async () => {
 
         const mailAccountData = {
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS" as const,
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "imapuser",
-            imap_password: "imappass"
+            imap_password: "imappass",
+
+            is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
         const data = await makeAPIRequest("/mail-accounts", {
@@ -291,6 +302,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_encryption).toBe(mailAccountData.imap_encryption);
         expect(dbresult.imap_username).toBe(mailAccountData.imap_username);
         expect(dbresult.imap_password).toBe(mailAccountData.imap_password);
+
+        expect(dbresult.is_default).toBe(mailAccountData.is_default);
 
         mailAccountIDs.push(data.id);
     });
@@ -370,7 +383,51 @@ describe("Mail Account Routes", async () => {
         }, 404);
     });
 
-    test("PUT /mail-accounts/:mailAccountID updates specific mail account", async () => {
+    test("PUT /mail-accounts/:mailAccountID updates mail account info", async () => {
+
+        const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
+
+        const updatedData = {
+            display_name: "Updated Mail Account",
+            is_default: true
+        } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        });
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        ).get();
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        expect(dbresult.display_name).toBe(updatedData.display_name);
+        expect(dbresult.is_default).toBe(updatedData.is_default);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+
+        const invalidMailAccountID = 999999;
+
+        const updatedData = {
+            display_name: "Updated Mail Account",
+            is_default: true
+        } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
+
+        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        }, 404);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID/credentials updates specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
@@ -382,14 +439,15 @@ describe("Mail Account Routes", async () => {
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
-        } satisfies MailAccountsModel.CreateMailAccount.Body;
+            imap_password: "updatedimappass",
+        } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -407,6 +465,7 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.smtp_encryption).toBe(updatedData.smtp_encryption);
         expect(dbresult.smtp_username).toBe(updatedData.smtp_username);
         expect(dbresult.smtp_password).toBe(updatedData.smtp_password);
+
         expect(dbresult.imap_host).toBe(updatedData.imap_host);
         expect(dbresult.imap_port).toBe(updatedData.imap_port);
         expect(dbresult.imap_encryption).toBe(updatedData.imap_encryption);
@@ -414,7 +473,7 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_password).toBe(updatedData.imap_password);
     });
 
-    test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+    test("PUT /mail-accounts/:mailAccountID/credentials with invalid ID fails", async () => {
         
         const invalidMailAccountID = 999999;
 
@@ -424,14 +483,15 @@ describe("Mail Account Routes", async () => {
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
-        } satisfies MailAccountsModel.CreateMailAccount.Body;
+            imap_password: "updatedimappass",
+        } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -483,16 +543,21 @@ describe("Mail Identity Routes", async () => {
 
     const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
         owner_user_id: mailIdentityTestUser.id,
+
+        display_name: "Test Mail Account",
+
         smtp_host: "smtp.example.com",
         smtp_port: 587,
         smtp_encryption: "STARTTLS",
         smtp_username: "smtpuser",
         smtp_password: "smtppass",
+
         imap_host: "imap.example.com",
         imap_port: 993,
         imap_encryption: "SSL",
         imap_username: "imapuser",
         imap_password: "imappass"
+
     }).returning().get().id;
     
     const mailIdentityIDs: number[] = [];
@@ -502,6 +567,7 @@ describe("Mail Identity Routes", async () => {
         const mailIdentityData = {
             display_name: "Test Identity",
             email_address: "test@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
@@ -522,6 +588,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(mailIdentityData.display_name);
         expect(dbresult.email_address).toBe(mailIdentityData.email_address);
+        expect(dbresult.is_default).toBe(mailIdentityData.is_default);
 
         mailIdentityIDs.push(data.id);
     });
@@ -598,7 +665,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
@@ -616,6 +684,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(updatedData.display_name);
         expect(dbresult.email_address).toBe(updatedData.email_address);
+        expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
     test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
@@ -624,7 +693,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
@@ -674,5 +744,142 @@ describe("Mail Identity Routes", async () => {
         DB.instance().delete(DB.Schema.users).where(
             eq(DB.Schema.users.id, mailIdentityTestUser.id)
         ).run();
+    });
+});
+
+describe("Mail Mailbox Routes", async () => {
+
+    const mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
+    const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+
+    const connectionSettings = {
+        smtp_host: "127.0.0.1",
+        smtp_port: 11125,
+        smtp_encryption: "NONE",
+        smtp_username: "testuser",
+        smtp_password: "testpass",
+
+        imap_host: "127.0.0.1",
+        imap_port: 11143,
+        imap_encryption: "NONE",
+        imap_username: "testuser",
+        imap_password: "testpass"
+    } as const;
+
+    const testIMAPClient = await IMAPAccount.fromConfig({
+        host: connectionSettings.imap_host,
+        port: connectionSettings.imap_port,
+        username: connectionSettings.imap_username,
+        password: connectionSettings.imap_password,
+        useSSL: connectionSettings.imap_encryption
+    }).connect();
+
+    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        owner_user_id: mailIdentityTestUser.id,
+        display_name: "Test Mail Account",
+        ...connectionSettings
+    }).returning().get().id;
+    
+    test("POST /mail-accounts/:mailAccountID/mailboxes creates new mailbox / folder", async () => {
+
+        const mailboxData = {
+            path: "INBOX/Social Media",
+        } satisfies MailboxesModel.Create.Body;
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+            method: "POST",
+            authToken: session_token,
+            body: mailboxData
+        });
+
+        expect(data).toBeNull();
+
+        expect(await testIMAPClient.getMailbox(mailboxData.path)).not.toBeNull();
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetAll.Response
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+        expect(data.length).toBeGreaterThan(0);
+
+        expect(data.find(mb => mb.name === "INBOX")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX/Work" && mb.name === "Work")).toBeDefined();
+        expect(data.find(mb => mb.name === "Sent")).toBeDefined();
+        expect(data.find(mb => mb.name === "Drafts")).toBeDefined();
+        expect(data.find(mb => mb.name === "Spam")).toBeDefined();
+        expect(data.find(mb => mb.name === "Trash")).toBeDefined();
+
+        const inbox = data.find(f => f.name === "INBOX");
+        expect(inbox).toBeDefined();
+        if (!inbox) return;
+
+        expect(inbox.name).toBe("INBOX");
+        expect(inbox.path).toBe("INBOX");
+        expect(inbox.flags).toBeArray();
+        expect(inbox.delimiter).toBe("/");
+        expect(inbox.parent.length).toBe(0);
+        expect(inbox.parentPath).toBe("");
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath retrieves specific mail mailbox", async () => {
+
+        const mailboxPath = "INBOX/Social Media";
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetByPath.Response
+        });
+
+        expect(data).toBeDefined();
+        if (!data) return;
+
+        expect(data.name).toBe("Social Media");
+        expect(data.path).toBe("INBOX/Social Media");
+        expect(data.flags).toBeArray();
+        expect(data.delimiter).toBe("/");
+        expect(data.parent[0]).toBe("INBOX");
+        expect(data.parentPath).toBe("INBOX");
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+        
+        const invalidMailboxPath = "NONEXISTENT";
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+            authToken: session_token
+        }, 404);
+
+    });
+
+});
+
+describe("Docs Routes", async () => {
+
+    test("GET /docs/openapi returns API docs if enabled", async () => {
+        await makeAPIRequest(`/docs/openapi`, {}, 200);
+    });
+
+    test("GET /docs returns API docs UI if enabled", async () => {
+        await makeAPIRequest(`/docs`, {}, 200);
+    });
+
+    test("GET /docs/openapi returns 404 if disabled", async () => {
+
+        await API.stop();
+        await API.init([], true);
+        await API.start(14123, "::");
+
+        await makeAPIRequest(`/docs/openapi`, {}, 404);
+    });
+
+    test("GET /docs returns 404 if disabled", async () => {
+
+        await makeAPIRequest(`/docs`, {}, 404);
     });
 });

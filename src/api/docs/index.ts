@@ -62,6 +62,9 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 tags: [
                     "Mail Accounts",
                     "Mail Accounts / Identities",
+                    "Mail Accounts / Mailboxes",
+                    "Mail Accounts / Mailboxes / Mails",
+                    "Mail Accounts / Mailboxes / Mails / Attachments"
                 ]
             }
         ],
@@ -110,6 +113,30 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Mail Identities",
                 parent: "Mail Accounts",
                 description: "Endpoints for managing mail identities",
+            },
+            {
+                name: "Mail Accounts / Mailboxes",
+                // @ts-ignore
+                "x-displayName": "Mailboxes",
+                summary: "Mailboxes",
+                parent: "Mail Accounts",
+                description: "Endpoints for managing mailboxes",
+            },
+            {
+                name: "Mail Accounts / Mailboxes / Mails",
+                // @ts-ignore
+                "x-displayName": "Mailboxes / Mails",
+                summary: "Mailboxes / Mails",
+                parent: "Mail Accounts / Mailboxes",
+                description: "Endpoints for managing mails",
+            },
+            {
+                name: "Mail Accounts / Mailboxes / Mails / Attachments",
+                // @ts-ignore
+                "x-displayName": "Attachments",
+                summary: "Mail Attachments",
+                parent: "Mail Accounts / Mailboxes / Mails",
+                description: "Endpoints for managing mail attachments",
             }
         ]
     }
@@ -141,6 +168,8 @@ export const DOCS_TAGS = {
     MAIL_ACCOUNTS: {
         BASE: "Mail Accounts",
         IDENTITIES: "Mail Accounts / Identities",
-        MAILS: "Mail Accounts / Mails"
+        MAILBOXES: "Mail Accounts / Mailboxes",
+        MAILBOXES_MAILS: "Mail Accounts / Mailboxes / Mails",
+        MAILBOXES_MAILS_ATTACHMENTS: "Mail Accounts / Mailboxes / Mails / Attachments",
     }
 }

@@ -77,21 +77,30 @@ export interface MockIMAPServerOptions {
         version: string;
     };
     storage: {
-        [folderName: string]: {
-            messages?: {
-                raw: string;
-                internaldate?: string;
-                flags?: string[];
-            }[];
-            flags?: string[];
-            "special-use"?: string;
-            separator?: string;
-            folders?: {
-                [subFolderName: string]: any; // Recursive definition
-            };
-        }
+        "INBOX": MockIMAPServerOptions.Folder;
+        "": MockIMAPServerOptions.Folder;
     }
     debug: boolean;
+}
+
+export namespace MockIMAPServerOptions {
+
+    export interface Message {
+        raw: string;
+        internaldate?: string;
+        flags?: string[];
+    }
+
+    export interface Folder {
+        messages?: Message[];
+        flags?: string[];
+        "special-use"?: string;
+        separator?: string;
+        folders?: {
+            [folderName: string]: Folder
+        };
+    }
+
 }
 
 export declare class MockIMAPServer {

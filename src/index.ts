@@ -34,7 +34,7 @@ export class Main {
         await CronJobHandler.startAll();
 
 
-        await API.init([config.DLA_APP_URL || "https://api.delivr.local"]);
+        await API.init([config.DLA_APP_URL || "https://api.delivr.local"], config.DLA_DISABLE_DOCS === true);
 
         await API.start(
             parseInt(config.DLA_API_PORT ?? "12151"),
