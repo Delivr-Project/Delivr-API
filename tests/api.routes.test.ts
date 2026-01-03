@@ -10,6 +10,8 @@ import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
+import { apiKeys } from "../src/db/schema";
+import { ConfigHandler } from "../src/utils/config";
 
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
@@ -801,4 +803,21 @@ describe("Mail Mailbox Routes", async () => {
         expect(inbox.parent.length).toBe(0);
     });
 
+});
+
+describe("Docs Routes", async () => {
+    test("GET /docs/openapi returns API docs if enabled", async () => {
+        const data = await makeAPIRequest(`/docs/openapi`, {}, 200);
+    });
+
+    test("GET /docs returns API docs UI if enabled", async () => {
+        const data = await makeAPIRequest(`/docs`, {}, 200);
+    });
+
+    test("GET /docs/openapi returns 404 if disabled", async () => {
+        await API.stop();
+        await API.init([], true);
+        await API.start(14123, "::");
+        const data = await makeAPIRequest(`/docs/openapi`, {}, 404);
+    });
 });

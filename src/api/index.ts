@@ -19,7 +19,8 @@ export class API {
 	];
 
 	static async init(
-		frontendUrls: string[] = []
+		frontendUrls: string[] = [],
+		disableDocs = false,
 	) {
 
 		this.app = new Hono();
@@ -69,17 +70,12 @@ export class API {
 			return c.json({ status: "Delivr API is running" });
 		});
 
-        const config = ConfigHandler.getConfig();
-		const enableDocs = config?.DLA_DISABLE_DOCS !== true;
-
-		if (enableDocs) {
+		if (!disableDocs) {
 			this.app.get("/", (c) => {
 				return c.redirect("/docs");
 			});
 			setupDocs(this.app);
 		}
-
-		setupDocs(this.app);
 
 	}
 
