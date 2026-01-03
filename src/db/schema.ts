@@ -1,5 +1,5 @@
 import type { TaskHandler } from '@cleverjs/utils';
-import { desc, sql } from 'drizzle-orm';
+import { desc, is, sql } from 'drizzle-orm';
 import {
     sqliteTable,
     int,
@@ -72,6 +72,8 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     owner_user_id: int().notNull().references(() => users.id),
     created_at: SQLUtils.getCreatedAtColumn(),
 
+    display_name: text().notNull(),
+
     smtp_host: text().notNull(),
     smtp_port: int().notNull(),
     smtp_username: text().notNull(),
@@ -86,7 +88,10 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     imap_password: text().notNull(),
     imap_encryption: text({
         enum: InetModels.Mail.EncryptionTypes
-    }).notNull()
+    }).notNull(),
+
+    // is this the default mail account for the user
+    is_default: int({ mode: "boolean" }).notNull().default(false)
 });
 
 /**
@@ -99,6 +104,9 @@ export const mailIdentities = sqliteTable('mail_identities', {
     
     display_name: text().notNull(),
     email_address: text().notNull(),
+
+    // is this the default identity for the mail account
+    is_default: int({ mode: "boolean" }).notNull().default(false)
 });
 
 /**

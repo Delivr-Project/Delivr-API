@@ -206,16 +206,21 @@ describe("Account routes", async () => {
         // Seed a mail account
         const mailAccountID = await DB.instance().insert(DB.Schema.mailAccounts).values({
             owner_user_id: testUser.id,
+
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS",
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL",
             imap_username: "imapuser",
             imap_password: "imappass"
+
         }).returning().get().id;
 
         await makeAPIRequest("/account", {
@@ -253,16 +258,21 @@ describe("Mail Account Routes", async () => {
     test("POST /mail-accounts creates mail account", async () => {
 
         const mailAccountData = {
+            display_name: "Test Mail Account",
+
             smtp_host: "smtp.example.com",
             smtp_port: 587,
             smtp_encryption: "STARTTLS" as const,
             smtp_username: "smtpuser",
             smtp_password: "smtppass",
+
             imap_host: "imap.example.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "imapuser",
-            imap_password: "imappass"
+            imap_password: "imappass",
+
+            is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
         const data = await makeAPIRequest("/mail-accounts", {
@@ -291,6 +301,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_encryption).toBe(mailAccountData.imap_encryption);
         expect(dbresult.imap_username).toBe(mailAccountData.imap_username);
         expect(dbresult.imap_password).toBe(mailAccountData.imap_password);
+
+        expect(dbresult.is_default).toBe(mailAccountData.is_default);
 
         mailAccountIDs.push(data.id);
     });
@@ -370,7 +382,51 @@ describe("Mail Account Routes", async () => {
         }, 404);
     });
 
-    test("PUT /mail-accounts/:mailAccountID updates specific mail account", async () => {
+    test("PUT /mail-accounts/:mailAccountID updates mail account info", async () => {
+
+        const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
+
+        const updatedData = {
+            display_name: "Updated Mail Account",
+            is_default: true
+        } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        });
+
+        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        ).get();
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        expect(dbresult.display_name).toBe(updatedData.display_name);
+        expect(dbresult.is_default).toBe(updatedData.is_default);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+
+        const invalidMailAccountID = 999999;
+
+        const updatedData = {
+            display_name: "Updated Mail Account",
+            is_default: true
+        } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
+
+        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        }, 404);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID/credentials updates specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
@@ -382,14 +438,15 @@ describe("Mail Account Routes", async () => {
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
-        } satisfies MailAccountsModel.CreateMailAccount.Body;
+            imap_password: "updatedimappass",
+        } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -407,6 +464,7 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.smtp_encryption).toBe(updatedData.smtp_encryption);
         expect(dbresult.smtp_username).toBe(updatedData.smtp_username);
         expect(dbresult.smtp_password).toBe(updatedData.smtp_password);
+
         expect(dbresult.imap_host).toBe(updatedData.imap_host);
         expect(dbresult.imap_port).toBe(updatedData.imap_port);
         expect(dbresult.imap_encryption).toBe(updatedData.imap_encryption);
@@ -414,7 +472,7 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.imap_password).toBe(updatedData.imap_password);
     });
 
-    test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+    test("PUT /mail-accounts/:mailAccountID/credentials with invalid ID fails", async () => {
         
         const invalidMailAccountID = 999999;
 
@@ -424,14 +482,15 @@ describe("Mail Account Routes", async () => {
             smtp_encryption: "SSL" as const,
             smtp_username: "updatedsmtpuser",
             smtp_password: "updatedsmtppass",
+
             imap_host: "imap.updated.com",
             imap_port: 993,
             imap_encryption: "SSL" as const,
             imap_username: "updatedimapuser",
-            imap_password: "updatedimappass"
-        } satisfies MailAccountsModel.CreateMailAccount.Body;
+            imap_password: "updatedimappass",
+        } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -483,16 +542,21 @@ describe("Mail Identity Routes", async () => {
 
     const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
         owner_user_id: mailIdentityTestUser.id,
+
+        display_name: "Test Mail Account",
+
         smtp_host: "smtp.example.com",
         smtp_port: 587,
         smtp_encryption: "STARTTLS",
         smtp_username: "smtpuser",
         smtp_password: "smtppass",
+
         imap_host: "imap.example.com",
         imap_port: 993,
         imap_encryption: "SSL",
         imap_username: "imapuser",
         imap_password: "imappass"
+
     }).returning().get().id;
     
     const mailIdentityIDs: number[] = [];
@@ -502,6 +566,7 @@ describe("Mail Identity Routes", async () => {
         const mailIdentityData = {
             display_name: "Test Identity",
             email_address: "test@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
@@ -522,6 +587,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(mailIdentityData.display_name);
         expect(dbresult.email_address).toBe(mailIdentityData.email_address);
+        expect(dbresult.is_default).toBe(mailIdentityData.is_default);
 
         mailIdentityIDs.push(data.id);
     });
@@ -598,7 +664,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
@@ -616,6 +683,7 @@ describe("Mail Identity Routes", async () => {
 
         expect(dbresult.display_name).toBe(updatedData.display_name);
         expect(dbresult.email_address).toBe(updatedData.email_address);
+        expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
     test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
@@ -624,7 +692,8 @@ describe("Mail Identity Routes", async () => {
 
         const updatedData = {
             display_name: "Updated Identity",
-            email_address: "new@example.com"
+            email_address: "new@example.com",
+            is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {

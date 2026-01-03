@@ -1,4 +1,4 @@
-import { ImapFlow, type ListResponse, type ListTreeResponse } from "imapflow";
+import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../mail";
@@ -75,9 +75,9 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getMailboxes(asTree?: false): Promise<ListResponse[]>;
-    async getMailboxes(asTree: true): Promise<ListTreeResponse>;
-    async getMailboxes(asTree: boolean): Promise<ListResponse[] | ListTreeResponse>
+    async getMailboxes(asTree?: false): Promise<MailboxListResponse[]>;
+    async getMailboxes(asTree: true): Promise<MailboxTreeResponse>;
+    async getMailboxes(asTree: boolean): Promise<MailboxListResponse[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
             return await this.client.listTree();
@@ -105,10 +105,20 @@ export class IMAPAccount {
             const rawMails = await this.client.fetchAll(`${start}:*`, {
                 envelope: true,
                 flags: true,
-                bodyStructure: true
+                bodyStructure: true,
+                source: true
             });
 
             return await MailRessource.fromIMAPMessages(rawMails);
+        } finally {
+            lock.release();
+        }
+    }
+
+    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.append(mailbox, content, flags);
         } finally {
             lock.release();
         }
@@ -135,6 +145,24 @@ export class IMAPAccount {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             await this.client.messageFlagsAdd(uids, ['\\Seen'], { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async addFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsAdd(uids, flags, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    async removeFlags(mailbox: string, uids: number[], flags: string[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageFlagsRemove(uids, flags, { uid: true });
         } finally {
             lock.release();
         }

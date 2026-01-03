@@ -53,4 +53,14 @@ export namespace Utils {
             ? First & MergeArray<Rest extends object[] ? Rest : []>
             : {};
 
+    export type CreateError<DoError extends boolean, T = symbol> = DoError extends true ? CreateError<DoError> : T;
+    
+    export type SameType<A, B> = CreateError<
+        (<T>() => T extends A ? 1 : 2) extends
+        (<T>() => T extends B ? 1 : 2)
+            ? false
+            : true,
+        A
+    >;
+
 }

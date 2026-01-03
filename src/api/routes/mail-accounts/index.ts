@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MailAccountsModel } from './model';
 import { DB } from "../../../db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
@@ -56,6 +56,18 @@ router.post('/',
         const body = c.req.valid("json");
 
         const authContext = AuthHandler.AuthContext.get(c);
+
+        if (body.is_default) {
+            // If setting this mail account as default, unset all other mail accounts for this user
+            await DB.instance().update(DB.Schema.mailAccounts).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id),
+                    eq(DB.Schema.mailAccounts.is_default, true),
+                )
+            );
+        }
 
         const result = await DB.instance().insert(DB.Schema.mailAccounts).values({
             ...body,
@@ -140,13 +152,13 @@ router.get('/:mailAccountID/folders',
     //     return APIResponse.success(c, "Mail folders retrieved successfully", { folders } satisfies MailAccountsModel.GetMailFolders.Response);
     // }
 
-    //@TODO implement mail folder fetching
+    // @TODO implement mail folder fetching
 );
 
 router.put('/:mailAccountID',
 
     APIRouteSpec.authenticated({
-        summary: "Update mail account",
+        summary: "Update mail account info",
         description: "Update a field in a mail account.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
 
@@ -156,7 +168,51 @@ router.put('/:mailAccountID',
         )
     }),
 
-    validator("json", MailAccountsModel.UpdateMailAccount.Body),
+    validator("json", MailAccountsModel.UpdateMailAccountInfo.Body),
+
+    async (c) => {
+
+        const body = c.req.valid("json");
+
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+
+
+        if (body.is_default && !mailAccount.is_default) {
+            // If setting this mail account as default, unset all other mail accounts for this user
+            await DB.instance().update(DB.Schema.mailAccounts).set({
+                is_default: false
+            }).where(
+                and(
+                    eq(DB.Schema.mailAccounts.owner_user_id, mailAccount.owner_user_id),
+                    eq(DB.Schema.mailAccounts.is_default, true),
+                    ne(DB.Schema.mailAccounts.id, mailAccount.id)
+                )
+            );
+        }
+
+        await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
+            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        )
+
+        return APIResponse.successNoData(c, "Mail account updated successfully");
+    }
+);
+
+router.put('/:mailAccountID/credentials',
+
+    APIRouteSpec.authenticated({
+        summary: "Update mail account credentials",
+        description: "Update the SMTP/IMAP credentials for a mail account.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Mail account credentials updated successfully"),
+            APIResponseSpec.notFound("Mail account with the specified ID not found")
+        )
+    }),
+
+    validator("json", MailAccountsModel.UpdateMailAccountCredentials.Body),
 
     async (c) => {
 
@@ -172,7 +228,7 @@ router.put('/:mailAccountID',
             eq(DB.Schema.mailAccounts.id, mailAccount.id)
         )
 
-        return APIResponse.successNoData(c, "Mail account updated successfully");
+        return APIResponse.successNoData(c, "Mail account credentials updated successfully");
     }
 );
 
