@@ -30,8 +30,8 @@ describe("IMAP Mail Client Tests", () => {
         expect(mailboxes.length).toBe(7)
 
         expect(mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();
-        expect(mailboxes.find(mb => mb.path === "INBOX.Privat" && mb.name === "Privat")).toBeDefined();
-        expect(mailboxes.find(mb => mb.path === "INBOX.Work" && mb.name === "Work")).toBeDefined();
+        expect(mailboxes.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();
+        expect(mailboxes.find(mb => mb.path === "INBOX/Work" && mb.name === "Work")).toBeDefined();
         expect(mailboxes.find(mb => mb.name === "Sent")).toBeDefined();
         expect(mailboxes.find(mb => mb.name === "Drafts")).toBeDefined();
         expect(mailboxes.find(mb => mb.name === "Spam")).toBeDefined();
