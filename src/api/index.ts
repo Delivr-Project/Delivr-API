@@ -5,6 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 import { setupDocs } from "./docs";
 import { cors } from "hono/cors";
 import { HTTPException } from 'hono/http-exception'
+import { ConfigHandler } from "../utils/config";
 
 export class API {
 
@@ -68,9 +69,15 @@ export class API {
 			return c.json({ status: "Delivr API is running" });
 		});
 
-        this.app.get("/", (c) => {
-            return c.redirect("/docs");
-        });
+        const config = ConfigHandler.getConfig();
+		const enableDocs = config?.DLA_DISABLE_DOCS !== true;
+
+		if (enableDocs) {
+			this.app.get("/", (c) => {
+				return c.redirect("/docs");
+			});
+			setupDocs(this.app);
+		}
 
 		setupDocs(this.app);
 
