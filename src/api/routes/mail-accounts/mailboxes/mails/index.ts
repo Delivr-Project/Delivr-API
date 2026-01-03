@@ -33,7 +33,7 @@ router.get('/',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         const query = c.req.valid('query');
         
@@ -97,7 +97,7 @@ router.use('/:mailUID/*',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         // @ts-ignore
         const { mailUID } = c.req.valid('param') as MailsModel.Param;

@@ -125,8 +125,8 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
             {
                 name: "Mail Accounts / Mailboxes / Mails",
                 // @ts-ignore
-                "x-displayName": "Mails",
-                summary: "Mails",
+                "x-displayName": "Mailboxes / Mails",
+                summary: "Mailboxes / Mails",
                 parent: "Mail Accounts / Mailboxes",
                 description: "Endpoints for managing mails",
             },

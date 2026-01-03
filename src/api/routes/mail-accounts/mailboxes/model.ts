@@ -4,7 +4,7 @@ import type { MailboxRessource } from "../../../../utils/mails/ressources/mailbo
 
 export namespace MailboxesModel {
     
-    export const Mailbox = z.object({
+    export const BASE = z.object({
         name: z.string(),
         path: z.string(),
         delimiter: z.string(),
@@ -14,14 +14,7 @@ export namespace MailboxesModel {
         specialUse: z.string().optional()
     });
 
-    export type Mailbox = Utils.SameType<z.infer<typeof Mailbox>, MailboxRessource.IMailbox>;
-
-
-    export const MailboxStatus = z.object({
-        messages: z.number().min(0).meta({ title: "Total number of messages in the mailbox" }),
-        recent: z.number().min(0).meta({ title: "Number of recent messages in the mailbox" }),
-        unseen: z.number().min(0).meta({ title: "Number of unseen (unread) messages in the mailbox" })
-    });
+    export type BASE = Utils.SameType<z.infer<typeof BASE>, MailboxRessource.IMailbox>;
 
     export const Params = z.object({
         mailboxPath: z.codec(
@@ -39,7 +32,7 @@ export namespace MailboxesModel {
 
 export namespace MailboxesModel.GetByPath {
 
-    export const Response = MailboxesModel.Mailbox.omit({
+    export const Response = MailboxesModel.BASE.omit({
         
     });
 
@@ -57,7 +50,7 @@ export namespace MailboxesModel.GetAll {
 
 export namespace MailboxesModel.Create {
 
-    export const Body = MailboxesModel.Mailbox.pick({
+    export const Body = MailboxesModel.BASE.pick({
         path: true
     });
 
@@ -65,9 +58,21 @@ export namespace MailboxesModel.Create {
 
 }
 
+export namespace MailboxesModel.GetMailboxStatus {
+
+    export const Response = z.object({
+        messages: z.number().min(0).meta({ title: "Total number of messages in the mailbox" }),
+        recent: z.number().min(0).meta({ title: "Number of recent messages in the mailbox" }),
+        unseen: z.number().min(0).meta({ title: "Number of unseen (unread) messages in the mailbox" })
+    });
+    
+    export type Response = Utils.SameType<z.infer<typeof Response>, MailboxRessource.MailboxStatus>;
+
+}
+
 export namespace MailboxesModel.Update {
 
-    export const Body = MailboxesModel.Mailbox.pick({
+    export const Body = MailboxesModel.BASE.pick({
         name: true
     });
 

@@ -108,9 +108,45 @@ router.get('/:mailboxPath',
 
     async (c) => {
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         return APIResponse.success(c, "Mailbox info retrieved successfully", mailbox satisfies MailboxesModel.GetByPath.Response);
+    }
+);
+
+router.get('/:mailboxPath/status',
+
+    APIRouteSpec.authenticated({
+        summary: "Get Mailbox Status",
+        description: "Retrieve status information about a specific mail mailbox for the specified mail account.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Mailbox status retrieved successfully", MailboxesModel.GetMailboxStatus.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            const status = await imap.getMailboxStatus(mailbox.path);
+            if (!status) {
+                return APIResponse.serverError(c, `Failed to retrieve status for mailbox with path ${mailbox.path}`);
+            }
+
+            return APIResponse.success(c, "Mailbox status retrieved successfully", status satisfies MailboxesModel.GetMailboxStatus.Response);
+        } catch (e) {
+            Logger.error(`Failed to retrieve status for mail mailbox with path ${mailbox.path}`, e);
+            return APIResponse.serverError(c, `Failed to retrieve status for mail mailbox with path ${mailbox.path}`);
+        }
     }
 );
 
@@ -135,7 +171,7 @@ router.put('/:mailboxPath',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
@@ -168,7 +204,7 @@ router.delete('/:mailboxPath',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
