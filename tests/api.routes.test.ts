@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test, beforeAll } from "bun:test";
 import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
@@ -12,6 +12,9 @@ import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 
+type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
+type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
+
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
     const user = DB.instance().insert(DB.Schema.users).values({
         username: overrides.username ?? `user_${randomUUID().slice(0, 8)}`,
@@ -21,16 +24,21 @@ async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.Use
         role,
     } as any).returning().get();
 
-    return { ...user, password } as Omit<typeof user & { password: string }, "password_hash">;
+    return { ...user, password } as Omit<typeof user & { password: string }, "password_hash"> satisfies SeededUser;
 }
 
 async function seedSession(user_id: number) {
     const session = await SessionHandler.createSession(user_id);
-    return session;
+    return session satisfies SeededSession;
 }
 
-let testAdmin = await seedUser("admin", { username: "testadmin" }, "AdminP@ss1");
-let testUser = await seedUser("user", { username: "testuser" }, "UserP@ss1");
+let testUser: SeededUser;
+let testAdmin: SeededUser;
+
+beforeAll(async () => {
+    testUser = await seedUser("user", { username: "testuser" }, "UserP@ss1");
+    testAdmin = await seedUser("admin", { username: "testadmin" }, "AdminP@ss1");
+});
 
 describe("Auth routes and access checks", async () => {
 
@@ -110,7 +118,10 @@ describe("Auth routes and access checks", async () => {
 
 describe("Account routes", async () => {
 
-    let session_token = await seedSession(testUser.id).then(s => s.token);
+    let session_token: string;
+    beforeAll(async () => {
+        session_token = await seedSession(testUser.id).then(s => s.token);
+    });
 
     test("GET /account returns current user", async () => {
 
@@ -251,8 +262,13 @@ describe("Account routes", async () => {
 
 describe("Mail Account Routes", async () => {
 
-    const mailAccountTestUser = await seedUser("user", { username: "mailaccountuser" }, "MailAccP@ss1");
-    const session_token = await seedSession(mailAccountTestUser.id).then(s => s.token);
+    let mailAccountTestUser: SeededUser;
+    let session_token: string;
+
+    beforeAll(async () => {
+        mailAccountTestUser = await seedUser("user", { username: "mailaccountuser" }, "MailAccP@ss1");
+        session_token = await seedSession(mailAccountTestUser.id).then(s => s.token);
+    });
 
     const mailAccountIDs: number[] = [];
 
@@ -537,28 +553,34 @@ describe("Mail Account Routes", async () => {
 });
 
 describe("Mail Identity Routes", async () => {
-    
-    const mailIdentityTestUser = await seedUser("user", { username: "mailidentityuser" }, "MailIdentP@ss1");
-    const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
 
-    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
-        owner_user_id: mailIdentityTestUser.id,
+    let mailIdentityTestUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
 
-        display_name: "Test Mail Account",
+    beforeAll(async () => {
+        mailIdentityTestUser = await seedUser("user", { username: "mailidentityuser" }, "MailIdentP@ss1");
+        session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
 
-        smtp_host: "smtp.example.com",
-        smtp_port: 587,
-        smtp_encryption: "STARTTLS",
-        smtp_username: "smtpuser",
-        smtp_password: "smtppass",
+        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: mailIdentityTestUser.id,
 
-        imap_host: "imap.example.com",
-        imap_port: 993,
-        imap_encryption: "SSL",
-        imap_username: "imapuser",
-        imap_password: "imappass"
+            display_name: "Test Mail Account",
 
-    }).returning().get().id;
+            smtp_host: "smtp.example.com",
+            smtp_port: 587,
+            smtp_encryption: "STARTTLS",
+            smtp_username: "smtpuser",
+            smtp_password: "smtppass",
+
+            imap_host: "imap.example.com",
+            imap_port: 993,
+            imap_encryption: "SSL",
+            imap_username: "imapuser",
+            imap_password: "imappass"
+
+        }).returning().get().id;
+    });
     
     const mailIdentityIDs: number[] = [];
 
@@ -749,8 +771,10 @@ describe("Mail Identity Routes", async () => {
 
 describe("Mail Mailbox Routes", async () => {
 
-    const mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
-    const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+    let mailIdentityTestUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
+    let testIMAPClient: IMAPAccount;
 
     const connectionSettings = {
         smtp_host: "127.0.0.1",
@@ -766,19 +790,26 @@ describe("Mail Mailbox Routes", async () => {
         imap_password: "testpass"
     } as const;
 
-    const testIMAPClient = await IMAPAccount.fromConfig({
-        host: connectionSettings.imap_host,
-        port: connectionSettings.imap_port,
-        username: connectionSettings.imap_username,
-        password: connectionSettings.imap_password,
-        useSSL: connectionSettings.imap_encryption
-    }).connect();
+    beforeAll(async () => {
 
-    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
-        owner_user_id: mailIdentityTestUser.id,
-        display_name: "Test Mail Account",
-        ...connectionSettings
-    }).returning().get().id;
+        mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
+        session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+
+        testIMAPClient = await IMAPAccount.fromConfig({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        }).connect();
+
+        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: mailIdentityTestUser.id,
+            display_name: "Test Mail Account",
+            ...connectionSettings
+        }).returning().get().id;
+
+    });
     
     test("POST /mail-accounts/:mailAccountID/mailboxes creates new mailbox / folder", async () => {
 
@@ -857,6 +888,23 @@ describe("Mail Mailbox Routes", async () => {
 
     });
 
+
+
+    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath deletes specific mail mailbox", async () => {
+
+        const mailboxPath = "INBOX/Social Media";
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
+            method: "DELETE",
+            authToken: session_token,
+        });
+
+        expect(await testIMAPClient.getMailbox(mailboxPath)).toBeNull();
+    });
+
+    afterAll(async () => {
+        await testIMAPClient.disconnect();
+    })
 });
 
 describe("Docs Routes", async () => {
