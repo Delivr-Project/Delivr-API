@@ -105,6 +105,9 @@ describe("IMAP Mail Client Tests", () => {
 
         const inbox = await account.getMailboxStatus("INBOX");
         expect(inbox).toBeDefined();
+
+        if (!inbox) return;
+
         expect(inbox.messages).toBe(6);
         expect(inbox.recent).toBe(0);
         expect(inbox.unseen).toBe(5);

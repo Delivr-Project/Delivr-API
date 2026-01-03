@@ -9,8 +9,22 @@ import { MailAccountsModel } from "../model";
 import { router as attachmentsRouter } from "./attachments";
 import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../utils/logger";
+import { MailAccountsFoldersModel } from "../folders/model";
+import { MailFolderService } from "../../../utils/services/mailFolderService";
 
 export const router = new Hono();
+
+router.use('/:folderPath/*',
+
+    validator('param', MailAccountsFoldersModel.Params),
+
+    async (c, next) => {
+        // @ts-ignore
+        const { folderPath } = c.req.valid('param') as MailAccountsFoldersModel.Params;
+        
+        return MailFolderService.folderMiddleware(c, next, folderPath);
+    }
+);
 
 router.get('/',
 

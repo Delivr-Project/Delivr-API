@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MailRessource } from "../../../../utils/mails/mail";
+import { MailRessource } from "../../../../utils/mails/ressources/mail";
 import type { Utils } from "../../../../utils";
 
 export namespace MailsModel {

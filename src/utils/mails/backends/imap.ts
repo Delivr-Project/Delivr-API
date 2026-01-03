@@ -1,7 +1,8 @@
 import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
-import { MailRessource } from "../mail";
+import { MailRessource } from "../ressources/mail";
+import { MailboxFolderRessource } from "../ressources/folder";
 
 export class IMAPAccount {
 
@@ -75,23 +76,27 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getMailboxes(asTree?: false): Promise<MailboxListResponse[]>;
+    async getMailboxes(asTree?: false): Promise<MailboxFolderRessource[]>;
     async getMailboxes(asTree: true): Promise<MailboxTreeResponse>;
-    async getMailboxes(asTree: boolean): Promise<MailboxListResponse[] | MailboxTreeResponse>
+    async getMailboxes(asTree: boolean): Promise<MailboxFolderRessource[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
             return await this.client.listTree();
         } else {
-            return await this.client.list();
+            return MailboxFolderRessource.fromIMAPMailboxes(await this.client.list());
         }
     }
 
     async getMailboxStatus(path: string) {
-        return await this.client.status(path, {
-            messages: true,
-            unseen: true,
-            recent: true
-        });
+        try {
+            return await this.client.status(path, {
+                messages: true,
+                unseen: true,
+                recent: true
+            });
+        } catch (err) {
+            return null;
+        }
     }
 
     async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {

@@ -267,4 +267,5 @@ router.delete('/:mailAccountID',
 );
 
 router.route("/:mailAccountID/mails", mailsRouter);
+router.route("/:mailAccountID/folders", mailsRouter);
 router.route("/:mailAccountID/identities", identitiesRouter);

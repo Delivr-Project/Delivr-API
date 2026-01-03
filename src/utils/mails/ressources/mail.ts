@@ -1,5 +1,5 @@
 import type { FetchMessageObject } from "imapflow";
-import { MailParser } from "./parser";
+import { MailParser } from "../parser";
 
 export class MailRessource implements MailRessource.IMail {
 

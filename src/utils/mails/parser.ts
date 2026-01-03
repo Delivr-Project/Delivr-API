@@ -2,7 +2,7 @@ import { simpleParser, type ParsedMail, type Attachment, type AddressObject, typ
 import DOMPurify, { type WindowLike } from 'dompurify';
 import { JSDOM } from 'jsdom';
 import type { Stream } from 'nodemailer/lib/xoauth2';
-import type { MailRessource } from './mail';
+import type { MailRessource } from './ressources/mail';
 
 export class MailParser {
 

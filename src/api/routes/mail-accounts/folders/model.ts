@@ -1,4 +1,3 @@
-import Mail from "nodemailer/lib/mailer";
 import { z } from "zod";
 
 export namespace MailAccountsFoldersModel {
@@ -17,13 +16,6 @@ export namespace MailAccountsFoldersModel {
 
 }
 
-export namespace MailAccountsFoldersModel.GetAll {
-
-    export const Response = z.array(MailAccountsFoldersModel.GetByName.Response);
-    export type Response = z.infer<typeof Response>;
-
-}
-
 export namespace MailAccountsFoldersModel.GetByName {
 
     export const Response = MailAccountsFoldersModel.Base.omit({
@@ -31,6 +23,14 @@ export namespace MailAccountsFoldersModel.GetByName {
     });
 
 }
+
+export namespace MailAccountsFoldersModel.GetAll {
+
+    export const Response = z.array(MailAccountsFoldersModel.GetByName.Response);
+    export type Response = z.infer<typeof Response>;
+
+}
+
 
 export namespace MailAccountsFoldersModel.Create {
 
