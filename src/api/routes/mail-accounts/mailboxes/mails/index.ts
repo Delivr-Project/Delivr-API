@@ -1,37 +1,25 @@
 import { Hono } from "hono";
 import { MailsModel } from "./model";
-import { APIResponse } from "../../../utils/api-res";
-import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
-import { DOCS_TAGS } from "../../../docs";
+import { APIResponse } from "../../../../utils/api-res";
+import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
+import { DOCS_TAGS } from "../../../../docs";
 import { z } from "zod";
 import { validator } from "hono-openapi";
-import { MailAccountsModel } from "../model";
+import { MailAccountsModel } from "../../model";
 import { router as attachmentsRouter } from "./attachments";
-import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
-import { Logger } from "../../../../utils/logger";
-import { MailboxModel } from "../folders/model";
-import { MailboxService } from "../../../utils/services/mailFolderService";
+import { MailClientsCache } from "../../../../../utils/mails/mail-clients-cache";
+import { Logger } from "../../../../../utils/logger";
+import { MailboxesModel } from "../model";
+import { MailboxService } from "../../../../utils/services/maiboxService";
 
 export const router = new Hono();
 
-router.use('/:mailboxPath/*',
-
-    validator('param', MailboxModel.Params),
-
-    async (c, next) => {
-        // @ts-ignore
-        const { mailboxPath } = c.req.valid('param') as MailboxModel.Params;
-        
-        return MailboxService.mailboxMiddleware(c, next, mailboxPath);
-    }
-);
-
-router.get('/:mailboxPath/*',
+router.get('/',
 
     APIRouteSpec.authenticated({
         summary: "List Mails",
         description: "Retrieve a list of mails for a specific mail account.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
 
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mails retrieved successfully", MailsModel.GetAll.Response),
@@ -45,7 +33,7 @@ router.get('/:mailboxPath/*',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxModel.Base;
+        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
 
         const query = c.req.valid('query');
         
@@ -101,7 +89,7 @@ router.get('/:mailboxPath/*',
 //     }
 // );
 
-router.use('/:mailboxPath/:mailUID/*',
+router.use('/:mailUID/*',
     
     validator('param', MailsModel.Param),
 
@@ -109,7 +97,7 @@ router.use('/:mailboxPath/:mailUID/*',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxModel.Base;
+        const mailbox = c.get("mailboxData") as MailboxesModel.Mailbox;
 
         // @ts-ignore
         const { mailUID } = c.req.valid('param') as MailsModel.Param;
@@ -135,12 +123,12 @@ router.use('/:mailboxPath/:mailUID/*',
     }
 );
 
-router.get('/:mailboxPath/:mailUID',
+router.get('/:mailUID',
 
     APIRouteSpec.authenticated({
         summary: "Get Mail",
         description: "Retrieve a specific mail.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILS],
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
 
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail retrieved successfully", MailsModel.GetByUID.Response),
@@ -333,5 +321,5 @@ router.get('/:mailboxPath/:mailUID',
 // );
 
 
-router.route('/:mailboxPath/:mailUID/attachments', attachmentsRouter);
+router.route('/:mailUID/attachments', attachmentsRouter);
 

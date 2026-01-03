@@ -26,7 +26,7 @@ describe("IMAP Mail Client Tests", () => {
     test("Get All Mailboxes", async () => {
         const mailboxes = await account.getMailboxes();
         expect(mailboxes).toBeDefined();
-        console.log(mailboxes);
+
         expect(mailboxes.length).toBe(7)
 
         expect(mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();

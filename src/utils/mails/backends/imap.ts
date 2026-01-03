@@ -2,7 +2,7 @@ import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeRespon
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
-import { MailboxRessource } from "../ressources/folder";
+import { MailboxRessource } from "../ressources/mailbox";
 
 export class IMAPAccount {
 
@@ -94,13 +94,21 @@ export class IMAPAccount {
         return MailboxRessource.fromIMAPMailbox(mailbox);
     }
 
-    async getMailboxStatus(path: string) {
+    async getMailboxStatus(path: string): Promise<MailboxRessource.MailboxStatus | null> {
         try {
-            return await this.client.status(path, {
+            const raw_status = await this.client.status(path, {
                 messages: true,
                 unseen: true,
                 recent: true
             });
+            if (!raw_status || !raw_status.messages || !raw_status.unseen || !raw_status.recent) {
+                return null;
+            }
+            return {
+                messages: raw_status.messages,
+                unseen: raw_status.unseen,
+                recent: raw_status.recent
+            };
         } catch (err) {
             return null;
         }

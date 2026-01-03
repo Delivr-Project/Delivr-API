@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { MailRessource } from "../../../../utils/mails/ressources/mail";
-import type { Utils } from "../../../../utils";
-import { ApiHelperModels } from "../../../utils/shared-models/api-helper-models";
+import { MailRessource } from "../../../../../utils/mails/ressources/mail";
+import type { Utils } from "../../../../../utils";
+import { ApiHelperModels } from "../../../../utils/shared-models/api-helper-models";
 
 export namespace MailsModel {
 

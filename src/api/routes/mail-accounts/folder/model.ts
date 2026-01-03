@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Utils } from "../../../../utils";
-import type { MailboxRessource } from "../../../../utils/mails/ressources/folder";
+import type { MailboxRessource } from "../../../../utils/mails/ressources/mailbox";
 
 export namespace MailboxModel {
     

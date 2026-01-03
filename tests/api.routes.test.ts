@@ -9,6 +9,7 @@ import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
+import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
 
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
@@ -746,7 +747,7 @@ describe("Mail Identity Routes", async () => {
     });
 });
 
-describe("Mail Folders Routes", async () => {
+describe("Mail Mailbox Routes", async () => {
 
     const mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
     const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
@@ -756,20 +757,48 @@ describe("Mail Folders Routes", async () => {
 
         display_name: "Test Mail Account",
 
-        smtp_host: "smtp.example.com",
-        smtp_port: 587,
-        smtp_encryption: "STARTTLS",
-        smtp_username: "smtpuser",
-        smtp_password: "smtpPass1",
+        smtp_host: "127.0.0.1",
+        smtp_port: 11125,
+        smtp_encryption: "NONE",
+        smtp_username: "testuser",
+        smtp_password: "testpass",
 
-        imap_host: "imap.example.com",
-        imap_port: 993,
-        imap_encryption: "SSL",
-        imap_username: "imapuser",
-        imap_password: "imappass"
+        imap_host: "127.0.0.1",
+        imap_port: 11143,
+        imap_encryption: "NONE",
+        imap_username: "testuser",
+        imap_password: "testpass"
 
     }).returning().get().id;
     
-    const mailIdentityIDs: number[] = [];
+    test("GET /mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetAll.Response
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+        expect(data.length).toBeGreaterThan(0);
+
+        expect(data.find(mb => mb.name === "INBOX")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX.Privat" && mb.name === "Privat")).toBeDefined();
+        expect(data.find(mb => mb.path === "INBOX.Work" && mb.name === "Work")).toBeDefined();
+        expect(data.find(mb => mb.name === "Sent")).toBeDefined();
+        expect(data.find(mb => mb.name === "Drafts")).toBeDefined();
+        expect(data.find(mb => mb.name === "Spam")).toBeDefined();
+        expect(data.find(mb => mb.name === "Trash")).toBeDefined();
+
+        const inbox = data.find(f => f.name === "INBOX");
+        expect(inbox).toBeDefined();
+        if (!inbox) return;
+
+        expect(inbox.name).toBe("INBOX");
+        expect(inbox.path).toBe("INBOX");
+        expect(inbox.flags).toBeArray();
+        expect(inbox.delimiter).toBe(".");
+        expect(inbox.parentPath).toBe("");
+        expect(inbox.parent.length).toBe(0);
+    });
 
 });

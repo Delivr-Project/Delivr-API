@@ -57,4 +57,10 @@ export namespace MailboxRessource {
         specialUse?: string;
     }
 
+    export interface MailboxStatus {
+        messages: number;
+        recent: number;
+        unseen: number;
+    }
+
 }

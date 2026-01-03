@@ -62,8 +62,9 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 tags: [
                     "Mail Accounts",
                     "Mail Accounts / Identities",
-                    "Mail Accounts / Folders",
-                    "Mail Accounts / Mails"
+                    "Mail Accounts / Mailboxes",
+                    "Mail Accounts / Mailboxes / Mails",
+                    "Mail Accounts / Mailboxes / Mails / Attachments"
                 ]
             }
         ],
@@ -114,20 +115,28 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 description: "Endpoints for managing mail identities",
             },
             {
-                name: "Mail Accounts / Folders",
+                name: "Mail Accounts / Mailboxes",
                 // @ts-ignore
-                "x-displayName": "Mail Folders",
-                summary: "Mail Folders",
+                "x-displayName": "Mailboxes",
+                summary: "Mailboxes",
                 parent: "Mail Accounts",
-                description: "Endpoints for managing mail folders",
+                description: "Endpoints for managing mailboxes",
             },
             {
-                name: "Mail Accounts / Mails",
+                name: "Mail Accounts / Mailboxes / Mails",
                 // @ts-ignore
                 "x-displayName": "Mails",
                 summary: "Mails",
-                parent: "Mail Accounts",
+                parent: "Mail Accounts / Mailboxes",
                 description: "Endpoints for managing mails",
+            },
+            {
+                name: "Mail Accounts / Mailboxes / Mails / Attachments",
+                // @ts-ignore
+                "x-displayName": "Attachments",
+                summary: "Mail Attachments",
+                parent: "Mail Accounts / Mailboxes / Mails",
+                description: "Endpoints for managing mail attachments",
             }
         ]
     }
@@ -159,7 +168,8 @@ export const DOCS_TAGS = {
     MAIL_ACCOUNTS: {
         BASE: "Mail Accounts",
         IDENTITIES: "Mail Accounts / Identities",
-        FOLDERS: "Mail Accounts / Folders",
-        MAILS: "Mail Accounts / Mails"
+        MAILBOXES: "Mail Accounts / Mailboxes",
+        MAILBOXES_MAILS: "Mail Accounts / Mailboxes / Mails",
+        MAILBOXES_MAILS_ATTACHMENTS: "Mail Accounts / Mailboxes / Mails / Attachments",
     }
 }

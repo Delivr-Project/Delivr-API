@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 import { APIResponse } from "../api-res";
 import { Logger } from "../../../utils/logger";
-import type { MailboxModel } from "../../routes/mail-accounts/folders/model";
+import type { MailboxesModel } from "../../routes/mail-accounts/mailboxes/model";
 
 
 export class MailboxService {
@@ -16,7 +16,7 @@ export class MailboxService {
 
         try {
             await imap.connect();
-            const mailbox = await imap.getMailbox(mailboxPath) satisfies MailboxModel.Base | null;
+            const mailbox = await imap.getMailbox(mailboxPath) satisfies MailboxesModel.Mailbox | null;
 
             if (!mailbox) {
                 return APIResponse.notFound(c, "Mailbox with specified path not found");

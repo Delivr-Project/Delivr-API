@@ -5,7 +5,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
-import { router as mailsRouter } from "./mails";
+import { router as mailboxesRouter } from "./mailboxes";
 import { router as identitiesRouter } from "./identities";
 import { z } from "zod";
 import { AuthHandler } from "../../utils/authHandler";
@@ -239,6 +239,5 @@ router.delete('/:mailAccountID',
     }
 );
 
-router.route("/:mailAccountID/mails", mailsRouter);
-router.route("/:mailAccountID/folders", mailsRouter);
+router.route("/:mailAccountID/mailboxes", mailboxesRouter);
 router.route("/:mailAccountID/identities", identitiesRouter);
