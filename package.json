@@ -8,9 +8,17 @@
         "typecheck": "tsc -p ./tsconfig/tsconfig.typecheck.json && echo 'Typecheck passed!'",
         "test": "bun test",
         "dev": "bun run --watch src/index.ts",
-        "db:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle.config.ts",
-        "db:migrate": "bun scripts/db-utils && drizzle-kit migrate --config=drizzle.config.ts",
-        "db:push": "echo 'Use db:generate db:migrate instead' && exit 1 && bun scripts/db-utils && drizzle-kit push --config=drizzle.config.ts",
+
+        "db:sqlite:generate": "bun scripts/db-utils && drizzle-kit generate --config=drizzle/configs/drizzle.sqlite.config.ts",
+        "db:sqlite:migrate": "bun scripts/db-utils && drizzle-kit migrate --config=drizzle/configs/drizzle.sqlite.config.ts",
+        "db:sqlite:push": "echo 'Use db:generate db:migrate instead' && exit 1 && bun scripts/db-utils && drizzle-kit push --config=drizzle/configs/drizzle.sqlite.config.ts",
+
+        "db:postgresql:generate": "drizzle-kit generate --config=drizzle/configs/drizzle.postgresql.config.ts",
+        "db:postgresql:migrate": "drizzle-kit migrate --config=drizzle/configs/drizzle.postgresql.config.ts",
+
+        "db:mysql:generate": "drizzle-kit generate --config=drizzle/configs/drizzle.mysql.config.ts",
+        "db:mysql:migrate": "drizzle-kit migrate --config=drizzle/configs/drizzle.mysql.config.ts",
+
         "compile": "bun run ./scripts/compile",
         "start": "bun run scripts/entrypoint.ts"
     },
