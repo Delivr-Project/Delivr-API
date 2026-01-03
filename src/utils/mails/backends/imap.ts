@@ -105,7 +105,8 @@ export class IMAPAccount {
             const rawMails = await this.client.fetchAll(`${start}:*`, {
                 envelope: true,
                 flags: true,
-                bodyStructure: true
+                bodyStructure: true,
+                source: true
             });
 
             return await MailRessource.fromIMAPMessages(rawMails);
