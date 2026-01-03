@@ -745,3 +745,31 @@ describe("Mail Identity Routes", async () => {
         ).run();
     });
 });
+
+describe("Mail Folders Routes", async () => {
+
+    const mailIdentityTestUser = await seedUser("user", { username: "mailfoldersuser" }, "MailFoldP@ss1");
+    const session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+
+    const mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        owner_user_id: mailIdentityTestUser.id,
+
+        display_name: "Test Mail Account",
+
+        smtp_host: "smtp.example.com",
+        smtp_port: 587,
+        smtp_encryption: "STARTTLS",
+        smtp_username: "smtpuser",
+        smtp_password: "smtpPass1",
+
+        imap_host: "imap.example.com",
+        imap_port: 993,
+        imap_encryption: "SSL",
+        imap_username: "imapuser",
+        imap_password: "imappass"
+
+    }).returning().get().id;
+    
+    const mailIdentityIDs: number[] = [];
+
+});

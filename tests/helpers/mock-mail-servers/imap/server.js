@@ -544,6 +544,10 @@ IMAPServer.prototype.indexFolders = function() {
                 this.processMessage(message, curBranch);
             }).bind(this));
 
+            if (namespace === "INBOX" && curBranch.folders && Object.keys(curBranch.folders).length) {
+                walkTree(curPath, separator, curBranch.folders, "");
+            }
+
             if (namespace !== "INBOX" && curBranch.folders && Object.keys(curBranch.folders).length) {
                 walkTree(curPath, separator, curBranch.folders, namespace);
             }
@@ -558,7 +562,7 @@ IMAPServer.prototype.indexFolders = function() {
 
     Object.keys(this.storage).forEach((function(key) {
         if (key === "INBOX") {
-            walkTree("", "/", this.storage, "INBOX");
+            walkTree("", this.storage[key].separator || key.substr(-1) || "/", this.storage, "INBOX");
         } else {
             this.storage[key].folders = this.storage[key].folders || {};
             this.storage[key].separator = this.storage[key].separator || key.substr(-1) || "/";
