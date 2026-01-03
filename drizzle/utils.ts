@@ -6,7 +6,7 @@ export function createDrizzleConfig(dialect: 'sqlite' | 'postgresql' | 'mysql') 
         schema: './src/db/schema.ts',
         dialect: dialect,
         dbCredentials: {
-            url: process.env.DLA_DB_PATH ?? dialect === 'sqlite' ? './data/db.sqlite' : '',
+            url: process.env.DLA_DB_CONNECTION_URL!!,
         },
         verbose: true,
         strict: true

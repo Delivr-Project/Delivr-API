@@ -116,7 +116,7 @@ export class ConfigHandler {
         .add("DLA_LOG_DIR", false)
         .add("DLA_CONFIG_BASE_DIR", false)
 
-        .add("DLA_DB_PATH", false)
+        .add("DLA_DB_CONNECTION_URL", false)
         .add("DLA_DB_AUTO_MIGRATE", false, [true, false]);
 
 

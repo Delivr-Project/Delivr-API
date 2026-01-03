@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite';
-import * as TableSchema from './schema';
+import * as TableSchema from './schemas/sqlite';
 import { randomBytes as crypto_randomBytes } from 'crypto';
 import { type DrizzleDB } from './utils';
 import { Logger } from '../utils/logger';
@@ -23,7 +23,7 @@ export class DB {
         this.db = drizzle(path);
         if (autoMigrate) {
             Logger.info("Running database migrations...");
-            await migrate(this.db, { migrationsFolder: "drizzle" });
+            await migrate(this.db, { migrationsFolder: "drizzle/migrations/sqlite" });
             Logger.info("Database migrations completed.");
         }
 
