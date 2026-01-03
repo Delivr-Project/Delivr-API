@@ -10,13 +10,7 @@ import { AccountModel } from "../src/api/routes/account/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
-<<<<<<< HEAD
-import { apiKeys } from "../src/db/schema";
-import { ConfigHandler } from "../src/utils/config";
-=======
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
->>>>>>> a4949a3ceeffbf7188a5ef4fa31483159cc0fe58
-
 
 async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
     const user = DB.instance().insert(DB.Schema.users).values({
@@ -866,18 +860,21 @@ describe("Mail Mailbox Routes", async () => {
 });
 
 describe("Docs Routes", async () => {
+    
     test("GET /docs/openapi returns API docs if enabled", async () => {
-        const data = await makeAPIRequest(`/docs/openapi`, {}, 200);
+        await makeAPIRequest(`/docs/openapi`, {}, 200);
     });
 
     test("GET /docs returns API docs UI if enabled", async () => {
-        const data = await makeAPIRequest(`/docs`, {}, 200);
+        await makeAPIRequest(`/docs`, {}, 200);
     });
 
     test("GET /docs/openapi returns 404 if disabled", async () => {
+
         await API.stop();
         await API.init([], true);
         await API.start(14123, "::");
-        const data = await makeAPIRequest(`/docs/openapi`, {}, 404);
+
+        await makeAPIRequest(`/docs/openapi`, {}, 404);
     });
 });
