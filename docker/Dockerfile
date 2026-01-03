@@ -1,11 +1,15 @@
 FROM oven/bun:latest
 
-WORKDIR /app
+FROM debian:stable-slim
 
-COPY . .
+RUN apt-get update && apt-get install -y ca-certificates openssl
 
-RUN bun install
+WORKDIR /opt/delivr-api
 
-EXPOSE 14123
+COPY ./build/bin/delivr-api-linux-x64-baseline /usr/local/bin/delivr-api
 
-CMD [ "bun", "start" ]
+RUN chmod u+x /usr/local/bin/delivr-api
+
+EXPOSE 14123/tcp
+
+ENTRYPOINT ["delivr-api"]
