@@ -1,4 +1,4 @@
-import { ImapFlow, type ListResponse, type ListTreeResponse } from "imapflow";
+import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../mail";
@@ -75,9 +75,9 @@ export class IMAPAccount {
         return this.isConnected;
     }
     
-    async getMailboxes(asTree?: false): Promise<ListResponse[]>;
-    async getMailboxes(asTree: true): Promise<ListTreeResponse>;
-    async getMailboxes(asTree: boolean): Promise<ListResponse[] | ListTreeResponse>
+    async getMailboxes(asTree?: false): Promise<MailboxListResponse[]>;
+    async getMailboxes(asTree: true): Promise<MailboxTreeResponse>;
+    async getMailboxes(asTree: boolean): Promise<MailboxListResponse[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
             return await this.client.listTree();

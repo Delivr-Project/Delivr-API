@@ -7,9 +7,6 @@ import { z } from "zod";
 import { validator } from "hono-openapi";
 import { MailAccountsModel } from "../model";
 import { router as attachmentsRouter } from "./attachments";
-import { IMAPAccount } from "../../../../utils/mails/backends/imap";
-import { SMTPAccount } from "../../../../utils/mails/backends/smtp";
-import MailComposer from "nodemailer/lib/mail-composer";
 import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../utils/logger";
 
