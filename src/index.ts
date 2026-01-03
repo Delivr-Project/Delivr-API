@@ -50,6 +50,8 @@ export class Main {
             await CronJobHandler.stopAll();
             await API.stop();
             await MailClientsCache.clearAllClients();
+            await DB.close();
+            
             Logger.log("Shutdown complete, exiting.");
             process.exit(code);
         } catch {

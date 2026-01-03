@@ -74,6 +74,14 @@ export class DB {
         return DB.db;
     }
 
+    static async close() {
+        if (!this.db) return;
+        
+        Logger.info("Database connection closed.");
+        this.db.$client.close();
+        await Bun.sleep(100);
+    }
+
 }
 
 

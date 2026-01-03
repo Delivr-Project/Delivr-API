@@ -27,7 +27,7 @@ describe("IMAP Mail Client Tests", () => {
         const mailboxes = await account.getMailboxes();
         expect(mailboxes).toBeDefined();
 
-        expect(mailboxes.length).toBe(7)
+        expect(mailboxes.length).toBe(7);
 
         expect(mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();
         expect(mailboxes.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();

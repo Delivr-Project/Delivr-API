@@ -135,8 +135,10 @@ afterAll(async () => {
 
     mockIMAPServer.close();
 
-    if (TMP_ROOT) {
+    await DB.close();
 
+    if (TMP_ROOT) {
+        
         await fs.rm(TMP_ROOT, { recursive: true, force: true });
     }
 });
