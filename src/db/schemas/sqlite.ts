@@ -1,20 +1,18 @@
-import type { TaskHandler } from '@cleverjs/utils';
-import { desc, is, sql } from 'drizzle-orm';
 import {
     sqliteTable,
-    int,
+    integer,
     text
 } from 'drizzle-orm/sqlite-core';
-import { SQLUtils } from './utils';
-import { UserAccountSettings } from '../api/utils/shared-models/accountData';
-import { InetModels } from '../api/utils/shared-models/inetModels';
+import { SQLUtils } from '../utils';
+import { UserAccountSettings } from '../../api/utils/shared-models/accountData';
+import { InetModels } from '../../api/utils/shared-models/inetModels';
 
 /**
  * @deprecated Use DB.Schema.users instead
  */
 export const users = sqliteTable('users', {
-    id: int().primaryKey({ autoIncrement: true }),
-    created_at: SQLUtils.getCreatedAtColumn(),
+    id: integer().primaryKey({ autoIncrement: true }),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
     username: text().notNull().unique(),
     display_name: text().notNull(),
     email: text().notNull().unique(),
@@ -29,9 +27,9 @@ export const users = sqliteTable('users', {
  */
 export const passwordResets = sqliteTable('password_resets', {
     token: text().primaryKey(),
-    user_id: int().notNull().references(() => users.id),
-    created_at: SQLUtils.getCreatedAtColumn(),
-    expires_at: int().notNull()
+    user_id: integer().notNull().references(() => users.id),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
+    expires_at: integer().notNull()
 });
 
 /**
@@ -40,12 +38,12 @@ export const passwordResets = sqliteTable('password_resets', {
 export const sessions = sqliteTable('sessions', {
     id: text().primaryKey(),
     hashed_token: text().notNull(),
-    user_id: int().notNull().references(() => users.id),
+    user_id: integer().notNull().references(() => users.id),
     user_role: text({
         enum: UserAccountSettings.Roles
     }).notNull().references(() => users.role),
-    created_at: SQLUtils.getCreatedAtColumn(),
-    expires_at: int().notNull()
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
+    expires_at: integer().notNull()
 });
 
 /**
@@ -54,13 +52,13 @@ export const sessions = sqliteTable('sessions', {
 export const apiKeys = sqliteTable('api_keys', {
     id: text().primaryKey(),
     hashed_token: text().notNull(),
-    user_id: int().notNull().references(() => users.id),
+    user_id: integer().notNull().references(() => users.id),
     user_role: text({
         enum: UserAccountSettings.Roles
     }).notNull().references(() => users.role),
     description: text().notNull(),
-    created_at: SQLUtils.getCreatedAtColumn(),
-    expires_at: int(),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
+    expires_at: integer(),
 });
 
 
@@ -68,14 +66,14 @@ export const apiKeys = sqliteTable('api_keys', {
  * @deprecated Use DB.Schema.mailAccounts instead
  */
 export const mailAccounts = sqliteTable('mail_accounts', {
-    id: int().primaryKey({ autoIncrement: true }),
-    owner_user_id: int().notNull().references(() => users.id),
-    created_at: SQLUtils.getCreatedAtColumn(),
+    id: integer().primaryKey({ autoIncrement: true }),
+    owner_user_id: integer().notNull().references(() => users.id),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
 
     display_name: text().notNull(),
 
     smtp_host: text().notNull(),
-    smtp_port: int().notNull(),
+    smtp_port: integer().notNull(),
     smtp_username: text().notNull(),
     smtp_password: text().notNull(),
     smtp_encryption: text({
@@ -83,7 +81,7 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     }).notNull(),
     
     imap_host: text().notNull(),
-    imap_port: int().notNull(),
+    imap_port: integer().notNull(),
     imap_username: text().notNull(),
     imap_password: text().notNull(),
     imap_encryption: text({
@@ -91,22 +89,22 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     }).notNull(),
 
     // is this the default mail account for the user
-    is_default: int({ mode: "boolean" }).notNull().default(false)
+    is_default: integer({ mode: "boolean" }).notNull().default(false)
 });
 
 /**
  * @deprecated Use DB.Schema.mailIdentities instead
  */
 export const mailIdentities = sqliteTable('mail_identities', {
-    id: int().primaryKey({ autoIncrement: true }),
-    mail_account_id: int().notNull().references(() => mailAccounts.id),
-    created_at: SQLUtils.getCreatedAtColumn(),
+    id: integer().primaryKey({ autoIncrement: true }),
+    mail_account_id: integer().notNull().references(() => mailAccounts.id),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
     
     display_name: text().notNull(),
     email_address: text().notNull(),
 
     // is this the default identity for the mail account
-    is_default: int({ mode: "boolean" }).notNull().default(false)
+    is_default: integer({ mode: "boolean" }).notNull().default(false)
 });
 
 /**
