@@ -9,6 +9,7 @@ import { MailClientsCache } from "../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../utils/logger";
 import { MailboxService } from "../../../utils/services/maiboxService";
 import { router as mailsRouter } from "./mails";
+import { MailAccountsModel } from "../model";
 
 export const router = new Hono();
 

@@ -82,9 +82,21 @@ export class IMAPAccount {
     async getMailboxes(asTree: boolean): Promise<MailboxRessource[] | MailboxTreeResponse>
     async getMailboxes(asTree = false) {
         if (asTree) {
-            return await this.client.listTree();
+            return await this.client.listTree({
+                statusQuery: {
+                    messages: true,
+                    unseen: true,
+                    recent: true
+                }
+            });
         } else {
-            return MailboxRessource.fromIMAPMailboxes(await this.client.list());
+            return MailboxRessource.fromIMAPMailboxes(await this.client.list({
+                statusQuery: {
+                    messages: true,
+                    unseen: true,
+                    recent: true
+                }
+            }));
         }
     }
 

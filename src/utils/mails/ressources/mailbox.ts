@@ -9,6 +9,7 @@ export class MailboxRessource implements MailboxRessource.IMailbox {
     readonly parentPath: string;
     readonly flags: string[];
     readonly specialUse?: string;
+    readonly status: MailboxRessource.MailboxStatus;
 
     constructor(data: MailboxRessource.IMailbox) {
         this.name = data.name;
@@ -18,9 +19,10 @@ export class MailboxRessource implements MailboxRessource.IMailbox {
         this.parentPath = data.parentPath;
         this.flags = data.flags;
         this.specialUse = data.specialUse;
+        this.status = data.status;
     }
 
-    static async fromIMAPMailbox(mailbox: MailboxListResponse): Promise<MailboxRessource> {
+    static async fromIMAPMailbox(mailbox: MailboxListResponse): Promise<MailboxRessource | null> {
         return new MailboxRessource({
             name: mailbox.name,
             path: mailbox.path,
@@ -28,12 +30,25 @@ export class MailboxRessource implements MailboxRessource.IMailbox {
             parent: mailbox.parent,
             parentPath: mailbox.parentPath,
             flags: mailbox.flags.values().toArray(),
-            specialUse: mailbox.specialUse
+            specialUse: mailbox.specialUse,
+            status: {
+                messages: mailbox.status?.messages || 0,
+                unseen: mailbox.status?.unseen || 0,
+                recent: mailbox.status?.recent || 0
+            }
         });
     }
 
-    static fromIMAPMailboxes(mailboxes: MailboxListResponse[]): Promise<MailboxRessource[]> {
-        return Promise.all(mailboxes.map(mailbox => this.fromIMAPMailbox(mailbox)));
+    static async fromIMAPMailboxes(mailboxes: MailboxListResponse[]): Promise<MailboxRessource[]> {
+        const result: MailboxRessource[] = [];
+
+        for (const mailbox of mailboxes) {
+            const res = await this.fromIMAPMailbox(mailbox);
+            if (res) {
+                result.push(res);
+            }
+        }
+        return result;
     }
 }
 
@@ -55,6 +70,8 @@ export namespace MailboxRessource {
         flags: string[];
         /** One of special-use flags (if applicable) */
         specialUse?: string;
+        /** Mailbox status information */
+        status: MailboxStatus;
     }
 
     export interface MailboxStatus {
