@@ -4,6 +4,12 @@ import type { MailboxRessource } from "../../../../utils/mails/ressources/mailbo
 
 export namespace MailboxesModel {
     
+    export const MailboxStatus = z.object({
+        messages: z.number().min(0).meta({ title: "Total number of messages in the mailbox" }),
+        recent: z.number().min(0).meta({ title: "Number of recent messages in the mailbox" }),
+        unseen: z.number().min(0).meta({ title: "Number of unseen (unread) messages in the mailbox" })
+    });
+
     export const BASE = z.object({
         name: z.string(),
         path: z.string(),
@@ -11,7 +17,8 @@ export namespace MailboxesModel {
         parent: z.array(z.string()),
         parentPath: z.string(),
         flags: z.array(z.string()),
-        specialUse: z.string().optional()
+        specialUse: z.string().optional(),
+        status: MailboxStatus
     });
 
     export type BASE = Utils.SameType<z.infer<typeof BASE>, MailboxRessource.IMailbox>;
@@ -60,11 +67,7 @@ export namespace MailboxesModel.Create {
 
 export namespace MailboxesModel.GetMailboxStatus {
 
-    export const Response = z.object({
-        messages: z.number().min(0).meta({ title: "Total number of messages in the mailbox" }),
-        recent: z.number().min(0).meta({ title: "Number of recent messages in the mailbox" }),
-        unseen: z.number().min(0).meta({ title: "Number of unseen (unread) messages in the mailbox" })
-    });
+    export const Response = MailboxesModel.MailboxStatus;
     
     export type Response = Utils.SameType<z.infer<typeof Response>, MailboxRessource.MailboxStatus>;
 
