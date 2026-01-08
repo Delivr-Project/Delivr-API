@@ -24,7 +24,6 @@ async function loadTestEnv(filePath: string) {
                 process.env[key] = value;
             }
         }
-        process.env.DLA_ENCRYPTION_KEY = LCrypt.randomBytes(32).toString("hex");
     } catch (err: any) {
         if (err?.code !== "ENOENT") throw err;
     }
@@ -114,6 +113,7 @@ const mockIMAPServer = new MockIMAPServer({
 beforeAll(async () => {
     await loadTestEnv(TEST_ENV_FILE);
 
+    process.env.DLA_ENCRYPTION_KEY = LCrypt.randomBytes(32).toString("hex");
     const config = await ConfigHandler.loadConfig();
 
     TMP_ROOT = await createIsolatedDataDir();
