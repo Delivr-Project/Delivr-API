@@ -5,6 +5,7 @@ import { Logger } from "./utils/logger";
 import { Utils } from "./utils";
 import { MailClientsCache } from "./utils/mails/mail-clients-cache";
 import { CronJobHandler } from "./utils/cron";
+import { MailAccountEncryption } from "./utils/crypto/mailCrypt";
 
 export class Main {
 
@@ -19,6 +20,8 @@ export class Main {
         const config = await ConfigHandler.loadConfig();
 
         Logger.setLogLevel(config.DLA_LOG_LEVEL ?? "info");
+
+        await MailAccountEncryption.init(config.DLA_ENCRYPTION_KEY!);
 
         await DB.init(
             config.DLA_DB_CONNECTION_URL ?? "./data/db.sqlite",

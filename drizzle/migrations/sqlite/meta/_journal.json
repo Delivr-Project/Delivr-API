@@ -50,6 +50,20 @@
       "when": 1767388100348,
       "tag": "0006_puzzling_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1767899613673,
+      "tag": "0007_hesitant_proteus",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1767899655611,
+      "tag": "0008_melted_talos",
+      "breakpoints": true
     }
   ]
 }
