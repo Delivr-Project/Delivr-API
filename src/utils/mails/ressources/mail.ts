@@ -6,16 +6,16 @@ export class MailRessource implements MailRessource.IMail {
     readonly uid: number;
     readonly rawHeaders: MailRessource.MailHeaders = {};
     readonly from?: MailRessource.EmailAddress;
-    readonly to?: MailRessource.EmailAddress[];
-    readonly cc?: MailRessource.EmailAddress[];
-    readonly bcc?: MailRessource.EmailAddress[];
+    readonly to: MailRessource.EmailAddress[];
+    readonly cc: MailRessource.EmailAddress[];
+    readonly bcc: MailRessource.EmailAddress[];
     readonly subject?: string;
     readonly inReplyTo?: string;
     readonly replyTo?: MailRessource.EmailAddress;
     readonly references?: string | string[];
     readonly date?: number;
     readonly attachments: MailRessource.MailAttachment[] = [];
-    readonly body?: MailRessource.MailBody;
+    readonly body: MailRessource.MailBody;
 
     constructor(data: MailRessource.IMail) {
         this.uid = data.uid;
@@ -97,9 +97,9 @@ export namespace MailRessource {
         uid: number;
         rawHeaders: MailHeaders;
         from?: EmailAddress;
-        to?: EmailAddress[];
-        cc?: EmailAddress[];
-        bcc?: EmailAddress[];
+        to: EmailAddress[];
+        cc: EmailAddress[];
+        bcc: EmailAddress[];
         subject?: string;
         // @todo add replyTo
         inReplyTo?: string;
@@ -107,7 +107,7 @@ export namespace MailRessource {
         references?: string | string[];
         date?: number;
         attachments: MailAttachment[];
-        body?: MailBody;
+        body: MailBody;
     }
 
     export interface EmailAddress {
