@@ -888,11 +888,32 @@ describe("Mail Mailbox Routes", async () => {
 
     });
 
+    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath updates specific mail mailbox", async () => {
 
+        const newMailboxPath = "INBOX/Socials";
+        const oldMailboxPath = "INBOX/Social Media";
+
+        const updatedData = {
+            path: newMailboxPath
+        } satisfies MailboxesModel.Update.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(oldMailboxPath)}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        });
+        // path does not change, only the name
+        const updatedMailbox = await testIMAPClient.getMailbox(newMailboxPath);
+        expect(updatedMailbox).not.toBeNull();
+        if (!updatedMailbox) return;
+
+        expect(updatedMailbox.name).toBe("Socials");
+        expect(updatedMailbox.path).toBe(newMailboxPath);
+    });
 
     test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath deletes specific mail mailbox", async () => {
 
-        const mailboxPath = "INBOX/Social Media";
+        const mailboxPath = "INBOX/Socials";
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
             method: "DELETE",
