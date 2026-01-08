@@ -21,7 +21,7 @@ export class Main {
         Logger.setLogLevel(config.DLA_LOG_LEVEL ?? "info");
 
         await DB.init(
-            config.DLA_DB_PATH ?? "./data/db.sqlite",
+            config.DLA_DB_CONNECTION_URL ?? "./data/db.sqlite",
             config.DLA_DB_AUTO_MIGRATE,
             config.DLA_CONFIG_BASE_DIR ?? "./config"
         );
