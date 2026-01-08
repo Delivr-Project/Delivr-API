@@ -60,5 +60,3 @@ export class FullSignature {
         }
     }
 }
-
-export default Signature;

@@ -12,8 +12,8 @@ import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 import { ConfigHandler } from "../../../utils/config";
-import { ObjectCrypt } from "../../../utils/crypto/objectCrypt";
-import { MailCrypt } from "../../../utils/crypto/mailCrypt";
+import { ObjectEncryption } from "../../../utils/crypto/objectCrypt";
+import { MailAccountEncryption } from "../../../utils/crypto/mailCrypt";
 import { SMTPAccount } from "../../../utils/mails/backends/smtp";
 
 export const router = new Hono().basePath('/mail-accounts');
@@ -39,8 +39,8 @@ router.get('/',
         ).all();
 
         const mailAccounts = mailAccountsRaw.map(account => {
-            const smtpData = MailCrypt.decryptSMTPData(account.smtp_encrypted_connection_data);
-            const imapData = MailCrypt.decryptIMAPData(account.imap_encrypted_connection_data);
+            const smtpData = MailAccountEncryption.decryptSMTPData(account.smtp_encrypted_connection_data);
+            const imapData = MailAccountEncryption.decryptIMAPData(account.imap_encrypted_connection_data);
 
             if (!smtpData || !imapData) {
                 return null;
@@ -59,7 +59,10 @@ router.get('/',
                 imap_password: imapData.password,
                 imap_encryption: imapData.useSSL,
             } satisfies MailAccountsModel.BASE;
-        }).filter(account => account !== null);
+        }) as (MailAccountsModel.BASE)[];
+        if (mailAccounts.includes(null as any)) {
+            return APIResponse.serverError(c, "Failed to decrypt one or more mail account data");
+        }
 
         return APIResponse.success(c, "Mail accounts retrieved successfully", mailAccounts satisfies MailAccountsModel.GetAllMailAccounts.Response);
     }
@@ -96,7 +99,7 @@ router.post('/',
             );
         }
 
-        const encryptedSMTPData = MailCrypt.encryptSMTPData({
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
             host: body.smtp_host,
             port: body.smtp_port,
             username: body.smtp_username,
@@ -104,7 +107,7 @@ router.post('/',
             useSSL: body.smtp_encryption
         });
 
-        const encryptedIMAPData = MailCrypt.encryptIMAPData({
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
             host: body.imap_host,
             port: body.imap_port,
             username: body.imap_username,
@@ -139,19 +142,43 @@ router.use("/:mailAccountID/*",
         // @ts-ignore
         const { mailAccountID } = c.req.valid("param") as MailAccountsModel.MailAccountIDParams;
 
-        const mailAccount = DB.instance().select().from(DB.Schema.mailAccounts).where(
+        let encryptedMailAccount = DB.instance().select().from(DB.Schema.mailAccounts).where(
             and(
                 eq(DB.Schema.mailAccounts.id, mailAccountID),
                 eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
             )
         ).get();
 
-        if (!mailAccount) {
+        if (!encryptedMailAccount) {
             return APIResponse.notFound(c, "Mail Account with the specified ID not found");
         }
+
+        const smtpData = MailAccountEncryption.decryptSMTPData(encryptedMailAccount.smtp_encrypted_connection_data);
+        const imapData = MailAccountEncryption.decryptIMAPData(encryptedMailAccount.imap_encrypted_connection_data);
+
+        if (!smtpData || !imapData) {
+            return APIResponse.serverError(c, "Failed to decrypt mail account data");
+        }
+
+        const mailAccount = {
+            ...encryptedMailAccount,
+
+            smtp_host: smtpData.host,
+            smtp_port: smtpData.port,
+            smtp_username: smtpData.username,
+            smtp_password: smtpData.password,
+            smtp_encryption: smtpData.useSSL,
+
+            imap_host: imapData.host,
+            imap_port: imapData.port,
+            imap_username: imapData.username,
+            imap_password: imapData.password,
+            imap_encryption: imapData.useSSL
+
+        } satisfies MailAccountsModel.BASE;
         
         // @ts-ignore
-        c.set("mailAccount", mailAccount as MailAccountsModel.BASE);
+        c.set("mailAccount", mailAccount);
 
         await next();
     }
@@ -247,7 +274,7 @@ router.put('/:mailAccountID/credentials',
         // delete cached mail client data to force re-creation with updated settings
         await MailClientsCache.deleteClientData(mailAccount.id);
 
-        const encryptedSMTPData = MailCrypt.encryptSMTPData({
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
             host: body.smtp_host,
             port: body.smtp_port,
             username: body.smtp_username,
@@ -255,7 +282,7 @@ router.put('/:mailAccountID/credentials',
             useSSL: body.smtp_encryption
         });
 
-        const encryptedIMAPData = MailCrypt.encryptIMAPData({
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
             host: body.imap_host,
             port: body.imap_port,
             username: body.imap_username,

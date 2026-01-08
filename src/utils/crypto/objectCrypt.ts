@@ -1,7 +1,7 @@
 import { Uint } from "low-level";
-import LCrypt from "./lcrypt";
+import { LCrypt } from "./lcrypt";
 
-export class ObjectCrypt {
+export class ObjectEncryption {
     static encrypt<T extends object>(obj: T, key: string): string {
         const keyHash = LCrypt.sha256(Uint.from(key, "utf8"));
         const serializableData = this.extractData(obj);

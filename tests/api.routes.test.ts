@@ -11,7 +11,7 @@ import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
-import { MailCrypt } from "../src/utils/crypto/mailCrypt";
+import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { MailsModel } from "../src/api/routes/mail-accounts/mailboxes/mails/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
@@ -36,7 +36,7 @@ async function seedSession(user_id: number) {
 
 async function seedMailAccount(ownerUserId: number) {
 
-    const encryptedSMTPData = MailCrypt.encryptSMTPData({
+    const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
         host: "smtp.example.com",
         port: 587,
         username: "smtpuser",
@@ -44,7 +44,7 @@ async function seedMailAccount(ownerUserId: number) {
         useSSL: "STARTTLS"
     });
 
-    const encryptedIMAPData = MailCrypt.encryptIMAPData({
+    const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
         host: "imap.example.com",
         port: 993,
         username: "imapuser",
@@ -326,8 +326,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        const smtpData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
-        const imapData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
+        const smtpData = MailAccountEncryption.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const imapData = MailAccountEncryption.decryptIMAPData(dbresult.imap_encrypted_connection_data);
 
         expect(smtpData).toBeDefined();
         expect(imapData).toBeDefined();
@@ -371,8 +371,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresults[0]).toBeDefined();
         if (!dbresults[0]) return;
 
-        const decryptedSMTPData = MailCrypt.decryptSMTPData(dbresults[0].smtp_encrypted_connection_data);
-        const decryptedIMAPData = MailCrypt.decryptIMAPData(dbresults[0].imap_encrypted_connection_data);
+        const decryptedSMTPData = MailAccountEncryption.decryptSMTPData(dbresults[0].smtp_encrypted_connection_data);
+        const decryptedIMAPData = MailAccountEncryption.decryptIMAPData(dbresults[0].imap_encrypted_connection_data);
 
         if (!decryptedSMTPData || !decryptedIMAPData) {
             throw new Error("Failed to decrypt mail account data");
@@ -413,8 +413,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        const decryptedSMTPData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
-        const decryptedIMAPData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
+        const decryptedSMTPData = MailAccountEncryption.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const decryptedIMAPData = MailAccountEncryption.decryptIMAPData(dbresult.imap_encrypted_connection_data);
 
         if (!decryptedSMTPData || !decryptedIMAPData) {
             throw new Error("Failed to decrypt mail account data");
@@ -516,8 +516,8 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        const smtpData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
-        const imapData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
+        const smtpData = MailAccountEncryption.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const imapData = MailAccountEncryption.decryptIMAPData(dbresult.imap_encrypted_connection_data);
 
         expect(smtpData).toBeDefined();
         expect(imapData).toBeDefined();
@@ -833,7 +833,7 @@ describe("Mail Mailbox Routes", async () => {
             useSSL: connectionSettings.imap_encryption
         }).connect();
 
-        const encryptedSMTPData = MailCrypt.encryptSMTPData({
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
             host: connectionSettings.smtp_host,
             port: connectionSettings.smtp_port,
             username: connectionSettings.smtp_username,
@@ -841,7 +841,7 @@ describe("Mail Mailbox Routes", async () => {
             useSSL: connectionSettings.smtp_encryption
         });
 
-        const encryptedIMAPData = MailCrypt.encryptIMAPData({
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
             host: connectionSettings.imap_host,
             port: connectionSettings.imap_port,
             username: connectionSettings.imap_username,
@@ -1040,10 +1040,31 @@ describe("Mail Mailbox Mails Routes", async () => {
             useSSL: connectionSettings.imap_encryption
         }).connect();
 
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
+            host: connectionSettings.smtp_host,
+            port: connectionSettings.smtp_port,
+            username: connectionSettings.smtp_username,
+            password: connectionSettings.smtp_password,
+            useSSL: connectionSettings.smtp_encryption
+        });
+
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        });
+        
+        if (!encryptedSMTPData || !encryptedIMAPData) {
+            throw new Error("Failed to encrypt mail account data");
+        }
+
         mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
             owner_user_id: mailIdentityTestUser.id,
             display_name: "Test Mail Account",
-            ...connectionSettings
+            smtp_encrypted_connection_data: encryptedSMTPData,
+            imap_encrypted_connection_data: encryptedIMAPData
         }).returning().get().id;
 
     });

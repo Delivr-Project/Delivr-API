@@ -1,27 +1,19 @@
-import { ConfigHandler } from "../config";
 import { Logger } from "../logger";
 import type { IMAPAccount } from "../mails/backends/imap";
 import type { SMTPAccount } from "../mails/backends/smtp";
-import { ObjectCrypt } from "./objectCrypt";
+import { ObjectEncryption } from "./objectCrypt";
 
-export class MailCrypt {
+export class MailAccountEncryption {
 
-    private static getEncryptionKey(): string {
-        const config = ConfigHandler.getConfig();
-        if (!config) {
-            throw new Error("Config File not loaded. Cannot access encryption key.");
+    private static encryptionKey: string | null = null;
+
+    public static init(encryptionKey: string) {
+        if (this.encryptionKey) return; // already initialized
+
+        if (!encryptionKey || encryptionKey.length < 32) {
+            throw new Error("DLA_ENCRYPTION_KEY is not set or is too short. It must be at least 32 characters long.");
         }
-
-        const encryptionKey = config.DLA_ENCRYPTION_KEY;
-        if (!encryptionKey) {
-            throw new Error("No encryption key set in config file (DLA_ENCRYPTION_KEY). Cannot proceed.");
-        }
-
-        if (encryptionKey.length < 32) {
-            throw new Error("Encryption key must be at least 32 characters long.");
-        }
-
-        return encryptionKey;
+        this.encryptionKey = encryptionKey;
     }
 
     /**
@@ -30,8 +22,10 @@ export class MailCrypt {
      */
     static encryptSMTPData(data: SMTPAccount.ConfigOptions): string | null {
         try {
-            const encryptionKey = this.getEncryptionKey();
-            return ObjectCrypt.encrypt(data, encryptionKey);
+            if (!this.encryptionKey) {
+                throw new Error("Encryption key is not initialized. Call MailAccountEncryption.init() first.");
+            }
+            return ObjectEncryption.encrypt(data, this.encryptionKey);
         } catch (error) {
             Logger.error("Failed to encrypt SMTP data:", error);
             return null;
@@ -44,8 +38,10 @@ export class MailCrypt {
      */
     static decryptSMTPData(encryptedData: string): SMTPAccount.ConfigOptions | null {
         try {
-            const encryptionKey = this.getEncryptionKey();
-            const decryptedData = ObjectCrypt.decrypt<SMTPAccount.ConfigOptions>(encryptedData, encryptionKey);
+            if (!this.encryptionKey) {
+                throw new Error("Encryption key is not initialized. Call MailAccountEncryption.init() first.");
+            }
+            const decryptedData = ObjectEncryption.decrypt<SMTPAccount.ConfigOptions>(encryptedData, this.encryptionKey);
 
             if (!decryptedData || typeof decryptedData !== "object") {
                 throw new Error("Decrypted SMTP data is not a valid object.");
@@ -68,8 +64,10 @@ export class MailCrypt {
      */
     static encryptIMAPData(data: IMAPAccount.ConfigOptions): string | null {
         try {
-            const encryptionKey = this.getEncryptionKey();
-            return ObjectCrypt.encrypt(data, encryptionKey);
+            if (!this.encryptionKey) {
+                throw new Error("Encryption key is not initialized. Call MailAccountEncryption.init() first.");
+            }
+            return ObjectEncryption.encrypt(data, this.encryptionKey);
         } catch (error) {
             Logger.error("Failed to encrypt IMAP data:", error);
             return null;
@@ -82,8 +80,10 @@ export class MailCrypt {
      */
     static decryptIMAPData(encryptedData: string): IMAPAccount.ConfigOptions | null {
         try {
-            const encryptionKey = this.getEncryptionKey();
-            const decryptedData = ObjectCrypt.decrypt<IMAPAccount.ConfigOptions>(encryptedData, encryptionKey);
+            if (!this.encryptionKey) {
+                throw new Error("Encryption key is not initialized. Call MailAccountEncryption.init() first.");
+            }
+            const decryptedData = ObjectEncryption.decrypt<IMAPAccount.ConfigOptions>(encryptedData, this.encryptionKey);
 
             if (!decryptedData || typeof decryptedData !== "object") {
                 throw new Error("Decrypted IMAP data is not a valid object.");

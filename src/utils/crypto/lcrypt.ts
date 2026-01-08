@@ -93,5 +93,3 @@ export class LCrypt {
     }
 
 }
-
-export default LCrypt;
