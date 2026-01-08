@@ -894,7 +894,7 @@ describe("Mail Mailbox Routes", async () => {
         const oldMailboxPath = "INBOX/Social Media";
 
         const updatedData = {
-            name: newMailboxPath
+            path: newMailboxPath
         } satisfies MailboxesModel.Update.Body;
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(oldMailboxPath)}`, {

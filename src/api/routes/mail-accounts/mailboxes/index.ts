@@ -178,7 +178,7 @@ router.put('/:mailboxPath',
 
         try {
             await imap.connect();
-            await imap.renameMailbox(mailbox.path, body.name);
+            await imap.renameMailbox(mailbox.path, body.path);
 
             return APIResponse.successNoData(c, "Mailbox updated successfully");
         } catch (e) {
