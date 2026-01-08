@@ -47,5 +47,3 @@ export class ObjectCrypt {
     }
 
 }
-
-export default ObjectCrypt;

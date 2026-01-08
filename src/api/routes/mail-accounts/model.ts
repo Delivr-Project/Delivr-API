@@ -6,7 +6,7 @@ import { InetModels } from "../../utils/shared-models/inetModels";
 
 export namespace MailAccountsModel {
 
-    export const BASE = createSelectSchema(DB.Schema.mailAccounts, {
+    export const BASE = createSelectSchema(DB.Schema.mailAccounts).extend({
         id: z.int().positive(),
         created_at: z.int().positive(),
 
@@ -27,6 +27,9 @@ export namespace MailAccountsModel {
         imap_password: z.string().min(1, "IMAP password must not be empty").max(1023, "IMAP password must be at most 1023 characters"),
         
         is_default: z.boolean(),
+    }).omit({
+        smtp_encrypted_connection_data: true,
+        imap_encrypted_connection_data: true
     });
 
     export type BASE = z.infer<typeof BASE>;

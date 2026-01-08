@@ -11,6 +11,7 @@ import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
+import { MailCrypt } from "../src/utils/crypto/mailCrypt";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -30,6 +31,39 @@ async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.Use
 async function seedSession(user_id: number) {
     const session = await SessionHandler.createSession(user_id);
     return session satisfies SeededSession;
+}
+
+async function seedMailAccount(ownerUserId: number) {
+
+    const encryptedSMTPData = MailCrypt.encryptSMTPData({
+        host: "smtp.example.com",
+        port: 587,
+        username: "smtpuser",
+        password: "smtppass",
+        useSSL: "STARTTLS"
+    });
+
+    const encryptedIMAPData = MailCrypt.encryptIMAPData({
+        host: "imap.example.com",
+        port: 993,
+        username: "imapuser",
+        password: "imappass",
+        useSSL: "SSL"
+    });
+
+    if (!encryptedSMTPData || !encryptedIMAPData) {
+        throw new Error("Failed to encrypt mail account data");
+    }
+
+    // Seed a mail account
+    const mailAccount = await DB.instance().insert(DB.Schema.mailAccounts).values({
+        owner_user_id: ownerUserId,
+        display_name: "Test Mail Account",
+        smtp_encrypted_connection_data: encryptedSMTPData,
+        imap_encrypted_connection_data: encryptedIMAPData
+    }).returning().get();
+
+    return mailAccount;
 }
 
 let testUser: SeededUser;
@@ -216,24 +250,7 @@ describe("Account routes", async () => {
     test("DELETE /account fails because of existing mail accounts", async () => {
         
         // Seed a mail account
-        const mailAccountID = await DB.instance().insert(DB.Schema.mailAccounts).values({
-            owner_user_id: testUser.id,
-
-            display_name: "Test Mail Account",
-
-            smtp_host: "smtp.example.com",
-            smtp_port: 587,
-            smtp_encryption: "STARTTLS",
-            smtp_username: "smtpuser",
-            smtp_password: "smtppass",
-
-            imap_host: "imap.example.com",
-            imap_port: 993,
-            imap_encryption: "SSL",
-            imap_username: "imapuser",
-            imap_password: "imappass"
-
-        }).returning().get().id;
+        const mailAccountID = (await seedMailAccount(testUser.id)).id;
 
         await makeAPIRequest("/account", {
             method: "DELETE",
@@ -308,17 +325,25 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        expect(dbresult.smtp_host).toBe(mailAccountData.smtp_host);
-        expect(dbresult.smtp_port).toBe(mailAccountData.smtp_port);
-        expect(dbresult.smtp_encryption).toBe(mailAccountData.smtp_encryption);
-        expect(dbresult.smtp_username).toBe(mailAccountData.smtp_username);
-        expect(dbresult.smtp_password).toBe(mailAccountData.smtp_password);
-        expect(dbresult.imap_host).toBe(mailAccountData.imap_host);
-        expect(dbresult.imap_port).toBe(mailAccountData.imap_port);
-        expect(dbresult.imap_encryption).toBe(mailAccountData.imap_encryption);
-        expect(dbresult.imap_username).toBe(mailAccountData.imap_username);
-        expect(dbresult.imap_password).toBe(mailAccountData.imap_password);
+        const smtpData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const imapData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
 
+        expect(smtpData).toBeDefined();
+        expect(imapData).toBeDefined();
+        if (!smtpData || !imapData) {
+            throw new Error("Failed to decrypt mail account data");
+        }
+        
+        expect(smtpData.host).toBe(mailAccountData.smtp_host);
+        expect(smtpData.port).toBe(mailAccountData.smtp_port);
+        expect(smtpData.useSSL).toBe(mailAccountData.smtp_encryption);
+        expect(smtpData.username).toBe(mailAccountData.smtp_username);
+        expect(smtpData.password).toBe(mailAccountData.smtp_password);
+        expect(imapData.host).toBe(mailAccountData.imap_host);
+        expect(imapData.port).toBe(mailAccountData.imap_port);
+        expect(imapData.useSSL).toBe(mailAccountData.imap_encryption);
+        expect(imapData.username).toBe(mailAccountData.imap_username);
+        expect(imapData.password).toBe(mailAccountData.imap_password);
         expect(dbresult.is_default).toBe(mailAccountData.is_default);
 
         mailAccountIDs.push(data.id);
@@ -345,16 +370,23 @@ describe("Mail Account Routes", async () => {
         expect(dbresults[0]).toBeDefined();
         if (!dbresults[0]) return;
 
+        const decryptedSMTPData = MailCrypt.decryptSMTPData(dbresults[0].smtp_encrypted_connection_data);
+        const decryptedIMAPData = MailCrypt.decryptIMAPData(dbresults[0].imap_encrypted_connection_data);
+
+        if (!decryptedSMTPData || !decryptedIMAPData) {
+            throw new Error("Failed to decrypt mail account data");
+        }
+
         expect(data[0].id).toBe(dbresults[0]?.id);
-        expect(data[0].smtp_host).toBe(dbresults[0]?.smtp_host);
-        expect(data[0].imap_host).toBe(dbresults[0]?.imap_host);
+        expect(data[0].smtp_host).toBe(decryptedSMTPData.host);
+        expect(data[0].imap_host).toBe(decryptedIMAPData.host);
         expect(data[0].created_at).toBe(dbresults[0]?.created_at);
-        expect(data[0].smtp_port).toBe(dbresults[0]?.smtp_port);
-        expect(data[0].smtp_encryption).toBe(dbresults[0]?.smtp_encryption);
-        expect(data[0].smtp_username).toBe(dbresults[0]?.smtp_username);
-        expect(data[0].imap_port).toBe(dbresults[0]?.imap_port);
-        expect(data[0].imap_encryption).toBe(dbresults[0]?.imap_encryption);
-        expect(data[0].imap_username).toBe(dbresults[0]?.imap_username);
+        expect(data[0].smtp_port).toBe(decryptedSMTPData.port);
+        expect(data[0].smtp_encryption).toBe(decryptedSMTPData.useSSL);
+        expect(data[0].smtp_username).toBe(decryptedSMTPData.username);
+        expect(data[0].imap_port).toBe(decryptedIMAPData.port);
+        expect(data[0].imap_encryption).toBe(decryptedIMAPData.useSSL);
+        expect(data[0].imap_username).toBe(decryptedIMAPData.username);
     });
 
     test("Get /mail-accounts/:mailAccountID retrieves specific mail account", async () => {
@@ -380,14 +412,21 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        expect(data.smtp_host).toBe(dbresult.smtp_host);
-        expect(data.smtp_port).toBe(dbresult.smtp_port);
-        expect(data.smtp_encryption).toBe(dbresult.smtp_encryption);
-        expect(data.smtp_username).toBe(dbresult.smtp_username);
-        expect(data.imap_host).toBe(dbresult.imap_host);
-        expect(data.imap_port).toBe(dbresult.imap_port);
-        expect(data.imap_encryption).toBe(dbresult.imap_encryption);
-        expect(data.imap_username).toBe(dbresult.imap_username);
+        const decryptedSMTPData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const decryptedIMAPData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
+
+        if (!decryptedSMTPData || !decryptedIMAPData) {
+            throw new Error("Failed to decrypt mail account data");
+        }
+
+        expect(data.smtp_host).toBe(decryptedSMTPData.host);
+        expect(data.smtp_port).toBe(decryptedSMTPData.port);
+        expect(data.smtp_encryption).toBe(decryptedSMTPData.useSSL);
+        expect(data.smtp_username).toBe(decryptedSMTPData.username);
+        expect(data.imap_host).toBe(decryptedIMAPData.host);
+        expect(data.imap_port).toBe(decryptedIMAPData.port);
+        expect(data.imap_encryption).toBe(decryptedIMAPData.useSSL);
+        expect(data.imap_username).toBe(decryptedIMAPData.username);
     });
 
     test("Get /mail-accounts/:mailAccountID with invalid ID fails", async () => {
@@ -476,17 +515,24 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeDefined();
         if (!dbresult) return;
 
-        expect(dbresult.smtp_host).toBe(updatedData.smtp_host);
-        expect(dbresult.smtp_port).toBe(updatedData.smtp_port);
-        expect(dbresult.smtp_encryption).toBe(updatedData.smtp_encryption);
-        expect(dbresult.smtp_username).toBe(updatedData.smtp_username);
-        expect(dbresult.smtp_password).toBe(updatedData.smtp_password);
+        const smtpData = MailCrypt.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const imapData = MailCrypt.decryptIMAPData(dbresult.imap_encrypted_connection_data);
 
-        expect(dbresult.imap_host).toBe(updatedData.imap_host);
-        expect(dbresult.imap_port).toBe(updatedData.imap_port);
-        expect(dbresult.imap_encryption).toBe(updatedData.imap_encryption);
-        expect(dbresult.imap_username).toBe(updatedData.imap_username);
-        expect(dbresult.imap_password).toBe(updatedData.imap_password);
+        expect(smtpData).toBeDefined();
+        expect(imapData).toBeDefined();
+        if (!smtpData || !imapData) return;
+
+        expect(smtpData.host).toBe(updatedData.smtp_host);
+        expect(smtpData.port).toBe(updatedData.smtp_port);
+        expect(smtpData.useSSL).toBe(updatedData.smtp_encryption);
+        expect(smtpData.username).toBe(updatedData.smtp_username);
+        expect(smtpData.password).toBe(updatedData.smtp_password);
+
+        expect(imapData.host).toBe(updatedData.imap_host);
+        expect(imapData.port).toBe(updatedData.imap_port);
+        expect(imapData.useSSL).toBe(updatedData.imap_encryption);
+        expect(imapData.username).toBe(updatedData.imap_username);
+        expect(imapData.password).toBe(updatedData.imap_password);
     });
 
     test("PUT /mail-accounts/:mailAccountID/credentials with invalid ID fails", async () => {
@@ -562,24 +608,7 @@ describe("Mail Identity Routes", async () => {
         mailIdentityTestUser = await seedUser("user", { username: "mailidentityuser" }, "MailIdentP@ss1");
         session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
-            owner_user_id: mailIdentityTestUser.id,
-
-            display_name: "Test Mail Account",
-
-            smtp_host: "smtp.example.com",
-            smtp_port: 587,
-            smtp_encryption: "STARTTLS",
-            smtp_username: "smtpuser",
-            smtp_password: "smtppass",
-
-            imap_host: "imap.example.com",
-            imap_port: 993,
-            imap_encryption: "SSL",
-            imap_username: "imapuser",
-            imap_password: "imappass"
-
-        }).returning().get().id;
+        mailAccountID = (await seedMailAccount(mailIdentityTestUser.id)).id;
     });
     
     const mailIdentityIDs: number[] = [];
@@ -803,10 +832,31 @@ describe("Mail Mailbox Routes", async () => {
             useSSL: connectionSettings.imap_encryption
         }).connect();
 
+        const encryptedSMTPData = MailCrypt.encryptSMTPData({
+            host: connectionSettings.smtp_host,
+            port: connectionSettings.smtp_port,
+            username: connectionSettings.smtp_username,
+            password: connectionSettings.smtp_password,
+            useSSL: connectionSettings.smtp_encryption
+        });
+
+        const encryptedIMAPData = MailCrypt.encryptIMAPData({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        });
+        
+        if (!encryptedSMTPData || !encryptedIMAPData) {
+            throw new Error("Failed to encrypt mail account data");
+        }
+
         mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
             owner_user_id: mailIdentityTestUser.id,
             display_name: "Test Mail Account",
-            ...connectionSettings
+            smtp_encrypted_connection_data: encryptedSMTPData,
+            imap_encrypted_connection_data: encryptedIMAPData
         }).returning().get().id;
 
     });

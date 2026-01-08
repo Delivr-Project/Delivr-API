@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test, beforeAll } from "bun:test";
 import { SMTPAccount } from "../src/utils/mails/backends/smtp";
 import { InetModels } from "../src/api/utils/shared-models/inetModels";
-import ObjectCrypt from "../src/utils/crypto/objectCrypt";
+import { ObjectCrypt } from "../src/utils/crypto/objectCrypt";
 import LCrypt from "../src/utils/crypto/lcrypt";
 
 describe("Utility Tests", () => {
