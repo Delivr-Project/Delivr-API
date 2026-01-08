@@ -101,7 +101,6 @@ export class MailParser {
 
     private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody {
         const body: MailRessource.MailBody = {};
-        console.log("Raw HTML:", html, "Raw Text:", text);
         if (text) {
             body.text = text;
         }
