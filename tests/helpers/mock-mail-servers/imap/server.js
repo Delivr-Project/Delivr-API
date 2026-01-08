@@ -472,6 +472,8 @@ IMAPServer.prototype.deleteMailbox = function(path, keepContents) {
         parentKey = folderPath.join(storage.separator);
         if (parentKey !== "INBOX") {
             parent = this.folderCache[folderPath.join(storage.separator)] || parent;
+        } else {
+            parent = this.folderCache.INBOX || parent;
         }
 
         if (mailbox.folders && Object.keys(mailbox.folders).length && !keepContents) {

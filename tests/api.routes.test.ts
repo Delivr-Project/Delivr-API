@@ -12,6 +12,7 @@ import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailCrypt } from "../src/utils/crypto/mailCrypt";
+import { MailsModel } from "../src/api/routes/mail-accounts/mailboxes/mails/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -938,11 +939,48 @@ describe("Mail Mailbox Routes", async () => {
 
     });
 
+    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath updates specific mail mailbox", async () => {
 
+        const newMailboxPath = "INBOX/Socials";
+        const oldMailboxPath = "INBOX/Social Media";
+
+        const updatedData = {
+            path: newMailboxPath
+        } satisfies MailboxesModel.Update.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(oldMailboxPath)}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        });
+        // path does not change, only the name
+        const updatedMailbox = await testIMAPClient.getMailbox(newMailboxPath);
+        expect(updatedMailbox).not.toBeNull();
+        if (!updatedMailbox) return;
+
+        expect(updatedMailbox.name).toBe("Socials");
+        expect(updatedMailbox.path).toBe(newMailboxPath);
+    });
+
+    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+        
+        const invalidMailboxPath = "NONEXISTENT";
+
+        const updatedData = {
+            path: "INBOX/DoesNotMatter"
+        } satisfies MailboxesModel.Update.Body;
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: updatedData
+        }, 404);
+
+    });
 
     test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath deletes specific mail mailbox", async () => {
 
-        const mailboxPath = "INBOX/Social Media";
+        const mailboxPath = "INBOX/Socials";
 
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
             method: "DELETE",
@@ -952,9 +990,107 @@ describe("Mail Mailbox Routes", async () => {
         expect(await testIMAPClient.getMailbox(mailboxPath)).toBeNull();
     });
 
+    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+        
+        const invalidMailboxPath = "NONEXISTENT";
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+            method: "DELETE",
+            authToken: session_token,
+        }, 404);
+
+    });
+
     afterAll(async () => {
         await testIMAPClient.disconnect();
     })
+});
+
+describe("Mail Mailbox Mails Routes", async () => {
+
+    let mailIdentityTestUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
+    let testIMAPClient: IMAPAccount;
+
+    const connectionSettings = {
+        smtp_host: "127.0.0.1",
+        smtp_port: 11125,
+        smtp_encryption: "NONE",
+        smtp_username: "testuser",
+        smtp_password: "testpass",
+
+        imap_host: "127.0.0.1",
+        imap_port: 11143,
+        imap_encryption: "NONE",
+        imap_username: "testuser",
+        imap_password: "testpass"
+    } as const;
+
+    beforeAll(async () => {
+
+        mailIdentityTestUser = await seedUser("user", { username: "mailstestuser" }, "MailsTestP@ss1");
+        session_token = await seedSession(mailIdentityTestUser.id).then(s => s.token);
+
+        testIMAPClient = await IMAPAccount.fromConfig({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        }).connect();
+
+        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: mailIdentityTestUser.id,
+            display_name: "Test Mail Account",
+            ...connectionSettings
+        }).returning().get().id;
+
+    });
+
+    afterAll(async () => {
+        await testIMAPClient.disconnect();
+    })
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails creates new draft mail", async () => {
+
+        // Implement when api routes are available
+
+    });
+
+    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails retrieves mails in mailbox", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetAll.Response
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+
+        expect(data.length).toBeGreaterThanOrEqual(0);
+
+        const mail = data[3];
+        expect(mail).toBeDefined();
+        if (!mail) return;
+
+        expect(mail.uid).toBe(4);
+        expect(mail.subject).toBe("hello 4");
+
+        expect(mail.from).toBeDefined();
+        if (!mail.from) return;
+        expect(mail.from).toEqual({ name: "sender name", address: "sender@example.com" });
+        
+        expect(mail.to[0]).toBeDefined();
+        if (!mail.to[0]) return;
+        expect(mail.to[0]).toEqual({ name: "Receiver name", address: "receiver@example.com" });
+
+        expect(mail.date).toBe(new Date("Fri, 13 Sep 2013 15:01:00 +0300").getTime());
+
+        expect(mail.body?.text).toBeDefined();
+        if (!mail.body?.text) return;
+        expect(mail.body.text.trim()).toBe("World 4!");
+    });
+
 });
 
 describe("Docs Routes", async () => {

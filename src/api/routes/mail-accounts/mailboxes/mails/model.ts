@@ -33,16 +33,16 @@ export namespace MailsModel {
         uid: z.number(),
         rawHeaders: z.record(z.string(), z.string()),
         from: EmailAddress.optional(),
-        to: z.array(EmailAddress).optional(),
-        cc: z.array(EmailAddress).optional(),
-        bcc: z.array(EmailAddress).optional(),
+        to: z.array(EmailAddress),
+        cc: z.array(EmailAddress),
+        bcc: z.array(EmailAddress),
         subject: z.string().optional(),
         inReplyTo: z.string().optional(),
         replyTo: EmailAddress.optional(),
         references: z.union([z.string(), z.array(z.string())]).optional(),
         date: z.number().optional(),
         attachments: z.array(MailAttachment),
-        body: MailBody.optional()
+        body: MailBody
     });
 
     export type Mail = Utils.SameType<z.infer<typeof Mail>, MailRessource.IMail>;

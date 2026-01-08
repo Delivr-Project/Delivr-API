@@ -51,10 +51,10 @@ export class MailParser {
     private static parseAddresses(addressObject: AddressObject | undefined, forceArray: boolean): MailRessource.EmailAddress | MailRessource.EmailAddress[] | undefined;
 
     private static parseAddresses(addressObject?: AddressObject | AddressObject[], forceArray?: false): MailRessource.EmailAddress | MailRessource.EmailAddress[] | undefined;
-    private static parseAddresses(addressObject: AddressObject | AddressObject[] | undefined, forceArray: boolean): MailRessource.EmailAddress[] | undefined;
+    private static parseAddresses(addressObject: AddressObject | AddressObject[] | undefined, forceArray: boolean): MailRessource.EmailAddress[];
 
     private static parseAddresses(addressObject?: AddressObject | AddressObject[], forceArray: boolean = false) {
-        if (!addressObject) return undefined;
+        if (!addressObject) return forceArray ? [] : undefined;
         
         const isArray = Array.isArray(addressObject);
 
@@ -71,10 +71,10 @@ export class MailParser {
         }
 
         if (isArray) {
-            return addresses.length > 0 ? addresses : undefined;
+            return addresses;
         } else {
             if (forceArray) {
-                return addresses.length > 0 ? addresses : undefined;
+                return addresses;
             }
             return addresses.length > 0 ? addresses[0] : undefined;
         }
@@ -99,9 +99,8 @@ export class MailParser {
         }));
     }
 
-    private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody | undefined {
+    private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody {
         const body: MailRessource.MailBody = {};
-
         if (text) {
             body.text = text;
         }
@@ -110,9 +109,7 @@ export class MailParser {
             body.html = this.sanitizeHtml(html);
         }
         
-        if (Object.keys(body).length === 0) {
-            return undefined;
-        }
+        return body;
     }
 
     /**

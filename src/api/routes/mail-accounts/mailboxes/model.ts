@@ -76,7 +76,7 @@ export namespace MailboxesModel.GetMailboxStatus {
 export namespace MailboxesModel.Update {
 
     export const Body = MailboxesModel.BASE.pick({
-        name: true
+        path: true
     });
 
     export type Body = z.infer<typeof Body>;
