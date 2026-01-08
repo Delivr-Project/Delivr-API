@@ -114,7 +114,7 @@ beforeAll(async () => {
     await loadTestEnv(TEST_ENV_FILE);
 
     process.env.DLA_ENCRYPTION_KEY = LCrypt.randomBytes(32).toString("hex");
-    const config = await ConfigHandler.loadConfig();
+    await ConfigHandler.loadConfig();
 
     TMP_ROOT = await createIsolatedDataDir();
 
