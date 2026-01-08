@@ -128,15 +128,26 @@ export class IMAPAccount {
     }
 
     async createMailbox(path: string) {
-        await this.client.mailboxCreate(path);
+        const result = await this.client.mailboxCreate(path);
+        if (path !== result.path || !result.created) {
+            return false;
+        }
     }
 
     async renameMailbox(oldPath: string, newPath: string) {
-        await this.client.mailboxRename(oldPath, newPath);
+        const result = await this.client.mailboxRename(oldPath, newPath);
+        if (oldPath !== result.path || newPath !== result.newPath) {
+            return false;
+        }
+        return true;
     }
 
     async deleteMailbox(path: string) {
-        await this.client.mailboxDelete(path);
+        const result = await this.client.mailboxDelete(path);
+        if (path !== result.path) {
+            return false;
+        }
+        return true;
     }
 
     async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {
