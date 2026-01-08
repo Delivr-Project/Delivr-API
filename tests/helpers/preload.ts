@@ -5,6 +5,8 @@ import { ConfigHandler } from "../../src/utils/config";
 import { DB } from "../../src/db";
 import { API } from "../../src/api";
 import { MockIMAPServer } from "./mock-mail-servers/imap/server";
+import { Utils } from "../../src/utils";
+import LCrypt from "../../src/utils/crypto/lcrypt";
 
 // Allow overriding the env file used for tests without clobbering existing env vars.
 const TEST_ENV_FILE = process.env.TEST_ENV_FILE ?? ".env.local";
@@ -111,7 +113,8 @@ const mockIMAPServer = new MockIMAPServer({
 beforeAll(async () => {
     await loadTestEnv(TEST_ENV_FILE);
 
-    // const config = await ConfigHandler.loadConfig();
+    process.env.DLA_ENCRYPTION_KEY = LCrypt.randomBytes(32).toString("hex");
+    const config = await ConfigHandler.loadConfig();
 
     TMP_ROOT = await createIsolatedDataDir();
 

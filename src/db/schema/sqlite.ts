@@ -72,21 +72,24 @@ export const mailAccounts = sqliteTable('mail_accounts', {
 
     display_name: text().notNull(),
 
-    smtp_host: text().notNull(),
-    smtp_port: integer().notNull(),
-    smtp_username: text().notNull(),
-    smtp_password: text().notNull(),
-    smtp_encryption: text({
-        enum: InetModels.Mail.EncryptionTypes
-    }).notNull(),
+    // smtp_host: text().notNull(),
+    // smtp_port: integer().notNull(),
+    // smtp_username: text().notNull(),
+    // smtp_password: text().notNull(),
+    // smtp_encryption: text({
+    //     enum: InetModels.Mail.EncryptionTypes
+    // }).notNull(),
     
-    imap_host: text().notNull(),
-    imap_port: integer().notNull(),
-    imap_username: text().notNull(),
-    imap_password: text().notNull(),
-    imap_encryption: text({
-        enum: InetModels.Mail.EncryptionTypes
-    }).notNull(),
+    // imap_host: text().notNull(),
+    // imap_port: integer().notNull(),
+    // imap_username: text().notNull(),
+    // imap_password: text().notNull(),
+    // imap_encryption: text({
+    //     enum: InetModels.Mail.EncryptionTypes
+    // }).notNull(),
+
+    smtp_encrypted_connection_data: text().notNull(),
+    imap_encrypted_connection_data: text().notNull(),
 
     // is this the default mail account for the user
     is_default: integer({ mode: "boolean" }).notNull().default(false)
