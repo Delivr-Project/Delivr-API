@@ -25,7 +25,7 @@ async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.Use
         role,
     } as any).returning().get();
 
-    return { ...user, password } as Omit<typeof user & { password: string }, "password_hash"> satisfies SeededUser;
+    return { ...user, password } satisfies SeededUser;
 }
 
 async function seedSession(user_id: number) {
@@ -120,6 +120,7 @@ describe("Auth routes and access checks", async () => {
 describe("Account routes", async () => {
 
     let session_token: string;
+    
     beforeAll(async () => {
         session_token = await seedSession(testUser.id).then(s => s.token);
     });
