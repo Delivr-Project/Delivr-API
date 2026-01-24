@@ -30,7 +30,8 @@ export namespace AccountAPIKeysModel.Create {
             z.literal("180d").meta({ title: "180 days" }),
             z.literal("365d").meta({ title: "365 days" }),
             z.literal(null).meta({ title: "No expiration" })
-        ])
+        ]),
+        description: z.string().min(1, "Description cannot be empty").max(255, "Description cannot exceed 255 characters")
     }).omit({
         id: true,
         user_id: true,
