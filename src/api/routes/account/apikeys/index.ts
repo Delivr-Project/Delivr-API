@@ -7,7 +7,7 @@ import { APIResponse } from "../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
 import { APIKeyHandler, AuthHandler, AuthUtils, SessionHandler } from "../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
-import { z } from "zod";
+import z from "zod";
 
 export const router = new Hono().basePath('/apikeys');
 
@@ -32,7 +32,12 @@ router.get('/',
             eq(DB.Schema.apiKeys.user_id, authContext.user_id)
         ).all();
 
-        const apiKeysWithoutSensitive = apiKeys.map(key => AccountAPIKeysModel.GetById.Response.parse(key));
+        const apiKeysWithoutSensitive = apiKeys.map(key => ({
+            id: key.id,
+            description: key.description,
+            created_at: key.created_at,
+            expires_at: key.expires_at
+        }));
 
         return APIResponse.success(c, "API keys retrieved successfully", apiKeysWithoutSensitive);
     }
