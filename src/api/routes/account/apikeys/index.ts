@@ -7,6 +7,7 @@ import { APIResponse } from "../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
 import { APIKeyHandler, AuthHandler, AuthUtils, SessionHandler } from "../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
+import { z } from "zod";
 
 export const router = new Hono().basePath('/apikeys');
 
@@ -100,6 +101,65 @@ router.post('/',
 );
 
 
+router.use('/:apiKeyID/*',
+
+    validator("param", z.object({
+        apiKeyID: z.string().min(1).max(255)
+    })),
+
+    async (c, next) => {
+        // @ts-ignore
+        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
+
+        // @ts-ignore
+        const apiKeyID = (c.req.valid("param") as { apiKeyID: string }).apiKeyID;
+
+        const apiKey = await DB.instance().select().from(DB.Schema.apiKeys).where(and(
+            eq(DB.Schema.apiKeys.id, apiKeyID),
+            eq(DB.Schema.apiKeys.user_id, authContext.user_id)
+        )).get();
+
+        if (!apiKey) {
+            return APIResponse.notFound(c, "API key not found");
+        }
+
+        // @ts-ignore
+        c.set("apiKey", apiKey);
+
+        await next();
+    }
+
+);
+
+router.get('/:apiKeyID',
+
+    APIRouteSpec.authenticated({
+        summary: "Get API key details",
+        description: "Retrieve details of a specific API key by its ID for the authenticated user's account.",
+        tags: [DOCS_TAGS.ACCOUNT_API_KEYS],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("API key retrieved successfully", AccountAPIKeysModel.GetById.Response),
+            APIResponseSpec.notFound("API key not found")
+        ) 
+    }),
+
+    async (c) => {
+        // @ts-ignore
+        const apiKey = c.get("apiKey") as DB.Models.ApiKey;
+
+        const apiKeyWithoutSensitive = {
+            id: apiKey.id,
+            description: apiKey.description,
+            created_at: apiKey.created_at,
+            expires_at: apiKey.expires_at
+        }
+
+        return APIResponse.success(c, "API key retrieved successfully", apiKeyWithoutSensitive satisfies AccountAPIKeysModel.GetById.Response);
+    }
+
+);
+
 router.delete('/:apiKeyID',
 
     APIRouteSpec.authenticated({
@@ -115,20 +175,9 @@ router.delete('/:apiKeyID',
 
     async (c) => {
         // @ts-ignore
-        const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
+        const apiKey = c.get("apiKey") as DB.Models.ApiKey;
 
-        const apiKeyID = c.req.param("apiKeyID");
-
-        const apiKey = await DB.instance().select().from(DB.Schema.apiKeys).where(and(
-            eq(DB.Schema.apiKeys.id, apiKeyID),
-            eq(DB.Schema.apiKeys.user_id, authContext.user_id)
-        )).get();
-
-        if (!apiKey) {
-            return APIResponse.notFound(c, "API key not found");
-        }
-
-        await APIKeyHandler.deleteApiKey(apiKeyID);
+        await APIKeyHandler.deleteApiKey(apiKey.id);
 
         return APIResponse.successNoData(c, "API key deleted successfully");
     }
