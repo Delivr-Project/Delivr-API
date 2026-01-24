@@ -5,7 +5,7 @@ import { DB } from "../../../../db";
 import { and, eq } from "drizzle-orm";
 import { APIResponse } from "../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../utils/specHelpers";
-import { APIKeyHandler, AuthHandler, SessionHandler } from "../../../utils/authHandler";
+import { APIKeyHandler, AuthHandler, AuthUtils, SessionHandler } from "../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
 
 export const router = new Hono().basePath('/apikeys');
@@ -59,34 +59,42 @@ router.post('/',
 
         const apiKeyData = c.req.valid("json");
 
-        let expirationTimestamp: number | undefined = undefined;
+        let expirationInDays: number | undefined;
 
         switch (apiKeyData.expires_at) {
             case "7d":
-                expirationTimestamp = Date.now() + 7 * 24 * 60 * 60 * 1000;
+                expirationInDays = 7;
                 break;
             case "30d":
-                expirationTimestamp = Date.now() + 30 * 24 * 60 * 60 * 1000;
+                expirationInDays = 30;
                 break;
             case "90d":
-                expirationTimestamp = Date.now() + 90 * 24 * 60 * 60 * 1000;
+                expirationInDays = 90;
                 break;
             case "180d":
-                expirationTimestamp = Date.now() + 180 * 24 * 60 * 60 * 1000;
+                expirationInDays = 180;
                 break;
             case "365d":
-                expirationTimestamp = Date.now() + 365 * 24 * 60 * 60 * 1000;
+                expirationInDays = 365;
                 break;
             default:
-                expirationTimestamp = undefined;
+                expirationInDays = undefined;
                 break
         }
 
-        const key = await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationTimestamp);
+        const key = await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationInDays);
+        const tokenID = AuthUtils.getTokenParts(key.token)?.id;
 
-        const keyWithoutSensitive = AccountAPIKeysModel.Create.Response.parse(key);
+        if (!tokenID) {
+            throw new Error("Failed to parse token ID from generated API key");
+        }
 
-        return APIResponse.success(c, "API key created successfully", keyWithoutSensitive);
+        const keyWithoutSensitive = {
+            id: tokenID,
+            token: key.token
+        }
+
+        return APIResponse.success(c, "API key created successfully", keyWithoutSensitive satisfies AccountAPIKeysModel.Create.Response);
     }
 
 );
