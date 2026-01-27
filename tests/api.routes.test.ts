@@ -17,7 +17,7 @@ import { MailsModel } from "../src/api/routes/mail-accounts/mailboxes/mails/mode
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
 
-async function seedUser(role: "admin" | "user", overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
+async function seedUser(role: DB.Models.User["role"], overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
     const user = DB.instance().insert(DB.Schema.users).values({
         username: overrides.username ?? `user_${randomUUID().slice(0, 8)}`,
         display_name: overrides.display_name ?? "Test User",
