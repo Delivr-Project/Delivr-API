@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { DB } from "../../db";
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
 import type { Context } from "hono";
+import type { UserAccountSettings } from "./shared-models/accountData";
 
 export class AuthUtils {
 
@@ -132,7 +133,7 @@ export class SessionHandler {
         await DB.instance().delete(DB.Schema.sessions).where(eq(DB.Schema.sessions.id, tokenID));
     }
 
-    static async changeUserRoleInSessions(userID: number, newRole: "admin" | "user") {
+    static async changeUserRoleInSessions(userID: number, newRole: UserAccountSettings.Role) {
         await DB.instance().update(DB.Schema.sessions).set({
             user_role: newRole
         }).where(
@@ -218,7 +219,7 @@ export class APIKeyHandler {
         await DB.instance().delete(DB.Schema.apiKeys).where(eq(DB.Schema.apiKeys.id, apiKeyID));
     }
 
-    static async changeUserRoleInApiKeys(userID: number, newRole: "admin" | "user") {
+    static async changeUserRoleInApiKeys(userID: number, newRole: UserAccountSettings.Role) {
         await DB.instance().update(DB.Schema.apiKeys).set({
             user_role: newRole
         }).where(
@@ -301,7 +302,7 @@ export class AuthHandler {
         ]).then(() => { return; });
     }
 
-    static async changeUserRoleInAuthContexts(userID: number, newRole: "admin" | "user"): Promise<void> {
+    static async changeUserRoleInAuthContexts(userID: number, newRole: UserAccountSettings.Role): Promise<void> {
         return await Promise.all([
             SessionHandler.changeUserRoleInSessions(userID, newRole),
             APIKeyHandler.changeUserRoleInApiKeys(userID, newRole)
