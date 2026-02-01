@@ -29,7 +29,7 @@ router.get('/',
             APIResponseSpec.success("Mail accounts retrieved successfully", MailAccountsModel.GetAllMailAccounts.Response)
         )
     }),
-
+    
     async (c) => {
 
         const authContext = AuthHandler.AuthContext.get(c);
@@ -51,15 +51,13 @@ router.get('/',
                 smtp_host: smtpData.host,
                 smtp_port: smtpData.port,
                 smtp_username: smtpData.username,
-                smtp_password: smtpData.password,
                 smtp_encryption: smtpData.useSSL,
                 imap_host: imapData.host,
                 imap_port: imapData.port,
                 imap_username: imapData.username,
-                imap_password: imapData.password,
                 imap_encryption: imapData.useSSL,
-            } satisfies MailAccountsModel.BASE;
-        }) as (MailAccountsModel.BASE)[];
+            } satisfies MailAccountsModel.GetAllMailAccounts.Response[number];
+        }) as MailAccountsModel.GetAllMailAccounts.Response;
         if (mailAccounts.includes(null as any)) {
             return APIResponse.serverError(c, "Failed to decrypt one or more mail account data");
         }
@@ -201,7 +199,22 @@ router.get('/:mailAccountID',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        return APIResponse.success(c, "Mail account retrieved successfully", mailAccount satisfies MailAccountsModel.GetMailAccountByID.Response);
+        const mailAccountResponse = {
+            id: mailAccount.id,
+            created_at: mailAccount.created_at,
+            display_name: mailAccount.display_name,
+            smtp_host: mailAccount.smtp_host,
+            smtp_port: mailAccount.smtp_port,
+            smtp_username: mailAccount.smtp_username,
+            smtp_encryption: mailAccount.smtp_encryption,
+            imap_host: mailAccount.imap_host,
+            imap_port: mailAccount.imap_port,
+            imap_username: mailAccount.imap_username,
+            imap_encryption: mailAccount.imap_encryption,
+            is_default: mailAccount.is_default
+        } satisfies MailAccountsModel.GetMailAccountByID.Response;
+
+        return APIResponse.success(c, "Mail account retrieved successfully", mailAccountResponse);
     }
 );
 
