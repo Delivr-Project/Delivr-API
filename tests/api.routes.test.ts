@@ -296,17 +296,17 @@ describe("Mail Account Routes", async () => {
         const mailAccountData = {
             display_name: "Test Mail Account",
 
-            smtp_host: "smtp.example.com",
-            smtp_port: 587,
-            smtp_encryption: "STARTTLS" as const,
-            smtp_username: "smtpuser",
-            smtp_password: "smtppass",
+            smtp_host: "127.0.0.1",
+            smtp_port: 11125,
+            smtp_encryption: "NONE",
+            smtp_username: "testuser",
+            smtp_password: "testpass",
 
-            imap_host: "imap.example.com",
-            imap_port: 993,
-            imap_encryption: "SSL" as const,
-            imap_username: "imapuser",
-            imap_password: "imappass",
+            imap_host: "127.0.0.1",
+            imap_port: 11143,
+            imap_encryption: "NONE",
+            imap_username: "testuser",
+            imap_password: "testpass",
 
             is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
@@ -355,7 +355,7 @@ describe("Mail Account Routes", async () => {
 
         const data = await makeAPIRequest("/mail-accounts", {
             authToken: session_token,
-            expectedBodySchema: MailAccountsModel.GetAllMailAccounts.Response
+            expectedBodySchema: MailAccountsModel.GetAllMailAccounts.BaseResponse
         });
 
         expect(Array.isArray(data)).toBe(true);
@@ -389,6 +389,69 @@ describe("Mail Account Routes", async () => {
         expect(data[0].imap_port).toBe(decryptedIMAPData.port);
         expect(data[0].imap_encryption).toBe(decryptedIMAPData.useSSL);
         expect(data[0].imap_username).toBe(decryptedIMAPData.username);
+    });
+
+    test("GET /mail-accounts?withMailboxes=true retrieves mail accounts with mailboxes", async () => {
+
+        const data = await makeAPIRequest("/mail-accounts?withMailboxes=true", {
+            authToken: session_token,
+            expectedBodySchema: MailAccountsModel.GetAllMailAccounts.ResponseWithMailboxes,
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+
+        const dbresults = DB.instance().select().from(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.owner_user_id, mailAccountTestUser.id)
+        ).orderBy(desc(DB.Schema.mailAccounts.id)).all();
+
+        expect(data.length).toBe(dbresults.length);
+
+        expect(data[0]).toBeDefined();
+        if (!data[0]) return;
+
+        const dbresult = dbresults[0];
+
+        expect(dbresult).toBeDefined();
+        if (!dbresult) return;
+
+        const decryptedSMTPData = MailAccountEncryption.decryptSMTPData(dbresult.smtp_encrypted_connection_data);
+        const decryptedIMAPData = MailAccountEncryption.decryptIMAPData(dbresult.imap_encrypted_connection_data);
+
+        if (!decryptedSMTPData || !decryptedIMAPData) {
+            throw new Error("Failed to decrypt mail account data");
+        }
+
+        expect(data[0].id).toBe(dbresult.id);
+        expect(data[0].smtp_host).toBe(decryptedSMTPData.host);
+        expect(data[0].smtp_port).toBe(decryptedSMTPData.port);
+        expect(data[0].smtp_encryption).toBe(decryptedSMTPData.useSSL);
+        expect(data[0].smtp_username).toBe(decryptedSMTPData.username);
+        expect(data[0].imap_host).toBe(decryptedIMAPData.host);
+        expect(data[0].imap_port).toBe(decryptedIMAPData.port);
+        expect(data[0].imap_encryption).toBe(decryptedIMAPData.useSSL);
+        expect(data[0].imap_username).toBe(decryptedIMAPData.username);
+
+        expect(Array.isArray(data[0].mailboxes)).toBe(true);
+        
+        expect(data[0].mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.path === "INBOX/Work" && mb.name === "Work")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.name === "Sent")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.name === "Drafts")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.name === "Spam")).toBeDefined();
+        expect(data[0].mailboxes.find(mb => mb.name === "Trash")).toBeDefined();
+
+        const inbox = data[0].mailboxes.find(f => f.name === "INBOX");
+        expect(inbox).toBeDefined();
+        if (!inbox) return;
+
+        expect(inbox.name).toBe("INBOX");
+        expect(inbox.path).toBe("INBOX");
+        expect(inbox.flags).toBeArray();
+        expect(inbox.delimiter).toBe("/");
+        expect(inbox.parent.length).toBe(0);
+        expect(inbox.parentPath).toBe("");
+
     });
 
     test("Get /mail-accounts/:mailAccountID retrieves specific mail account", async () => {
@@ -429,6 +492,43 @@ describe("Mail Account Routes", async () => {
         expect(data.imap_port).toBe(decryptedIMAPData.port);
         expect(data.imap_encryption).toBe(decryptedIMAPData.useSSL);
         expect(data.imap_username).toBe(decryptedIMAPData.username);
+    });
+
+    test("Get /mail-accounts/:mailAccountID?withMailboxes=true retrieves specific mail account with mailboxes", async () => {
+
+        const mailAccountID = mailAccountIDs[0];
+        expect(mailAccountID).toBeNumber();
+        if (!mailAccountID) return;
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}?withMailboxes=true`, {
+            authToken: session_token,
+            expectedBodySchema: MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes
+        });
+
+        expect(data).toBeDefined();
+        if (!data) return;
+
+        expect(data.id).toBe(mailAccountID);
+        expect(Array.isArray(data.mailboxes)).toBe(true);
+
+        expect(data.mailboxes.find(mb => mb.name === "INBOX")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.path === "INBOX/Privat" && mb.name === "Privat")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.path === "INBOX/Work" && mb.name === "Work")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.name === "Sent")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.name === "Drafts")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.name === "Spam")).toBeDefined();
+        expect(data.mailboxes.find(mb => mb.name === "Trash")).toBeDefined();
+
+        const inbox = data.mailboxes.find(f => f.name === "INBOX");
+        expect(inbox).toBeDefined();
+        if (!inbox) return;
+        
+        expect(inbox.name).toBe("INBOX");
+        expect(inbox.path).toBe("INBOX");
+        expect(inbox.flags).toBeArray();
+        expect(inbox.delimiter).toBe("/");
+        expect(inbox.parent.length).toBe(0);
+        expect(inbox.parentPath).toBe("");
     });
 
     test("Get /mail-accounts/:mailAccountID with invalid ID fails", async () => {

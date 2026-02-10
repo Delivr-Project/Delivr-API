@@ -33,7 +33,11 @@ export class MailClientsCache {
         return this.createClientData(settings);
     }
 
-    static deleteClientData(accountID: number): void {
+    static async deleteClient(accountID: number): Promise<void> {
+        const clientData = this.clients.get(accountID);
+        if (clientData) {
+            await clientData.imap.disconnect();
+        }
         this.clients.delete(accountID);
     }
 

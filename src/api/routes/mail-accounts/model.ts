@@ -2,6 +2,7 @@ import { createInsertSchema, createSelectSchema, createUpdateSchema } from "driz
 import { DB } from "../../../db";
 import { z } from "zod";
 import { InetModels } from "../../utils/shared-models/inetModels";
+import { MailboxesModel } from "./mailboxes/model";
 
 
 export namespace MailAccountsModel {
@@ -42,18 +43,52 @@ export namespace MailAccountsModel {
 
 export namespace MailAccountsModel.GetMailAccountByID {
 
-    export const Response = MailAccountsModel.BASE.omit({
+    export const Query = z.object({
+        withMailboxes: z.coerce.boolean().optional().default(false)
+    });
+
+    export type Query = z.infer<typeof Query>;
+
+
+    export const BaseResponse = MailAccountsModel.BASE.omit({
         imap_password: true,
         smtp_password: true,
         owner_user_id: true
     });
+
+    export type BaseResponse = z.infer<typeof BaseResponse>;
+
+    export const ResponseWithMailboxes = BaseResponse.extend({
+        mailboxes: MailboxesModel.GetAll.Response
+    });
+
+    export type ResponseWithMailboxes = z.infer<typeof ResponseWithMailboxes>;
+
+
+    export const Response = z.union([
+        BaseResponse,
+        ResponseWithMailboxes
+    ]);
 
     export type Response = z.infer<typeof Response>;
 }
 
 export namespace MailAccountsModel.GetAllMailAccounts {
 
-    export const Response = z.array(MailAccountsModel.GetMailAccountByID.Response);
+    export const Query = MailAccountsModel.GetMailAccountByID.Query;
+
+    export type Query = z.infer<typeof Query>;
+
+    export const BaseResponse = z.array(MailAccountsModel.GetMailAccountByID.BaseResponse);
+    export type BaseResponse = z.infer<typeof BaseResponse>;
+
+    export const ResponseWithMailboxes = z.array(MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes);
+    export type ResponseWithMailboxes = z.infer<typeof ResponseWithMailboxes>;
+
+    export const Response = z.union([
+        BaseResponse,
+        ResponseWithMailboxes
+    ]);
 
     export type Response = z.infer<typeof Response>;
 

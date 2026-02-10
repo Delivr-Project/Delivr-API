@@ -7,14 +7,11 @@ import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
 import { router as mailboxesRouter } from "./mailboxes";
 import { router as identitiesRouter } from "./identities";
-import { z } from "zod";
 import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
-import { ConfigHandler } from "../../../utils/config";
-import { ObjectEncryption } from "../../../utils/crypto/objectCrypt";
 import { MailAccountEncryption } from "../../../utils/crypto/mailCrypt";
-import { SMTPAccount } from "../../../utils/mails/backends/smtp";
+import { Logger } from "../../../utils/logger";
 
 export const router = new Hono().basePath('/mail-accounts');
 
@@ -29,8 +26,12 @@ router.get('/',
             APIResponseSpec.success("Mail accounts retrieved successfully", MailAccountsModel.GetAllMailAccounts.Response)
         )
     }),
+
+    validator("query", MailAccountsModel.GetAllMailAccounts.Query),
     
     async (c) => {
+
+        const query = c.req.valid("query");
 
         const authContext = AuthHandler.AuthContext.get(c);
 
@@ -38,26 +39,62 @@ router.get('/',
             eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
         ).all();
 
-        const mailAccounts = mailAccountsRaw.map(account => {
+        const mailAccounts = await Promise.all(mailAccountsRaw.map(async (account) => {
+
             const smtpData = MailAccountEncryption.decryptSMTPData(account.smtp_encrypted_connection_data);
             const imapData = MailAccountEncryption.decryptIMAPData(account.imap_encrypted_connection_data);
 
             if (!smtpData || !imapData) {
-                return null;
+                return null as any as MailAccountsModel.GetMailAccountByID.BaseResponse;
             }
 
-            return {
-                ...account,
+            const mailAccount = {
+                id: account.id,
+                created_at: account.created_at,
+                display_name: account.display_name,
+                is_default: account.is_default,
+
                 smtp_host: smtpData.host,
                 smtp_port: smtpData.port,
                 smtp_username: smtpData.username,
                 smtp_encryption: smtpData.useSSL,
+
                 imap_host: imapData.host,
                 imap_port: imapData.port,
                 imap_username: imapData.username,
-                imap_encryption: imapData.useSSL,
-            } satisfies MailAccountsModel.GetAllMailAccounts.Response[number];
-        }) as MailAccountsModel.GetAllMailAccounts.Response;
+                imap_encryption: imapData.useSSL
+
+            } satisfies MailAccountsModel.GetMailAccountByID.BaseResponse;
+
+            if (query.withMailboxes) {
+
+                const imapClient = MailClientsCache.createOrGetClientData({
+
+                    ...mailAccount,
+                    owner_user_id: account.owner_user_id,
+                    imap_password: imapData.password,
+                    smtp_password: smtpData.password
+
+                }).imap;
+
+                try {
+                    await imapClient.connect();
+                    const mailboxes = await imapClient.getMailboxes();
+
+                    return {
+                        ...mailAccount,
+                        mailboxes: mailboxes
+                    } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes;
+                } catch (e) {
+                    Logger.error(`Failed to retrieve mailboxes for mail account with ID ${account.id}`, e);
+                    return mailAccount;
+                }
+            }
+
+            return mailAccount;
+            
+        })) satisfies MailAccountsModel.GetMailAccountByID.Response[];
+
         if (mailAccounts.includes(null as any)) {
             return APIResponse.serverError(c, "Failed to decrypt one or more mail account data");
         }
@@ -159,7 +196,11 @@ router.use("/:mailAccountID/*",
         }
 
         const mailAccount = {
-            ...encryptedMailAccount,
+            id: encryptedMailAccount.id,
+            created_at: encryptedMailAccount.created_at,
+            display_name: encryptedMailAccount.display_name,
+            owner_user_id: encryptedMailAccount.owner_user_id,
+            is_default: encryptedMailAccount.is_default,
 
             smtp_host: smtpData.host,
             smtp_port: smtpData.port,
@@ -195,26 +236,54 @@ router.get('/:mailAccountID',
         )
     }),
 
+    validator("query", MailAccountsModel.GetMailAccountByID.Query),
+
     async (c) => {
+
+        const query = c.req.valid("query");
+
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
         const mailAccountResponse = {
+
             id: mailAccount.id,
             created_at: mailAccount.created_at,
             display_name: mailAccount.display_name,
+            is_default: mailAccount.is_default,
+
             smtp_host: mailAccount.smtp_host,
             smtp_port: mailAccount.smtp_port,
             smtp_username: mailAccount.smtp_username,
             smtp_encryption: mailAccount.smtp_encryption,
+
             imap_host: mailAccount.imap_host,
             imap_port: mailAccount.imap_port,
             imap_username: mailAccount.imap_username,
-            imap_encryption: mailAccount.imap_encryption,
-            is_default: mailAccount.is_default
-        } satisfies MailAccountsModel.GetMailAccountByID.Response;
+            imap_encryption: mailAccount.imap_encryption
+            
+        } satisfies MailAccountsModel.GetMailAccountByID.BaseResponse;
 
-        return APIResponse.success(c, "Mail account retrieved successfully", mailAccountResponse);
+        if (query.withMailboxes) {
+
+            const imapClient = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+            try {
+                await imapClient.connect();
+                const mailboxes = await imapClient.getMailboxes();
+
+                return APIResponse.success(c, "Mail account retrieved successfully", {
+                    ...mailAccountResponse,
+                    mailboxes: mailboxes
+                } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes);
+                
+            } catch (e) {
+                Logger.error(`Failed to retrieve mailboxes for mail account with ID ${mailAccount.id}`, e);
+                return APIResponse.success(c, "Mail account retrieved successfully", mailAccountResponse satisfies MailAccountsModel.GetMailAccountByID.BaseResponse);
+            }
+        }
+
+        return APIResponse.success(c, "Mail account retrieved successfully", mailAccountResponse satisfies MailAccountsModel.GetMailAccountByID.Response);
     }
 );
 
@@ -285,7 +354,7 @@ router.put('/:mailAccountID/credentials',
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
         // delete cached mail client data to force re-creation with updated settings
-        await MailClientsCache.deleteClientData(mailAccount.id);
+        await MailClientsCache.deleteClient(mailAccount.id);
 
         const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
             host: body.smtp_host,
@@ -336,7 +405,7 @@ router.delete('/:mailAccountID',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        await MailClientsCache.deleteClientData(mailAccount.id);
+        await MailClientsCache.deleteClient(mailAccount.id);
 
         // Delete all mail identities linked to this mail account
         await DB.instance().delete(DB.Schema.mailIdentities).where(
