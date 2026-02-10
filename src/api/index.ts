@@ -16,6 +16,8 @@ export class API {
 		(import('./routes/auth')),
 		(import('./routes/account')),
 		(import('./routes/mail-accounts')),
+
+		(import('./routes/admin')),
 	];
 
 	static async init(
