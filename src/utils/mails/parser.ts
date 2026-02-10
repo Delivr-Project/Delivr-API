@@ -15,22 +15,32 @@ export class MailParser {
      * @param source - Email source as Buffer or string
      * @returns Parsed and sanitized email data
      */
-    static async parseMail(uid: number, source: Buffer | Stream | string): Promise<MailRessource.IMail> {
+    static async parseMail(uid: number, source: Buffer | Stream | string, additionalData: { rawFlags?: Set<string> | string[] }): Promise<MailRessource.IMail> {
         const parsed = await simpleParser(source);
 
         return {
             uid,
+
+            rawHeaders: this.getHeadersDict(parsed.headerLines),
+            rawFlags: Array.from(additionalData.rawFlags || []),
+
             from: this.parseAddresses(parsed.from),
             to: this.parseAddresses(parsed.to, true),
             cc: this.parseAddresses(parsed.cc, true),
             bcc: this.parseAddresses(parsed.bcc, true),
+
             subject: parsed.subject,
-            inReplyTo: parsed.inReplyTo,
-            replyTo: this.parseAddresses(parsed.replyTo),
             references: parsed.references,
             date: parsed.date?.getTime(),
+            flags: this.parseRawFlags(additionalData.rawFlags || []),
+
+            replyTo: this.parseAddresses(parsed.replyTo),
+            messageId: parsed.messageId,
+            inReplyTo: parsed.inReplyTo,
+            
+            priority: parsed.priority,
+            
             attachments: this.parseAttachments(parsed.attachments),
-            rawHeaders: this.getHeadersDict(parsed.headerLines),
             body: this.getBody(parsed.text, parsed.html)
         };
     }
@@ -80,6 +90,21 @@ export class MailParser {
         }
 
     }
+
+    private static parseRawFlags(rawFlags: Set<string> | string[]): MailRessource.MailFlags {
+
+        const flagsArray = Array.isArray(rawFlags) ? rawFlags : Array.from(rawFlags);
+
+        return {
+            seen: flagsArray.includes('\\Seen'),
+            answered: flagsArray.includes('\\Answered'),
+            flagged: flagsArray.includes('\\Flagged'),
+            deleted: flagsArray.includes('\\Deleted'),
+            draft: flagsArray.includes('\\Draft'),
+            recent: flagsArray.includes('\\Recent'),
+        };
+    }
+
 
     /**
      * Parse attachments from ParsedMail

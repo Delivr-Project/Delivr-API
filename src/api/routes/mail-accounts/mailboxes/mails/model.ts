@@ -12,6 +12,17 @@ export namespace MailsModel {
 
     export type EmailAddress = Utils.SameType<z.infer<typeof EmailAddress>, MailRessource.EmailAddress>;
 
+    export const MailFlags = z.object({
+        seen: z.boolean().optional(),
+        answered: z.boolean().optional(),
+        flagged: z.boolean().optional(),
+        deleted: z.boolean().optional(),
+        draft: z.boolean().optional(),
+        recent: z.boolean().optional()
+    });
+
+    export type MailFlags = Utils.SameType<z.infer<typeof MailFlags>, MailRessource.MailFlags>;
+
     export const MailAttachment = z.object({
         filename: z.string().optional(),
         contentType: z.string(),
@@ -29,18 +40,30 @@ export namespace MailsModel {
 
     export type MailBody = Utils.SameType<z.infer<typeof MailBody>, MailRessource.MailBody>;
 
+    
     export const Mail = z.object({
-        uid: z.number(),
+
+        uid: z.number().min(0),
+
         rawHeaders: z.record(z.string(), z.string()),
+        rawFlags: z.array(z.string()),
+
         from: EmailAddress.optional(),
         to: z.array(EmailAddress),
         cc: z.array(EmailAddress),
         bcc: z.array(EmailAddress),
+
         subject: z.string().optional(),
-        inReplyTo: z.string().optional(),
-        replyTo: EmailAddress.optional(),
         references: z.union([z.string(), z.array(z.string())]).optional(),
         date: z.number().optional(),
+        flags: MailFlags.optional(),
+
+        replyTo: EmailAddress.optional(),
+        messageId: z.string().optional(),
+        inReplyTo: z.string().optional(),
+        
+        priority: z.enum(["normal", "low", "high"]).optional(),
+
         attachments: z.array(MailAttachment),
         body: MailBody
     });

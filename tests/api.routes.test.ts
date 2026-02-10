@@ -1208,6 +1208,19 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         expect(mail.date).toBe(new Date("Fri, 13 Sep 2013 15:01:00 +0300").getTime());
 
+        expect(mail.rawFlags).toContain("\\Seen");
+        expect(mail.rawFlags).toContain("\\Answered");
+        expect(mail.rawFlags).toContain("\\Flagged");
+
+        expect(mail.flags).toBeDefined();
+        if (!mail.flags) return;
+        expect(mail.flags.seen).toBe(true);
+        expect(mail.flags.answered).toBe(true);
+        expect(mail.flags.flagged).toBe(true);
+        expect(mail.flags.deleted).toBe(false);
+        expect(mail.flags.draft).toBe(false);
+        expect(mail.flags.recent).toBe(false);
+
         expect(mail.body?.text).toBeDefined();
         if (!mail.body?.text) return;
         expect(mail.body.text.trim()).toBe("World 4!");

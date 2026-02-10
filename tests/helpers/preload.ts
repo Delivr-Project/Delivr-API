@@ -65,7 +65,8 @@ const mockIMAPServer = new MockIMAPServer({
                         "Message-Id: <abcde>\r\n" +
                         "Date: Fri, 13 Sep 2013 15:01:00 +0300\r\n" +
                         "\r\n" +
-                        "World 4!"
+                        "World 4!",
+                    flags: ["\\Seen", "\\Answered", "\\Flagged"]
                 },
                 {
                     raw: "Subject: hello 5\r\n\r\nWorld 5!"
