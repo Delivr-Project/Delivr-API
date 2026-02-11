@@ -36,6 +36,10 @@ export class IMAPAccount {
         this.client.once('close', err => {
             thisRef.isConnected = false;
         });
+
+        this.client.once('timeout', async err => {
+            await thisRef.connect();
+        });
     }
 
     static fromConfig(config: IMAPAccount.ConfigOptions) {
