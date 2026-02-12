@@ -3,6 +3,7 @@ import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
 import { MailboxRessource } from "../ressources/mailbox";
+import { Logger } from "../../logger";
 
 export class IMAPAccount {
 
@@ -33,12 +34,12 @@ export class IMAPAccount {
 
         const thisRef = this;
 
-        this.client.once('close', err => {
+        this.client.on('close', () => {
             thisRef.isConnected = false;
         });
 
-        this.client.once('timeout', async err => {
-            await thisRef.connect();
+        this.client.on('error', async err => {
+            Logger.error(`IMAP Account Error (User: ${thisRef.username}, Host: ${thisRef.host}): ${err.message}`);
         });
     }
 
