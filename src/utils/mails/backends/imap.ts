@@ -165,9 +165,9 @@ export class IMAPAccount {
 
             const rawMails = await this.client.fetchAll(`${start}:*`, {
                 envelope: true,
-                flags: true,
                 bodyStructure: true,
-                source: true
+                source: true,
+                flags: true
             });
 
             return await MailRessource.fromIMAPMessages(rawMails);
@@ -192,7 +192,8 @@ export class IMAPAccount {
             let message = await this.client.fetchOne(uid, {
                 envelope: true,
                 bodyStructure: true,
-                source: true
+                source: true,
+                flags: true
             }, { uid: true });
 
             if (!message) return null;
