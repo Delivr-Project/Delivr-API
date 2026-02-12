@@ -3,6 +3,7 @@ import DOMPurify, { type WindowLike } from 'dompurify';
 import { JSDOM } from 'jsdom';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
+import { EMAIL_PURIFY_CONFIG } from './purify-config';
 
 export class MailParser {
 
@@ -143,47 +144,7 @@ export class MailParser {
      * @returns Sanitized HTML string
      */
     private static sanitizeHtml(html: string): string {
-        return MailParser.purify.sanitize(html, {
-            USE_PROFILES: { html: true },
-            // Allow only safe tags for email rendering
-            // ALLOWED_TAGS: [
-            //     // Structure
-            //     'div', 'span', 'p', 'br', 'hr',
-            //     // Headings
-            //     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-            //     // Text formatting
-            //     'b', 'i', 'u', 'em', 'strong', 'small', 'sub', 'sup', 's', 'strike', 'del', 'ins', 'mark',
-            //     // Lists
-            //     'ul', 'ol', 'li', 'dl', 'dt', 'dd',
-            //     // Links & images
-            //     'a', 'img',
-            //     // Tables
-            //     'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
-            //     // Semantic
-            //     'blockquote', 'pre', 'code', 'abbr', 'address', 'cite', 'q',
-            //     // Layout (common in email HTML)
-            //     'center', 'font',
-            // ],
-            // ALLOWED_ATTR: [
-            //     'href', 'src', 'alt', 'title', 'width', 'height',
-            //     'style', 'class', 'id', 'dir', 'lang',
-            //     'colspan', 'rowspan', 'cellpadding', 'cellspacing', 'border',
-            //     'align', 'valign', 'bgcolor', 'color', 'size', 'face',
-            //     'target', 'rel',
-            // ],
-
-            // Forbid dangerous URI schemes
-            ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
-
-            // Forbid forms, iframes, scripts etc.
-            FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'textarea', 'select', 'button', 'meta', 'link', 'base'],
-            FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onsubmit', 'onreset', 'onselect', 'onchange', 'onkeydown', 'onkeypress', 'onkeyup'],
-
-            // Remove contents of dangerous elements (not just the tags)
-            KEEP_CONTENT: true,
-            // Allow ARIA attributes
-            ALLOW_ARIA_ATTR: true,
-        });
+        return MailParser.purify.sanitize(html, EMAIL_PURIFY_CONFIG);
     }
 
     private static getHeadersDict(lines: HeaderLines): MailRessource.MailHeaders {
