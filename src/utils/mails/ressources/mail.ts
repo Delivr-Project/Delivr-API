@@ -17,7 +17,7 @@ export class MailRessource implements MailRessource.IMail {
     readonly date?: number;
     readonly flags?: MailRessource.MailFlags;
 
-    readonly replyTo?: MailRessource.EmailAddress;
+    readonly replyTo?: MailRessource.EmailAddress[];
     readonly messageId?: string;
     readonly inReplyTo?: string;
 
@@ -129,7 +129,7 @@ export namespace MailRessource {
         date?: number;
         flags?: MailFlags;
 
-        replyTo?: EmailAddress;
+        replyTo?: EmailAddress[];
         messageId?: string;
         inReplyTo?: string;
             

@@ -1,4 +1,4 @@
-import { simpleParser, type ParsedMail, type Attachment, type AddressObject, type Headers as MailHeaders, type HeaderLines } from 'mailparser';
+import PostalMime, { type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
 
@@ -9,8 +9,10 @@ export class MailParser {
      * @param source - Email source as Buffer or string
      * @returns Parsed and sanitized email data
      */
-    static async parseMail(uid: number, source: Buffer | Stream | string, additionalData: { rawFlags?: Set<string> | string[] }): Promise<MailRessource.IMail> {
-        const parsed = await simpleParser(source);
+    static async parseMail(uid: number, source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream, additionalData: { rawFlags?: Set<string> | string[] }): Promise<MailRessource.IMail> {
+        const parsed = await PostalMime.parse(source, {
+            
+        });
 
         return {
             uid,
@@ -25,14 +27,16 @@ export class MailParser {
 
             subject: parsed.subject,
             references: parsed.references,
-            date: parsed.date?.getTime(),
+            date: parsed.date ? new Date(parsed.date).getTime() : undefined,
             flags: this.parseRawFlags(additionalData.rawFlags || []),
 
-            replyTo: this.parseAddresses(parsed.replyTo),
+            replyTo: this.parseAddresses(parsed.replyTo, true),
             messageId: parsed.messageId,
             inReplyTo: parsed.inReplyTo,
             
-            priority: parsed.priority,
+            priority: parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'high' ? 'high' :
+                      parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'low' ? 'low' :
+                      'normal',
             
             attachments: this.parseAttachments(parsed.attachments),
             body: this.getBody(parsed.text, parsed.html)
@@ -66,11 +70,20 @@ export class MailParser {
         const addressArray = isArray ? addressObject : [addressObject];
 
         for (const addr of addressArray) {
-            if (addr.value) {
-                addresses.push(...addr.value.map(a => ({
-                    name: a.address ? a.name : undefined,
-                    address: a.address ? a.address : a.name
-                })));
+            if (addr.address) {
+                addresses.push({
+                    name: addr.name,
+                    address: addr.address
+                });
+            } else if (addr.group) {
+                for (const groupAddr of addr.group) {
+                    if (groupAddr.address) {
+                        addresses.push({
+                            name: groupAddr.name,
+                            address: groupAddr.address
+                        });
+                    }
+                }
             }
         }
 
@@ -109,12 +122,12 @@ export class MailParser {
         if (!attachments || attachments.length === 0) return [];
 
         return attachments.map(attachment => ({
-            filename: attachment.filename,
-            contentType: attachment.contentType,
-            size: attachment.size,
+            filename: attachment.filename || undefined,
+            contentType: attachment.mimeType,
+            size: attachment.content instanceof ArrayBuffer ? attachment.content.byteLength :  attachment.content.length,
             // content: attachment.content,
             contentId: attachment.contentId,
-            contentDisposition: attachment.contentDisposition,
+            contentDisposition: attachment.disposition || undefined,
         }));
     }
 
@@ -123,7 +136,7 @@ export class MailParser {
      * Note: HTML is passed through raw - sanitization happens client-side
      * using DOMPurify with the browser's native DOM parser.
      */
-    private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody {
+    private static getBody(text: string | undefined, html: string | undefined): MailRessource.MailBody {
         const body: MailRessource.MailBody = {};
         if (text) {
             body.text = text;
@@ -136,7 +149,7 @@ export class MailParser {
         return body;
     }
 
-    private static getHeadersDict(lines: HeaderLines): MailRessource.MailHeaders {
+    private static getHeadersDict(lines: HeaderLine[]): MailRessource.MailHeaders {
         const headersDict: MailRessource.MailHeaders = {};
         for (const line of lines) {
             headersDict[line.key] = line.line;

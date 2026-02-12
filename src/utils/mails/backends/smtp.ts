@@ -62,7 +62,7 @@ export class SMTPAccount {
             to: mail.to?.map(SMTPAccount.formatAddress),
             cc: mail.cc?.map(SMTPAccount.formatAddress),
             bcc: mail.bcc?.map(SMTPAccount.formatAddress),
-            replyTo: mail.replyTo ? SMTPAccount.formatAddress(mail.replyTo) : undefined,
+            replyTo: mail.replyTo ? mail.replyTo.map(SMTPAccount.formatAddress): undefined,
             inReplyTo: mail.inReplyTo,
             references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
             subject: mail.subject,

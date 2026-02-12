@@ -58,7 +58,7 @@ export namespace MailsModel {
         date: z.number().optional(),
         flags: MailFlags.optional(),
 
-        replyTo: EmailAddress.optional(),
+        replyTo: z.array(EmailAddress).optional(),
         messageId: z.string().optional(),
         inReplyTo: z.string().optional(),
         
