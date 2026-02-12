@@ -1,15 +1,8 @@
 import { simpleParser, type ParsedMail, type Attachment, type AddressObject, type Headers as MailHeaders, type HeaderLines } from 'mailparser';
-import DOMPurify, { type WindowLike } from 'dompurify';
-import { JSDOM } from 'jsdom';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
-import { EMAIL_PURIFY_CONFIG } from './purify-config';
 
 export class MailParser {
-
-    // Create a DOMPurify instance with JSDOM for server-side usage
-    protected static readonly window = new JSDOM('').window;
-    protected static readonly purify = DOMPurify(MailParser.window as WindowLike);
 
     /**
      * Parse an email from a buffer or string
@@ -125,6 +118,11 @@ export class MailParser {
         }));
     }
 
+    /**
+     * Extract body content from parsed mail.
+     * Note: HTML is passed through raw - sanitization happens client-side
+     * using DOMPurify with the browser's native DOM parser.
+     */
     private static getBody(text: string | undefined, html: string | false): MailRessource.MailBody {
         const body: MailRessource.MailBody = {};
         if (text) {
@@ -132,19 +130,10 @@ export class MailParser {
         }
 
         if (html) {
-            body.html = this.sanitizeHtml(html);
+            body.html = html;
         }
         
         return body;
-    }
-
-    /**
-     * Sanitize HTML content using DOMPurify
-     * @param html - Raw HTML string
-     * @returns Sanitized HTML string
-     */
-    private static sanitizeHtml(html: string): string {
-        return MailParser.purify.sanitize(html, EMAIL_PURIFY_CONFIG);
     }
 
     private static getHeadersDict(lines: HeaderLines): MailRessource.MailHeaders {
