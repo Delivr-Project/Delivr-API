@@ -42,7 +42,12 @@ router.get('/',
 
         try {
             await imap.connect();
-            const mails = await imap.getMails(mailbox.path, query.limit);
+            const mails = await imap.getMails(mailbox.path, {
+                order: query.order,
+                limit: query.limit,
+                offset: query.offset,
+                searchString: query.searchString
+            });
 
             return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
         } catch (e) {

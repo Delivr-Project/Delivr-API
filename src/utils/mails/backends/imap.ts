@@ -155,22 +155,63 @@ export class IMAPAccount {
         return true;
     }
 
-    async getMails(mailbox: string, limit = 50): Promise<MailRessource[]> {
+    async getMails(mailbox: string, options: IMAPAccount.GetMailsOptions = {}): Promise<MailRessource[]> {
+        const { order = 'newest', limit = 50, offset = 0, searchString } = options;
+        
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let total = this.client.mailbox ? this.client.mailbox.exists : 0;
             if (total === 0) return [];
 
-            let start = Math.max(1, total - limit + 1);
+            let uids: number[];
 
-            const rawMails = await this.client.fetchAll(`${start}:*`, {
+            // If searchString is provided, use IMAP SEARCH
+            if (searchString) {
+                const searchResults = await this.client.search({
+                    or: [
+                        { subject: searchString },
+                        { from: searchString },
+                        { to: searchString },
+                        { body: searchString }
+                    ]
+                }, { uid: true });
+                uids = searchResults as number[];
+            } else {
+                // Get all message sequence numbers
+                const allMessages = await this.client.search({ all: true }, { uid: true });
+                uids = allMessages as number[];
+            }
+
+            if (uids.length === 0) return [];
+
+            // Sort UIDs based on order
+            if (order === 'newest') {
+                uids.sort((a, b) => b - a);
+            } else {
+                uids.sort((a, b) => a - b);
+            }
+
+            // Apply offset and limit
+            const paginatedUids = uids.slice(offset, offset + limit);
+            if (paginatedUids.length === 0) return [];
+
+            const rawMails = await this.client.fetchAll(paginatedUids.join(','), {
                 envelope: true,
                 bodyStructure: true,
                 source: true,
                 flags: true
-            });
+            }, { uid: true });
 
-            return await MailRessource.fromIMAPMessages(rawMails);
+            const mails = await MailRessource.fromIMAPMessages(rawMails);
+
+            // Sort the results to maintain order after fetch
+            if (order === 'newest') {
+                mails.sort((a, b) => b.uid - a.uid);
+            } else {
+                mails.sort((a, b) => a.uid - b.uid);
+            }
+
+            return mails;
         } finally {
             lock.release();
         }
@@ -264,5 +305,12 @@ export namespace IMAPAccount {
         username: string;
         password: string;
         useSSL: InetModels.Mail.Encryption;
+    }
+
+    export interface GetMailsOptions {
+        order?: 'newest' | 'oldest';
+        limit?: number;
+        offset?: number;
+        searchString?: string;
     }
 }
