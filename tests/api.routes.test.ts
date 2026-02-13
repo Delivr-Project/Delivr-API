@@ -1191,7 +1191,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         expect(data.length).toBeGreaterThanOrEqual(0);
 
-        const mail = data[3];
+        const mail = data[2];
         expect(mail).toBeDefined();
         if (!mail) return;
 

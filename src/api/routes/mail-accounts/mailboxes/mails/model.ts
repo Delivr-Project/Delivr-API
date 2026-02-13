@@ -113,19 +113,93 @@ export namespace MailsModel.CreateDraft {
 export namespace MailsModel.Move {
 
     export const Body = z.object({
-        targetMailbox: z.string()
+        targetMailbox: z.string().describe("The path of the target mailbox to move the mail to")
     });
 
     export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        newUid: z.number().optional().describe("The new UID of the mail in the target mailbox, if available")
+    });
+
+    export type Response = z.infer<typeof Response>;
 }
 
 export namespace MailsModel.Update {
 
-    export const Body = MailsModel.CreateDraft.Body.partial().omit({
-
-    })
+    export const Body = MailsModel.CreateDraft.Body.partial().extend({
+        addFlags: z.array(z.string()).optional().describe("Flags to add to the mail"),
+        removeFlags: z.array(z.string()).optional().describe("Flags to remove from the mail")
+    });
 
     export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        success: z.boolean(),
+        newUid: z.number().optional().describe("New UID if the mail was replaced (for content updates)")
+    });
+
+    export type Response = z.infer<typeof Response>;
+}
+
+export namespace MailsModel.Send {
+
+    export const Body = z.object({
+        moveToSent: z.boolean().default(true).describe("Whether to move the original mail to Sent folder after sending"),
+        deleteOriginal: z.boolean().default(false).describe("Whether to delete the original mail after sending (only if moveToSent is false)")
+    });
+
+    export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        messageId: z.string().optional().describe("The Message-ID of the sent mail")
+    });
+
+    export type Response = z.infer<typeof Response>;
+}
+
+export namespace MailsModel.Delete {
+
+    export const Query = z.object({
+        permanent: z.coerce.boolean().default(false).describe("If true, permanently delete the mail. Otherwise, move to Trash.")
+    });
+
+    export type Query = z.infer<typeof Query>;
+
+    export const Response = z.object({
+        success: z.boolean()
+    });
+
+    export type Response = z.infer<typeof Response>;
+}
+
+export namespace MailsModel.Create {
+
+    export const Body = z.object({
+        from: MailsModel.EmailAddress.optional(),
+        to: z.array(MailsModel.EmailAddress).default([]),
+        cc: z.array(MailsModel.EmailAddress).default([]),
+        bcc: z.array(MailsModel.EmailAddress).default([]),
+        
+        subject: z.string().optional(),
+        replyTo: z.array(MailsModel.EmailAddress).optional(),
+        inReplyTo: z.string().optional(),
+        references: z.union([z.string(), z.array(z.string())]).optional(),
+        
+        priority: z.enum(["normal", "low", "high"]).optional(),
+        
+        body: MailsModel.MailBody.optional(),
+        
+        flags: z.array(z.string()).default(["\\Draft"]).describe("Initial flags for the mail (default: Draft)")
+    });
+
+    export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        uid: z.number().describe("The UID of the created mail")
+    });
+
+    export type Response = z.infer<typeof Response>;
 }
 
 
