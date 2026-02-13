@@ -4,6 +4,7 @@ import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
 import { MailboxRessource } from "../ressources/mailbox";
 import { Logger } from "../../logger";
+import { QuickSort } from "@cleverjs/utils";
 
 export class IMAPAccount {
 
@@ -186,9 +187,9 @@ export class IMAPAccount {
 
             // Sort UIDs based on order
             if (order === 'newest') {
-                uids.sort((a, b) => b - a);
+                QuickSort.sort(uids, (a, b) => b - a);
             } else {
-                uids.sort((a, b) => a - b);
+                QuickSort.sort(uids, (a, b) => a - b);
             }
 
             // Apply offset and limit
@@ -206,9 +207,9 @@ export class IMAPAccount {
 
             // Sort the results to maintain order after fetch
             if (order === 'newest') {
-                mails.sort((a, b) => b.uid - a.uid);
+                QuickSort.sort(mails, (a, b) => b.uid - a.uid);
             } else {
-                mails.sort((a, b) => a.uid - b.uid);
+                QuickSort.sort(mails, (a, b) => a.uid - b.uid);
             }
 
             return mails;
@@ -464,9 +465,14 @@ export class IMAPAccount {
         }
 
         // Sort all results by date
-        allResults.sort((a, b) => {
-            const dateA = a.mail.date || 0;
-            const dateB = b.mail.date || 0;
+        // allResults.sort((a, b) => {
+        //     const dateA = a.mail.date || 0;
+        //     const dateB = b.mail.date || 0;
+        //     return order === 'newest' ? dateB - dateA : dateA - dateB;
+        // });
+        QuickSort.sort(allResults, (a, b) => {
+            const dateA = a.mail.date ? a.mail.date : 0;
+            const dateB = b.mail.date ? b.mail.date : 0;
             return order === 'newest' ? dateB - dateA : dateA - dateB;
         });
 
