@@ -14,6 +14,7 @@ import { MailboxService } from "../../../../utils/services/maiboxService";
 import { SMTPAccount } from "../../../../../utils/mails/backends/smtp";
 import { MailRessource } from "../../../../../utils/mails/ressources/mail";
 import MailComposer from "nodemailer/lib/mail-composer";
+import { MailParser } from "../../../../../utils/mails/parser";
 
 export const router = new Hono();
 
@@ -103,7 +104,7 @@ router.post('/',
             const message = await composer.compile().build();
 
             await imap.connect();
-            await imap.createMail(mailbox.path, message, body.flags);
+            await imap.createMail(mailbox.path, message, MailParser.getRawFlags(body.flags || {}));
 
             // Get the latest mail to find its UID
             const mails = await imap.getMails(mailbox.path, { order: 'newest', limit: 1 });
@@ -181,7 +182,7 @@ router.put('/:mailUID',
     
     APIRouteSpec.authenticated({
         summary: "Update Mail",
-        description: "Update mail flags or content (for drafts). When updating content, the mail is replaced with a new one.",
+        description: "Update mail content (for drafts). The mail is replaced with a new one containing the updated content.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail updated successfully", MailsModel.Update.Response),
@@ -206,19 +207,12 @@ router.put('/:mailUID',
             await imap.connect();
             let newUid: number | undefined;
 
-            // Handle flags update
-            if (body.addFlags && body.addFlags.length > 0) {
-                await imap.addFlags(mailbox.path, [mailData.uid], body.addFlags);
-            }
-            if (body.removeFlags && body.removeFlags.length > 0) {
-                await imap.removeFlags(mailbox.path, [mailData.uid], body.removeFlags);
-            }
-
             // Check if any content fields are being updated
             const hasContentUpdate = body.from !== undefined || body.to !== undefined || 
                 body.cc !== undefined || body.bcc !== undefined || body.subject !== undefined || 
                 body.body !== undefined || body.replyTo !== undefined || body.inReplyTo !== undefined ||
-                body.references !== undefined || body.priority !== undefined;
+                body.references !== undefined || body.priority !== undefined ||
+                body.flags !== undefined;
 
             // Handle content update (replaces the mail)
             if (hasContentUpdate) {
@@ -238,8 +232,9 @@ router.put('/:mailUID',
 
                 const message = await composer.compile().build();
 
-                // Create new mail with updated content
-                await imap.createMail(mailbox.path, message, mailData.rawFlags);
+                // Create new mail with updated content and flags
+                const newFlags = body.flags ? MailParser.getRawFlags(body.flags) : mailData.rawFlags;
+                await imap.createMail(mailbox.path, message, newFlags);
                 
                 // Get the newly created mail's UID
                 const mails = await imap.getMails(mailbox.path, { order: 'newest', limit: 1 });

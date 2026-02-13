@@ -112,6 +112,17 @@ export class MailParser {
         };
     }
 
+    static getRawFlags(flags: MailRessource.MailFlags): string[] {
+        const rawFlags: string[] = [];
+        if (flags.seen) rawFlags.push('\\Seen');
+        if (flags.answered) rawFlags.push('\\Answered');
+        if (flags.flagged) rawFlags.push('\\Flagged');
+        if (flags.deleted) rawFlags.push('\\Deleted');
+        if (flags.draft) rawFlags.push('\\Draft');
+        if (flags.recent) rawFlags.push('\\Recent');
+        return rawFlags;
+    }
+
 
     /**
      * Parse attachments from ParsedMail

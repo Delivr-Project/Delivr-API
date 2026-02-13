@@ -94,11 +94,12 @@ export namespace MailsModel.GetAll {
     export type Response = z.infer<typeof Response>;
 }
 
-export namespace MailsModel.CreateDraft {
+export namespace MailsModel.Create {
 
     export const Body = MailsModel.Mail.omit({
         uid: true,
         rawHeaders: true,
+        rawFlags: true,
         attachments: true,
         date: true
     });
@@ -108,6 +109,8 @@ export namespace MailsModel.CreateDraft {
     export const Response = z.object({
         uid: z.number()
     });
+
+    export type Response = z.infer<typeof Response>;
 }
 
 export namespace MailsModel.Move {
@@ -127,10 +130,7 @@ export namespace MailsModel.Move {
 
 export namespace MailsModel.Update {
 
-    export const Body = MailsModel.CreateDraft.Body.partial().extend({
-        addFlags: z.array(z.string()).optional().describe("Flags to add to the mail"),
-        removeFlags: z.array(z.string()).optional().describe("Flags to remove from the mail")
-    });
+    export const Body = MailsModel.Create.Body.partial();
 
     export type Body = z.infer<typeof Body>;
 
@@ -172,34 +172,3 @@ export namespace MailsModel.Delete {
 
     export type Response = z.infer<typeof Response>;
 }
-
-export namespace MailsModel.Create {
-
-    export const Body = z.object({
-        from: MailsModel.EmailAddress.optional(),
-        to: z.array(MailsModel.EmailAddress).default([]),
-        cc: z.array(MailsModel.EmailAddress).default([]),
-        bcc: z.array(MailsModel.EmailAddress).default([]),
-        
-        subject: z.string().optional(),
-        replyTo: z.array(MailsModel.EmailAddress).optional(),
-        inReplyTo: z.string().optional(),
-        references: z.union([z.string(), z.array(z.string())]).optional(),
-        
-        priority: z.enum(["normal", "low", "high"]).optional(),
-        
-        body: MailsModel.MailBody.optional(),
-        
-        flags: z.array(z.string()).default(["\\Draft"]).describe("Initial flags for the mail (default: Draft)")
-    });
-
-    export type Body = z.infer<typeof Body>;
-
-    export const Response = z.object({
-        uid: z.number().describe("The UID of the created mail")
-    });
-
-    export type Response = z.infer<typeof Response>;
-}
-
-
