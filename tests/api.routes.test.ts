@@ -13,6 +13,7 @@ import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model"
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { MailsModel } from "../src/api/routes/mail-accounts/mailboxes/mails/model";
+import { SearchModel } from "../src/api/routes/mail-accounts/search/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -1483,6 +1484,294 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(mail.body?.text).toBeDefined();
         if (!mail.body?.text) return;
         expect(mail.body.text.trim()).toBe("World 4!");
+    });
+
+});
+
+describe("Mail Search Routes", async () => {
+
+    let searchTestUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
+    let testIMAPClient: IMAPAccount;
+
+    const connectionSettings = {
+        smtp_host: "127.0.0.1",
+        smtp_port: 11125,
+        smtp_encryption: "NONE",
+        smtp_username: "testuser",
+        smtp_password: "testpass",
+
+        imap_host: "127.0.0.1",
+        imap_port: 11143,
+        imap_encryption: "NONE",
+        imap_username: "testuser",
+        imap_password: "testpass"
+    } as const;
+
+    beforeAll(async () => {
+
+        searchTestUser = await seedUser("user", { username: "searchtestuser" }, "SearchTestP@ss1");
+        session_token = await seedSession(searchTestUser.id).then(s => s.token);
+
+        testIMAPClient = await IMAPAccount.fromConfig({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        }).connect();
+
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
+            host: connectionSettings.smtp_host,
+            port: connectionSettings.smtp_port,
+            username: connectionSettings.smtp_username,
+            password: connectionSettings.smtp_password,
+            useSSL: connectionSettings.smtp_encryption
+        });
+
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        });
+
+        if (!encryptedSMTPData || !encryptedIMAPData) {
+            throw new Error("Failed to encrypt mail account data");
+        }
+
+        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: searchTestUser.id,
+            display_name: "Test Mail Account",
+            smtp_encrypted_connection_data: encryptedSMTPData,
+            imap_encrypted_connection_data: encryptedIMAPData
+        }).returning().get().id;
+    });
+
+    afterAll(async () => {
+        await testIMAPClient.disconnect();
+
+        SessionHandler.inValidateAllSessionsForUser(searchTestUser.id);
+
+        DB.instance().delete(DB.Schema.mailAccounts).where(
+            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        ).run();
+
+        DB.instance().delete(DB.Schema.users).where(
+            eq(DB.Schema.users.id, searchTestUser.id)
+        ).run();
+    });
+
+    test("GET /mail-accounts/:mailAccountID/search performs quick search", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=hello`, {
+            authToken: session_token,
+            expectedBodySchema: SearchModel.QuickSearch.Response
+        });
+
+        expect(data.mailboxesSearched).toBeGreaterThan(0);
+        expect(Array.isArray(data.results)).toBe(true);
+        expect(data.total).toBeGreaterThanOrEqual(0);
+
+        // Check that results have proper structure
+        if (data.results.length > 0) {
+            const result = data.results[0];
+            expect(result).toBeDefined();
+            if (!result) return;
+
+            expect(result.mailboxPath).toBeDefined();
+            expect(result.mailboxName).toBeDefined();
+            expect(result.mail).toBeDefined();
+            expect(result.mail.uid).toBeGreaterThan(0);
+        }
+    });
+
+    test("GET /mail-accounts/:mailAccountID/search with empty query fails", async () => {
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=`, {
+            authToken: session_token
+        }, 400);
+    });
+
+    test("GET /mail-accounts/:mailAccountID/search with limit and offset", async () => {
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=hello&limit=5&offset=0&order=newest`, {
+            authToken: session_token,
+            expectedBodySchema: SearchModel.QuickSearch.Response
+        });
+
+        expect(data.results.length).toBeLessThanOrEqual(5);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search performs advanced search by subject", async () => {
+
+        const searchBody = {
+            subject: "hello"
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.CrossFolderSearch.Response
+        });
+
+        expect(data.mailboxesSearched).toBeGreaterThan(0);
+        expect(Array.isArray(data.results)).toBe(true);
+        expect(data.total).toBeGreaterThanOrEqual(0);
+
+        // All results should contain "hello" in subject
+        for (const result of data.results) {
+            expect(result.mail.subject?.toLowerCase()).toContain("hello");
+        }
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search performs advanced search by from", async () => {
+
+        const searchBody = {
+            from: "sender@example.com"
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.CrossFolderSearch.Response
+        });
+
+        expect(Array.isArray(data.results)).toBe(true);
+
+        // All results should be from the specified sender
+        for (const result of data.results) {
+            expect(result.mail.from?.address).toBe("sender@example.com");
+        }
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search with flag filters", async () => {
+
+        const searchBody = {
+            seen: true
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.CrossFolderSearch.Response
+        });
+
+        expect(Array.isArray(data.results)).toBe(true);
+
+        // All results should be marked as seen
+        for (const result of data.results) {
+            expect(result.mail.flags?.seen).toBe(true);
+        }
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search with mailbox filter", async () => {
+
+        const searchBody = {
+            text: "hello"
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?mailboxes=INBOX`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.CrossFolderSearch.Response
+        });
+
+        expect(Array.isArray(data.results)).toBe(true);
+
+        // All results should be from INBOX
+        for (const result of data.results) {
+            expect(result.mailboxPath).toBe("INBOX");
+        }
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search without criteria fails", async () => {
+
+        const searchBody = {};
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody
+        }, 400);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search/count returns count and breakdown", async () => {
+
+        const searchBody = {
+            text: "hello"
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search/count`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.Count.Response
+        });
+
+        expect(data).toBeDefined();
+        if (!data) return;
+
+        expect(data.total).toBeGreaterThanOrEqual(0);
+        expect(data.mailboxesSearched).toBeGreaterThan(0);
+        expect(Array.isArray(data.breakdown)).toBe(true);
+
+        // Check breakdown structure
+        for (const item of data.breakdown) {
+            expect(item.mailboxPath).toBeDefined();
+            expect(item.mailboxName).toBeDefined();
+            expect(item.count).toBeGreaterThanOrEqual(0);
+        }
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search/count without criteria fails", async () => {
+
+        const searchBody = {};
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search/count`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody
+        }, 400);
+    });
+
+    test("GET /mail-accounts/:mailAccountID/search with invalid mail account fails", async () => {
+
+        await makeAPIRequest(`/mail-accounts/999999/search?q=hello`, {
+            authToken: session_token
+        }, 404);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/search combined criteria search", async () => {
+
+        const searchBody = {
+            subject: "hello",
+            from: "sender",
+            seen: true,
+            flagged: true
+        };
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+            method: "POST",
+            authToken: session_token,
+            body: searchBody,
+            expectedBodySchema: SearchModel.CrossFolderSearch.Response
+        });
+
+        expect(Array.isArray(data.results)).toBe(true);
+
+        // Results should match all criteria
+        for (const result of data.results) {
+            expect(result.mail.subject?.toLowerCase()).toContain("hello");
+            expect(result.mail.flags?.seen).toBe(true);
+            expect(result.mail.flags?.flagged).toBe(true);
+        }
     });
 
 });

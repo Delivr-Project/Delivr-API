@@ -295,6 +295,184 @@ export class IMAPAccount {
             lock.release();
         }
     }
+
+    /**
+     * Search for mails across all mailboxes or specified mailboxes
+     * @param options - Search options including query parameters and folder filters
+     * @returns Array of search results with mailbox path information
+     */
+    async searchMailsAcrossFolders(options: IMAPAccount.CrossFolderSearchOptions): Promise<IMAPAccount.CrossFolderSearchResult[]> {
+        const { 
+            query, 
+            mailboxes: targetMailboxes,
+            excludeMailboxes = [],
+            includeSpecialUse = ['\\Sent', '\\Drafts', '\\Trash', '\\Junk', '\\Archive'],
+            order = 'newest',
+            limit = 50,
+            offset = 0
+        } = options;
+
+        // Get all mailboxes if not specified
+        let mailboxesToSearch: MailboxListResponse[];
+        const allMailboxes = await this.client.list();
+        
+        if (targetMailboxes && targetMailboxes.length > 0) {
+            mailboxesToSearch = allMailboxes.filter(mb => targetMailboxes.includes(mb.path));
+        } else {
+            // Exclude specified mailboxes and optionally special-use folders
+            mailboxesToSearch = allMailboxes.filter(mb => {
+                if (excludeMailboxes.includes(mb.path)) return false;
+                // If includeSpecialUse is empty, exclude special-use folders
+                if (includeSpecialUse.length === 0 && mb.specialUse) return false;
+                return true;
+            });
+        }
+
+        const allResults: IMAPAccount.CrossFolderSearchResult[] = [];
+
+        // Build IMAP search criteria
+        const buildSearchCriteria = (): any => {
+            const criteria: any[] = [];
+
+            if (query.text) {
+                // Full-text search across subject, from, to, and body
+                criteria.push({
+                    or: [
+                        { subject: query.text },
+                        { from: query.text },
+                        { to: query.text },
+                        { body: query.text }
+                    ]
+                });
+            }
+
+            if (query.subject) {
+                criteria.push({ subject: query.subject });
+            }
+
+            if (query.from) {
+                criteria.push({ from: query.from });
+            }
+
+            if (query.to) {
+                criteria.push({ to: query.to });
+            }
+
+            if (query.body) {
+                criteria.push({ body: query.body });
+            }
+
+            if (query.since) {
+                criteria.push({ since: new Date(query.since) });
+            }
+
+            if (query.before) {
+                criteria.push({ before: new Date(query.before) });
+            }
+
+            if (query.hasAttachment !== undefined) {
+                // IMAP doesn't have a direct "has attachment" flag, but we can filter later
+                // For now, we'll handle this post-fetch
+            }
+
+            // Flag-based search
+            if (query.seen !== undefined) {
+                criteria.push(query.seen ? { seen: true } : { unseen: true });
+            }
+
+            if (query.flagged !== undefined) {
+                criteria.push(query.flagged ? { flagged: true } : { unflagged: true });
+            }
+
+            if (query.answered !== undefined) {
+                criteria.push(query.answered ? { answered: true } : { unanswered: true });
+            }
+
+            if (query.draft !== undefined) {
+                criteria.push(query.draft ? { draft: true } : { undraft: true });
+            }
+
+            if (criteria.length === 0) {
+                return { all: true };
+            }
+
+            if (criteria.length === 1) {
+                return criteria[0];
+            }
+
+            // Combine all criteria with AND
+            return { and: criteria };
+        };
+
+        const searchCriteria = buildSearchCriteria();
+
+        // Search each mailbox
+        for (const mailbox of mailboxesToSearch) {
+            let lock;
+            try {
+                lock = await this.client.getMailboxLock(mailbox.path);
+                
+                const total = this.client.mailbox ? this.client.mailbox.exists : 0;
+                if (total === 0) {
+                    lock.release();
+                    continue;
+                }
+
+                const searchResults = await this.client.search(searchCriteria, { uid: true });
+                
+                // Ensure searchResults is an array (might be empty or non-array in edge cases)
+                const uids: number[] = Array.isArray(searchResults) ? searchResults : [];
+
+                if (uids.length === 0) {
+                    lock.release();
+                    continue;
+                }
+
+                // Fetch mail details for matched UIDs
+                const rawMails = await this.client.fetchAll(uids.join(','), {
+                    envelope: true,
+                    bodyStructure: true,
+                    source: true,
+                    flags: true
+                }, { uid: true });
+
+                let mails = await MailRessource.fromIMAPMessages(rawMails);
+
+                // Post-fetch filtering for attachment
+                if (query.hasAttachment !== undefined) {
+                    mails = mails.filter(mail => 
+                        query.hasAttachment ? mail.attachments.length > 0 : mail.attachments.length === 0
+                    );
+                }
+
+                // Add mailbox path to results
+                for (const mail of mails) {
+                    allResults.push({
+                        mailboxPath: mailbox.path,
+                        mailboxName: mailbox.name,
+                        specialUse: mailbox.specialUse,
+                        mail
+                    });
+                }
+
+                lock.release();
+            } catch (e) {
+                if (lock) lock.release();
+                Logger.error(`Failed to search mailbox ${mailbox.path}`, e);
+                // Continue with other mailboxes
+            }
+        }
+
+        // Sort all results by date
+        allResults.sort((a, b) => {
+            const dateA = a.mail.date || 0;
+            const dateB = b.mail.date || 0;
+            return order === 'newest' ? dateB - dateA : dateA - dateB;
+        });
+
+        // Apply offset and limit across all results
+        return allResults.slice(offset, offset + limit);
+    }
 }
 
 export namespace IMAPAccount {
@@ -312,5 +490,60 @@ export namespace IMAPAccount {
         limit?: number;
         offset?: number;
         searchString?: string;
+    }
+
+    export interface SearchQuery {
+        /** Full-text search across subject, from, to, and body */
+        text?: string;
+        /** Search in subject field */
+        subject?: string;
+        /** Search in from field */
+        from?: string;
+        /** Search in to field */
+        to?: string;
+        /** Search in body content */
+        body?: string;
+        /** Messages since this date (Unix timestamp in ms) */
+        since?: number;
+        /** Messages before this date (Unix timestamp in ms) */
+        before?: number;
+        /** Filter by attachment presence */
+        hasAttachment?: boolean;
+        /** Filter by seen/read status */
+        seen?: boolean;
+        /** Filter by flagged/starred status */
+        flagged?: boolean;
+        /** Filter by answered status */
+        answered?: boolean;
+        /** Filter by draft status */
+        draft?: boolean;
+    }
+
+    export interface CrossFolderSearchOptions {
+        /** Search query parameters */
+        query: SearchQuery;
+        /** Specific mailboxes to search (searches all if not specified) */
+        mailboxes?: string[];
+        /** Mailboxes to exclude from search */
+        excludeMailboxes?: string[];
+        /** Which special-use folders to include (default: all) */
+        includeSpecialUse?: string[];
+        /** Sort order by date */
+        order?: 'newest' | 'oldest';
+        /** Maximum number of results */
+        limit?: number;
+        /** Offset for pagination */
+        offset?: number;
+    }
+
+    export interface CrossFolderSearchResult {
+        /** Path of the mailbox containing this mail */
+        mailboxPath: string;
+        /** Name of the mailbox */
+        mailboxName: string;
+        /** Special use flag of the mailbox, if any */
+        specialUse?: string;
+        /** The mail data */
+        mail: MailRessource;
     }
 }

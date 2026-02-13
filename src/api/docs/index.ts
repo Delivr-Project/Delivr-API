@@ -61,6 +61,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 name: "Mail",
                 tags: [
                     "Mail Accounts",
+                    "Mail Accounts / Search",
                     "Mail Accounts / Identities",
                     "Mail Accounts / Mailboxes",
                     "Mail Accounts / Mailboxes / Mails",
@@ -105,6 +106,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Mail Accounts",
                 parent: "Mail",
                 description: "Endpoints for managing mail accounts",
+            },
+            {
+                name: "Mail Accounts / Search",
+                // @ts-ignore
+                "x-displayName": "Cross-Folder Search",
+                summary: "Cross-Folder Email Search",
+                parent: "Mail Accounts",
+                description: "Endpoints for searching emails across multiple mailboxes with advanced filtering options",
             },
             {
                 name: "Mail Accounts / Identities",
@@ -167,6 +176,7 @@ export const DOCS_TAGS = {
 
     MAIL_ACCOUNTS: {
         BASE: "Mail Accounts",
+        SEARCH: "Mail Accounts / Search",
         IDENTITIES: "Mail Accounts / Identities",
         MAILBOXES: "Mail Accounts / Mailboxes",
         MAILBOXES_MAILS: "Mail Accounts / Mailboxes / Mails",

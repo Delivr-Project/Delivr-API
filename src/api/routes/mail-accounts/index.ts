@@ -7,6 +7,7 @@ import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { DOCS_TAGS } from "../../docs";
 import { router as mailboxesRouter } from "./mailboxes";
 import { router as identitiesRouter } from "./identities";
+import { router as searchRouter } from "./search";
 import { AuthHandler } from "../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
@@ -423,3 +424,4 @@ router.delete('/:mailAccountID',
 
 router.route("/:mailAccountID/mailboxes", mailboxesRouter);
 router.route("/:mailAccountID/identities", identitiesRouter);
+router.route("/:mailAccountID/search", searchRouter);
