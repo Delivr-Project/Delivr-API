@@ -1,4 +1,4 @@
-import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse } from "imapflow";
+import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse, type SearchObject } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
@@ -332,43 +332,42 @@ export class IMAPAccount {
         const allResults: IMAPAccount.CrossFolderSearchResult[] = [];
 
         // Build IMAP search criteria
-        const buildSearchCriteria = (): any => {
-            const criteria: any[] = [];
+        const buildSearchCriteria = (): SearchObject => {
+            const criteria: SearchObject = {};
 
             if (query.text) {
                 // Full-text search across subject, from, to, and body
-                criteria.push({
-                    or: [
-                        { subject: query.text },
-                        { from: query.text },
-                        { to: query.text },
-                        { body: query.text }
-                    ]
-                });
+                
+                criteria.or = [
+                    { subject: query.text },
+                    { from: query.text },
+                    { to: query.text },
+                    { body: query.text }
+                ];
             }
 
             if (query.subject) {
-                criteria.push({ subject: query.subject });
+                criteria.subject = query.subject;
             }
 
             if (query.from) {
-                criteria.push({ from: query.from });
+                criteria.from = query.from;
             }
 
             if (query.to) {
-                criteria.push({ to: query.to });
+                criteria.to = query.to;
             }
 
             if (query.body) {
-                criteria.push({ body: query.body });
+                criteria.body = query.body;
             }
 
             if (query.since) {
-                criteria.push({ since: new Date(query.since) });
+                criteria.since = new Date(query.since);
             }
 
             if (query.before) {
-                criteria.push({ before: new Date(query.before) });
+                criteria.before = new Date(query.before);
             }
 
             if (query.hasAttachment !== undefined) {
@@ -378,31 +377,26 @@ export class IMAPAccount {
 
             // Flag-based search
             if (query.seen !== undefined) {
-                criteria.push(query.seen ? { seen: true } : { unseen: true });
+                criteria.seen = query.seen;
             }
 
             if (query.flagged !== undefined) {
-                criteria.push(query.flagged ? { flagged: true } : { unflagged: true });
+                criteria.flagged = query.flagged;
             }
 
             if (query.answered !== undefined) {
-                criteria.push(query.answered ? { answered: true } : { unanswered: true });
+                criteria.answered = query.answered;
             }
 
             if (query.draft !== undefined) {
-                criteria.push(query.draft ? { draft: true } : { undraft: true });
+                criteria.draft = query.draft;
             }
 
-            if (criteria.length === 0) {
-                return { all: true };
+            if (criteria.or && criteria.or.length === 0) {
+                delete criteria.or;
             }
 
-            if (criteria.length === 1) {
-                return criteria[0];
-            }
-
-            // Combine all criteria with AND
-            return { and: criteria };
+            return criteria;
         };
 
         const searchCriteria = buildSearchCriteria();
