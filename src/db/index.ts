@@ -95,6 +95,7 @@ export namespace DB.Schema {
     export const mailIdentities = TableSchema.mailIdentities;
 
     export const metadata = TableSchema.metadata;
+    export const userPreferences = TableSchema.userPreferences;
 }
 
 export namespace DB.Models {
@@ -107,4 +108,5 @@ export namespace DB.Models {
     export type MailIdentity = typeof DB.Schema.mailIdentities.$inferSelect;
 
     export type Metadata = typeof DB.Schema.metadata.$inferSelect;
+    export type UserPreference = typeof DB.Schema.userPreferences.$inferSelect;
 }

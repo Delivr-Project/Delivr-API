@@ -117,3 +117,14 @@
 //     key: text().primaryKey(),
 //     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
 // });
+
+// /**
+//  * @deprecated Use DB.Schema.userPreferences instead
+//  */
+// export const userPreferences = pgTable('user_preferences', {
+//     id: serial().primaryKey(),
+//     user_id: integer().notNull().references(() => users.id),
+//     created_at: SQLUtils.getCreatedAtColumn(),
+//     key: text().notNull(),
+//     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
+// });

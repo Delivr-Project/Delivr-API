@@ -48,6 +48,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 tags: [
                     "Account",
                     "Account / API Keys",
+                    "Account / Preferences",
                     "Authentication",
                 ]
             },
@@ -82,6 +83,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "API Keys",
                 parent: "Account",
                 description: "Endpoints for managing account API keys",
+            },
+            {
+                name: "Account / Preferences",
+                // @ts-ignore
+                "x-displayName": "Preferences",
+                summary: "Preferences",
+                parent: "Account",
+                description: "Endpoints for managing account preferences (e.g. remote email content policy)",
             },
 
             {
@@ -165,6 +174,7 @@ export function setupDocs(app: Hono) {
 export const DOCS_TAGS = {
     ACCOUNT: "Account",
     ACCOUNT_API_KEYS: "Account / API Keys",
+    ACCOUNT_PREFERENCES: "Account / Preferences",
 
     AUTHENTICATION: "Authentication",
 

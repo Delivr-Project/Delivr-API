@@ -114,3 +114,14 @@
 //     key: text().primaryKey(),
 //     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
 // });
+
+// /**
+//  * @deprecated Use DB.Schema.userPreferences instead
+//  */
+// export const userPreferences = mysqlTable('user_preferences', {
+//     id: integer().primaryKey({ autoIncrement: true }),
+//     user_id: integer().notNull().references(() => users.id),
+//     created_at: SQLUtils.getCreatedAtColumn(),
+//     key: text().notNull(),
+//     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
+// });

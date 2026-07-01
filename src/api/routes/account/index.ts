@@ -6,8 +6,10 @@ import { eq } from "drizzle-orm";
 import { APIResponse } from "../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../utils/specHelpers";
 import { AuthHandler, SessionHandler } from "../../utils/authHandler";
+import { UserPreferencesHandler } from "../../utils/preferences";
 import { DOCS_TAGS } from "../../docs";
 import { router as apiKeyRouter } from "./apikeys";
+import { router as preferencesRouter } from "./preferences";
 
 export const router = new Hono().basePath('/account');
 
@@ -170,6 +172,9 @@ router.delete('/',
             eq(DB.Schema.passwordResets.user_id, authContext.user_id)
         ).run();
 
+        // delete stored preferences
+        await UserPreferencesHandler.deleteAllForUser(authContext.user_id);
+
         // finally, delete the user account
         DB.instance().delete(DB.Schema.users).where(
             eq(DB.Schema.users.id, authContext.user_id)
@@ -180,3 +185,4 @@ router.delete('/',
 );
 
 router.route("/", apiKeyRouter);
+router.route("/", preferencesRouter);
