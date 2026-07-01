@@ -39,7 +39,9 @@ export class UserPreferencesHandler {
         ).get();
 
         if (!record) {
-            return UserPreferences.schemas[key].parse(undefined);
+            // schemas[key] has per-field (not top-level) defaults, so it must be
+            // parsed against `{}` rather than `undefined` to fill them in.
+            return UserPreferences.schemas[key].parse({});
         }
 
         return UserPreferences.schemas[key].parse(record.data);
@@ -53,26 +55,14 @@ export class UserPreferencesHandler {
 
         const parsed = UserPreferences.schemas[key].parse(data);
 
-        const existing = await DB.instance().select({ id: DB.Schema.userPreferences.id }).from(DB.Schema.userPreferences).where(
-            and(
-                eq(DB.Schema.userPreferences.user_id, userID),
-                eq(DB.Schema.userPreferences.key, key)
-            )
-        ).get();
-
-        if (existing) {
-            await DB.instance().update(DB.Schema.userPreferences).set({
-                data: parsed
-            }).where(
-                eq(DB.Schema.userPreferences.id, existing.id)
-            );
-        } else {
-            await DB.instance().insert(DB.Schema.userPreferences).values({
-                user_id: userID,
-                key,
-                data: parsed
-            });
-        }
+        await DB.instance().insert(DB.Schema.userPreferences).values({
+            user_id: userID,
+            key,
+            data: parsed
+        }).onConflictDoUpdate({
+            target: [DB.Schema.userPreferences.user_id, DB.Schema.userPreferences.key],
+            set: { data: parsed }
+        });
     }
 
     static async getRemoteContentPolicy(userID: number) {

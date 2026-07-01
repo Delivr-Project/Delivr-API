@@ -127,4 +127,6 @@
 //     created_at: SQLUtils.getCreatedAtColumn(),
 //     key: text().notNull(),
 //     data: text({ mode: 'json' }).$type<Record<string, any> | Array<any>>().notNull()
-// });
+// }, (table) => [
+//     uniqueIndex('user_preferences_user_id_key_unique').on(table.user_id, table.key)
+// ]);
