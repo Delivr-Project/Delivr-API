@@ -136,10 +136,20 @@ export class MailParser {
             id: index,
             filename: attachment.filename || undefined,
             contentType: attachment.mimeType,
-            size: attachment.content instanceof ArrayBuffer ? attachment.content.byteLength :  attachment.content.length,
+            size: this.byteLengthOf(attachment.content),
             contentId: attachment.contentId || undefined,
             contentDisposition: attachment.disposition || undefined,
         }));
+    }
+
+    /**
+     * Byte length of an attachment's content, regardless of how postal-mime
+     * represents it. For strings this is the UTF-8 byte count (not `.length`,
+     * which counts UTF-16 code units and over-reports multi-byte characters).
+     */
+    private static byteLengthOf(content: ArrayBuffer | Uint8Array | string): number {
+        if (typeof content === 'string') return Buffer.byteLength(content, 'utf-8');
+        return content.byteLength;
     }
 
     /**

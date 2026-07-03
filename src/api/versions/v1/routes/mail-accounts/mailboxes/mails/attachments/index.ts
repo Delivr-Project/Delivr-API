@@ -20,7 +20,12 @@ function buildContentDisposition(type: "inline" | "attachment", filename?: strin
 
     // ASCII fallback: strip characters that would break the quoted-string form.
     const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
-    const encoded = encodeURIComponent(filename);
+
+    // RFC 5987 ext-value: encodeURIComponent leaves !'()* unescaped, but those are
+    // not attr-char, so percent-encode them too for a spec-compliant filename*.
+    const encoded = encodeURIComponent(filename).replace(/['()*!]/g, c =>
+        '%' + c.charCodeAt(0).toString(16).toUpperCase()
+    );
 
     return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
 }
