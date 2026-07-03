@@ -4,7 +4,7 @@ import { createInsertSchema, createUpdateSchema, createSelectSchema } from "driz
 
 export namespace MailIdentitiesModel {
 
-    export const BASE = createSelectSchema(DB.Schema.mailIdentities, {
+    export const BASE = createSelectSchema(DB.Tables.mailIdentities, {
         id: z.int().positive(),
         created_at: z.int().positive(),
 

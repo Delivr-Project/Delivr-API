@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as TableSchema from './schema/sqlite';
-import { randomBytes as crypto_randomBytes } from 'crypto';
+import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
 import { type DrizzleDB } from './utils';
 import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
@@ -33,12 +33,12 @@ export class DB {
     }
 
     static async createInitialAdminUserIfNeeded(configBaseDir: string) {
-        const usersTableEmpty = (await this.db.select().from(DB.Schema.users).limit(1)).length === 0;
+        const usersTableEmpty = (await this.db.select().from(DB.Tables.users).limit(1)).length === 0;
         if (!usersTableEmpty) return;
 
         const username = "admin";
 
-        const admin_user_id = await this.db.insert(DB.Schema.users).values({
+        const admin_user_id = await this.db.insert(DB.Tables.users).values({
             username,
             email: "admin@delivr.local",
             password_hash: await Bun.password.hash(crypto_randomBytes(32).toString('hex')),
@@ -47,8 +47,8 @@ export class DB {
         }).returning().get().id;
 
         const passwordResetToken = crypto_randomBytes(64).toString('hex');
-        await this.db.insert(DB.Schema.passwordResets).values({
-            token: passwordResetToken,
+        await this.db.insert(DB.Tables.passwordResets).values({
+            token: crypto_createHash('sha256').update(passwordResetToken).digest('hex'),
             user_id: admin_user_id,
             expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 Days
         });
@@ -91,7 +91,7 @@ export class DB {
 }
 
 
-export namespace DB.Schema {
+export namespace DB.Tables {
     export const users = TableSchema.users;
     export const sessions = TableSchema.sessions;
     export const passwordResets = TableSchema.passwordResets;
@@ -105,14 +105,14 @@ export namespace DB.Schema {
 }
 
 export namespace DB.Models {
-    export type User = typeof DB.Schema.users.$inferSelect;
-    export type Session = typeof DB.Schema.sessions.$inferSelect;
-    export type PasswordReset = typeof DB.Schema.passwordResets.$inferSelect;
-    export type ApiKey = typeof DB.Schema.apiKeys.$inferSelect;
+    export type User = typeof DB.Tables.users.$inferSelect;
+    export type Session = typeof DB.Tables.sessions.$inferSelect;
+    export type PasswordReset = typeof DB.Tables.passwordResets.$inferSelect;
+    export type ApiKey = typeof DB.Tables.apiKeys.$inferSelect;
 
-    export type MailAccount = typeof DB.Schema.mailAccounts.$inferSelect;
-    export type MailIdentity = typeof DB.Schema.mailIdentities.$inferSelect;
+    export type MailAccount = typeof DB.Tables.mailAccounts.$inferSelect;
+    export type MailIdentity = typeof DB.Tables.mailIdentities.$inferSelect;
 
-    export type Metadata = typeof DB.Schema.metadata.$inferSelect;
-    export type UserPreference = typeof DB.Schema.userPreferences.$inferSelect;
+    export type Metadata = typeof DB.Tables.metadata.$inferSelect;
+    export type UserPreference = typeof DB.Tables.userPreferences.$inferSelect;
 }

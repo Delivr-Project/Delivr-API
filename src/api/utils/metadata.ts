@@ -9,8 +9,8 @@ export class RuntimeMetadata {
     } as const;
 
     protected static async getMetadata<T extends keyof typeof this.schemas>(key: T, createIfNotFound = false): Promise<z.infer<(typeof this.schemas)[T]>> {
-        const record = await DB.instance().select().from(DB.Schema.metadata).where(
-            eq(DB.Schema.metadata.key, key)
+        const record = await DB.instance().select().from(DB.Tables.metadata).where(
+            eq(DB.Tables.metadata.key, key)
         ).get();
 
         if (!record) {
@@ -20,7 +20,7 @@ export class RuntimeMetadata {
             }
 
             const defaultData = this.schemas[key].parse(undefined);
-            await DB.instance().insert(DB.Schema.metadata).values({
+            await DB.instance().insert(DB.Tables.metadata).values({
                 key: key,
                 data: defaultData,
             });
@@ -31,10 +31,10 @@ export class RuntimeMetadata {
     }
 
     protected static async setMetadata<T extends keyof typeof this.schemas>(key: T, data: z.infer<(typeof this.schemas)[T]>): Promise<void> {
-        await DB.instance().update(DB.Schema.metadata).set({
+        await DB.instance().update(DB.Tables.metadata).set({
             data: data,
         }).where(
-            eq(DB.Schema.metadata.key, key)
+            eq(DB.Tables.metadata.key, key)
         );
     }
 

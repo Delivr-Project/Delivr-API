@@ -4,7 +4,7 @@ import { DB } from "../../../../../../db";
 
 export namespace AccountAPIKeysModel.GetById {
 
-    export const Response = createSelectSchema(DB.Schema.apiKeys).omit({
+    export const Response = createSelectSchema(DB.Tables.apiKeys).omit({
         user_id: true,
         user_role: true,
         hashed_token: true,
@@ -22,7 +22,7 @@ export namespace AccountAPIKeysModel.GetAll {
 
 export namespace AccountAPIKeysModel.Create {
 
-    export const Body = createInsertSchema(DB.Schema.apiKeys, {
+    export const Body = createInsertSchema(DB.Tables.apiKeys, {
         expires_at: z.union([
             z.literal("7d").meta({ title: "7 days" }),
             z.literal("30d").meta({ title: "30 days" }),

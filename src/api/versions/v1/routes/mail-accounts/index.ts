@@ -36,8 +36,8 @@ router.get('/',
 
         const authContext = AuthHandler.AuthContext.get(c);
 
-        const mailAccountsRaw = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+        const mailAccountsRaw = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id)
         ).all();
 
         const mailAccounts = await Promise.all(mailAccountsRaw.map(async (account) => {
@@ -125,12 +125,12 @@ router.post('/',
 
         if (body.is_default) {
             // If setting this mail account as default, unset all other mail accounts for this user
-            await DB.instance().update(DB.Schema.mailAccounts).set({
+            await DB.instance().update(DB.Tables.mailAccounts).set({
                 is_default: false
             }).where(
                 and(
-                    eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id),
-                    eq(DB.Schema.mailAccounts.is_default, true),
+                    eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id),
+                    eq(DB.Tables.mailAccounts.is_default, true),
                 )
             );
         }
@@ -155,7 +155,7 @@ router.post('/',
             return APIResponse.serverError(c, "Failed to encrypt mail account data");
         }
 
-        const result = await DB.instance().insert(DB.Schema.mailAccounts).values({
+        const result = await DB.instance().insert(DB.Tables.mailAccounts).values({
             display_name: body.display_name,
             is_default: body.is_default,
             smtp_encrypted_connection_data: encryptedSMTPData,
@@ -178,10 +178,10 @@ router.use("/:mailAccountID/*",
         // @ts-ignore
         const { mailAccountID } = c.req.valid("param") as MailAccountsModel.MailAccountIDParams;
 
-        let encryptedMailAccount = DB.instance().select().from(DB.Schema.mailAccounts).where(
+        let encryptedMailAccount = DB.instance().select().from(DB.Tables.mailAccounts).where(
             and(
-                eq(DB.Schema.mailAccounts.id, mailAccountID),
-                eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+                eq(DB.Tables.mailAccounts.id, mailAccountID),
+                eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id)
             )
         ).get();
 
@@ -313,19 +313,19 @@ router.put('/:mailAccountID',
 
         if (body.is_default && !mailAccount.is_default) {
             // If setting this mail account as default, unset all other mail accounts for this user
-            await DB.instance().update(DB.Schema.mailAccounts).set({
+            await DB.instance().update(DB.Tables.mailAccounts).set({
                 is_default: false
             }).where(
                 and(
-                    eq(DB.Schema.mailAccounts.owner_user_id, mailAccount.owner_user_id),
-                    eq(DB.Schema.mailAccounts.is_default, true),
-                    ne(DB.Schema.mailAccounts.id, mailAccount.id)
+                    eq(DB.Tables.mailAccounts.owner_user_id, mailAccount.owner_user_id),
+                    eq(DB.Tables.mailAccounts.is_default, true),
+                    ne(DB.Tables.mailAccounts.id, mailAccount.id)
                 )
             );
         }
 
-        await DB.instance().update(DB.Schema.mailAccounts).set(body).where(
-            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        await DB.instance().update(DB.Tables.mailAccounts).set(body).where(
+            eq(DB.Tables.mailAccounts.id, mailAccount.id)
         )
 
         return APIResponse.successNoData(c, "Mail account updated successfully");
@@ -377,11 +377,11 @@ router.put('/:mailAccountID/credentials',
             return APIResponse.serverError(c, "Failed to encrypt mail account data");
         }
 
-        await DB.instance().update(DB.Schema.mailAccounts).set({
+        await DB.instance().update(DB.Tables.mailAccounts).set({
             smtp_encrypted_connection_data: encryptedSMTPData,
             imap_encrypted_connection_data: encryptedIMAPData
         }).where(
-            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+            eq(DB.Tables.mailAccounts.id, mailAccount.id)
         )
 
         return APIResponse.successNoData(c, "Mail account credentials updated successfully");
@@ -409,12 +409,12 @@ router.delete('/:mailAccountID',
         await MailClientsCache.deleteClient(mailAccount.id);
 
         // Delete all mail identities linked to this mail account
-        await DB.instance().delete(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id)
+        await DB.instance().delete(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
         );
 
-        await DB.instance().delete(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccount.id)
+        await DB.instance().delete(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccount.id)
         );
 
         return APIResponse.successNoData(c, "Mail account deleted successfully");

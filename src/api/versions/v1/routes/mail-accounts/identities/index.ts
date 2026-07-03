@@ -28,8 +28,8 @@ router.get('/',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        const mailIdentities = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id),
+        const mailIdentities = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id),
         ).all();
         
         return APIResponse.success(c, "Mail identities retrieved successfully", mailIdentities satisfies MailIdentitiesModel.GetAll.Response);
@@ -58,17 +58,17 @@ router.post('/',
 
         if (body.is_default) {
             // If setting this mail identity as default, unset all other identities for this mail account
-            await DB.instance().update(DB.Schema.mailIdentities).set({
+            await DB.instance().update(DB.Tables.mailIdentities).set({
                 is_default: false
             }).where(
                 and(
-                    eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id),
-                    eq(DB.Schema.mailIdentities.is_default, true),
+                    eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id),
+                    eq(DB.Tables.mailIdentities.is_default, true),
                 )
             );
         }
 
-        const result = await DB.instance().insert(DB.Schema.mailIdentities).values({
+        const result = await DB.instance().insert(DB.Tables.mailIdentities).values({
             ...body,
             mail_account_id: mailAccount.id,
         }).returning().get();
@@ -88,10 +88,10 @@ router.use('/:mailIdentityID/*',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        const mailIdentity = DB.instance().select().from(DB.Schema.mailIdentities).where(
+        const mailIdentity = DB.instance().select().from(DB.Tables.mailIdentities).where(
             and(
-                eq(DB.Schema.mailIdentities.id, mailIdentityID),
-                eq(DB.Schema.mailIdentities.mail_account_id, mailAccount.id),
+                eq(DB.Tables.mailIdentities.id, mailIdentityID),
+                eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id),
             )
         ).get();
 
@@ -150,21 +150,21 @@ router.put('/:mailIdentityID',
 
         if (body.is_default && !mailIdentity.is_default) {
             // If setting this mail identity as default, unset all other identities for this mail account
-            await DB.instance().update(DB.Schema.mailIdentities).set({
+            await DB.instance().update(DB.Tables.mailIdentities).set({
                 is_default: false
             }).where(
                 and(
-                    eq(DB.Schema.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
-                    eq(DB.Schema.mailIdentities.is_default, true),
-                    ne(DB.Schema.mailIdentities.id, mailIdentity.id)
+                    eq(DB.Tables.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
+                    eq(DB.Tables.mailIdentities.is_default, true),
+                    ne(DB.Tables.mailIdentities.id, mailIdentity.id)
                 )
             );
         }
 
-        await DB.instance().update(DB.Schema.mailIdentities).set({
+        await DB.instance().update(DB.Tables.mailIdentities).set({
             ...body
         }).where(
-            eq(DB.Schema.mailIdentities.id, mailIdentity.id)
+            eq(DB.Tables.mailIdentities.id, mailIdentity.id)
         );
 
         return APIResponse.successNoData(c, "Mail identity updated successfully");
@@ -188,8 +188,8 @@ router.delete('/:mailIdentityID',
         // @ts-ignore
         const mailIdentity = c.get("mailIdentity") as MailIdentitiesModel.BASE;
 
-        await DB.instance().delete(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.id, mailIdentity.id)
+        await DB.instance().delete(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, mailIdentity.id)
         );
 
         return APIResponse.successNoData(c, "Mail identity deleted successfully");

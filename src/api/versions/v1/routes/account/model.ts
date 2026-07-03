@@ -5,7 +5,7 @@ import { UserDataPolicys } from "../../../../utils/shared-models/accountData";
 
 export namespace AccountModel.GetInfo {
 
-    export const Response = createSelectSchema(DB.Schema.users).omit({
+    export const Response = createSelectSchema(DB.Tables.users).omit({
         password_hash: true
     });
     export type Response = z.infer<typeof Response>;
@@ -14,7 +14,7 @@ export namespace AccountModel.GetInfo {
 
 export namespace AccountModel.UpdateInfo {
 
-    export const Body = createUpdateSchema(DB.Schema.users, {
+    export const Body = createUpdateSchema(DB.Tables.users, {
         username: UserDataPolicys.Username,
         email: z.email('Invalid email')
     }).omit({

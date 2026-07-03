@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import { type Context } from "hono";
 import { z } from "zod";
 
 export class APIResponse {
@@ -30,6 +30,9 @@ export class APIResponse {
 
     static unauthorized(c: Context, message: string) {
         return c.json({ success: false, code: 401, message }, 401);
+    }
+    static forbidden(c: Context, message: string) {
+        return c.json({ success: false, code: 403, message }, 403);
     }
 
     static badRequest(c: Context, message: string) {
@@ -99,6 +102,7 @@ export namespace APIResponse.Schema {
 
     export const serverError = APIResponse.Utils.createErrorSchemaFactory(500);
     export const unauthorized = APIResponse.Utils.createErrorSchemaFactory(401);
+    export const forbidden = APIResponse.Utils.createErrorSchemaFactory(403);
     export const badRequest = APIResponse.Utils.createErrorSchemaFactory(400);
     export const notFound = APIResponse.Utils.createErrorSchemaFactory(404);
     export const conflict = APIResponse.Utils.createErrorSchemaFactory(409);
@@ -112,12 +116,25 @@ export namespace APIResponse.Types {
 
     export type NonRequiredReturnData = null | RequiredReturnData;
 
+    export type BasicReturnData = 
+        | ReturnType<typeof APIResponse.success>
+        | ReturnType<typeof APIResponse.accepted>
+        | ReturnType<typeof APIResponse.created>
+        | ReturnType<typeof APIResponse.serverError>
+        | ReturnType<typeof APIResponse.unauthorized>
+        | ReturnType<typeof APIResponse.forbidden>
+        | ReturnType<typeof APIResponse.badRequest>
+        | ReturnType<typeof APIResponse.notFound>
+        | ReturnType<typeof APIResponse.conflict>
+        | ReturnType<typeof APIResponse.tooManyRequests>;
+
     export type BasicResponseSchema =
         | z.infer<ReturnType<typeof APIResponse.Schema.success<any, z.ZodType<NonRequiredReturnData>>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.accepted<any, z.ZodType<RequiredReturnData>>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.created<any, z.ZodType<RequiredReturnData>>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.serverError<any>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.unauthorized<any>>>
+        | z.infer<ReturnType<typeof APIResponse.Schema.forbidden<any>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.badRequest<any>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.notFound<any>>>
         | z.infer<ReturnType<typeof APIResponse.Schema.conflict<any>>>

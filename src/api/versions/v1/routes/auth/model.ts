@@ -10,7 +10,7 @@ export namespace AuthModel.Login {
     });
     export type Body = z.infer<typeof Body>;
 
-    export const Response = createSelectSchema(DB.Schema.sessions).omit({
+    export const Response = createSelectSchema(DB.Tables.sessions).omit({
         id: true,
         hashed_token: true
     }).extend({
@@ -21,7 +21,7 @@ export namespace AuthModel.Login {
 
 export namespace AuthModel.Session {
 
-    export const Response = createSelectSchema(DB.Schema.sessions).omit({
+    export const Response = createSelectSchema(DB.Tables.sessions).omit({
         id: true,
         hashed_token: true
     });

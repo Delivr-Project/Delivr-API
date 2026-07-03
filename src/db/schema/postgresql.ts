@@ -11,7 +11,7 @@
 // import { InetModels } from '../../api/utils/shared-models/inetModels';
 
 // /**
-//  * @deprecated Use DB.Schema.users instead
+//  * @deprecated Use DB.Tables.users instead
 //  */
 // export const users = pgTable('users', {
 //     id: serial().primaryKey(),
@@ -26,7 +26,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.passwordResets instead
+//  * @deprecated Use DB.Tables.passwordResets instead
 //  */
 // export const passwordResets = pgTable('password_resets', {
 //     token: text().primaryKey(),
@@ -36,7 +36,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.sessions instead
+//  * @deprecated Use DB.Tables.sessions instead
 //  */
 // export const sessions = pgTable('sessions', {
 //     id: text().primaryKey(),
@@ -50,7 +50,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.apiKeys instead
+//  * @deprecated Use DB.Tables.apiKeys instead
 //  */
 // export const apiKeys = pgTable('api_keys', {
 //     id: text().primaryKey(),
@@ -66,7 +66,7 @@
 
 
 // /**
-//  * @deprecated Use DB.Schema.mailAccounts instead
+//  * @deprecated Use DB.Tables.mailAccounts instead
 //  */
 // export const mailAccounts = pgTable('mail_accounts', {
 //     id: integer().primaryKey({ autoIncrement: true }),
@@ -96,7 +96,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.mailIdentities instead
+//  * @deprecated Use DB.Tables.mailIdentities instead
 //  */
 // export const mailIdentities = pgTable('mail_identities', {
 //     id: integer().primaryKey({ autoIncrement: true }),
@@ -111,7 +111,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.metadata instead
+//  * @deprecated Use DB.Tables.metadata instead
 //  */
 // export const metadata = pgTable('metadata', {
 //     key: text().primaryKey(),
@@ -119,7 +119,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.userPreferences instead
+//  * @deprecated Use DB.Tables.userPreferences instead
 //  */
 // export const userPreferences = pgTable('user_preferences', {
 //     id: serial().primaryKey(),
