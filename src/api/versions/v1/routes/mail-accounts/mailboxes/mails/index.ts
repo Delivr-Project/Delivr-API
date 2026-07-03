@@ -346,6 +346,65 @@ router.post('/:mailUID/move',
     }
 );
 
+router.post('/:mailUID/flags',
+
+    APIRouteSpec.authenticated({
+        summary: "Set Mail Flags",
+        description: "Set message flags such as the seen/read state. Only the flags present in the body are changed (`true` sets the flag, `false` clears it); flags are applied in place without altering the mail's UID.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("Mail flags updated successfully", MailsModel.SetFlags.Response),
+            APIResponseSpec.notFound("Mail with specified UID not found")
+        )
+    }),
+
+    validator('json', MailsModel.SetFlags.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+        // @ts-ignore
+        const mailData = c.get("mailData") as MailRessource.IMail;
+        const body = c.req.valid('json');
+
+        // Map user-facing flag names to their IMAP system flags. `\Recent` is
+        // server-managed and cannot be set by clients, so it is intentionally omitted.
+        const FLAG_MAP: Record<string, string> = {
+            seen: '\\Seen',
+            answered: '\\Answered',
+            flagged: '\\Flagged',
+            draft: '\\Draft',
+            deleted: '\\Deleted'
+        };
+
+        const flagsToAdd: string[] = [];
+        const flagsToRemove: string[] = [];
+        for (const [key, imapFlag] of Object.entries(FLAG_MAP)) {
+            const value = body[key as keyof MailsModel.SetFlags.Body];
+            if (value === true) flagsToAdd.push(imapFlag);
+            else if (value === false) flagsToRemove.push(imapFlag);
+        }
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            if (flagsToAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], flagsToAdd);
+            if (flagsToRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], flagsToRemove);
+
+            const flags = { ...(mailData.flags ?? {}), ...body };
+
+            return APIResponse.success(c, "Mail flags updated successfully", { success: true, flags } satisfies MailsModel.SetFlags.Response);
+        } catch (e) {
+            Logger.error("Failed to update mail flags", e);
+            return APIResponse.serverError(c, "Failed to update mail flags");
+        }
+    }
+);
+
 router.delete('/:mailUID',
 
     APIRouteSpec.authenticated({

@@ -2314,7 +2314,7 @@ describe("Mail Attachment Routes", async () => {
             throw new Error("Failed to encrypt mail account data");
         }
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
             owner_user_id: attachmentTestUser.id,
             display_name: "Test Mail Account",
             smtp_encrypted_connection_data: encryptedSMTPData,
