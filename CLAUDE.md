@@ -37,6 +37,7 @@ src/
 │           ├── docs/
 │           │   └── index.ts  # Scalar API reference
 │           └── routes/       # Route modules (auth, account, mail-accounts, admin)
+│                              #   mail-accounts → mailboxes → mails → attachments (nested)
 ├── db/
 │   ├── index.ts              # DB connection setup
 │   ├── utils.ts              # DB utilities
@@ -84,5 +85,7 @@ src/
 
 - The app uses a versioned API router (`apiVersionRouter.ts`) that mounts version sub-routers.
 - Mail handling is split into backends (IMAP/SMTP) and resources (mail, mailbox).
+- **Mail parsing is metadata-only**: `MailParser.parseMail` (via `postal-mime`) intentionally strips attachment *content*, keeping only metadata (`id`, `filename`, `contentType`, `size`, `contentId`, `contentDisposition`). The `id` is the attachment's index within the mail and is the handle used to fetch its bytes.
+- **Attachment content is never stored or cached server-side**: the `attachments/:attachmentId` route re-fetches the message source from IMAP, parses it transiently in-memory (`MailParser.getAttachmentContent`), and streams the single attachment out with `Cache-Control: no-store` (+ `nosniff`). `MailClientsCache` pools IMAP *connections* only, never message/attachment data.
 - Drizzle schema files are dialect-specific — changes should be mirrored across all three when adding new tables/columns.
 - The `data/` directory contains runtime data (SQLite DB files, etc.).
