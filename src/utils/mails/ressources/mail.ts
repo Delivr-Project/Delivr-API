@@ -154,11 +154,11 @@ export namespace MailRessource {
     }
 
     export interface MailAttachment {
+        /** Stable index of this attachment within the mail, used to fetch its content. */
+        id: number;
         filename?: string;
         contentType: string;
         size: number;
-        // @TODO return url to get the content from later
-        // content: Buffer;
         contentId?: string;
         contentDisposition?: string;
     }

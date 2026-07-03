@@ -159,7 +159,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 "x-displayName": "Attachments",
                 summary: "Mail Attachments",
                 parent: "Mail Accounts / Mailboxes / Mails",
-                description: "Endpoints for managing mail attachments",
+                description: "Endpoints for listing and downloading mail attachments. Attachment content is fetched from the mail server and streamed on demand — it is never stored or cached on the API server.",
             }
         ]
     }

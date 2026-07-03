@@ -132,14 +132,52 @@ export class MailParser {
     private static parseAttachments(attachments: Attachment[]): MailRessource.MailAttachment[] {
         if (!attachments || attachments.length === 0) return [];
 
-        return attachments.map(attachment => ({
+        return attachments.map((attachment, index) => ({
+            id: index,
             filename: attachment.filename || undefined,
             contentType: attachment.mimeType,
             size: attachment.content instanceof ArrayBuffer ? attachment.content.byteLength :  attachment.content.length,
-            // content: attachment.content,
-            contentId: attachment.contentId,
+            contentId: attachment.contentId || undefined,
             contentDisposition: attachment.disposition || undefined,
         }));
+    }
+
+    /**
+     * Extract a single attachment's decoded content from a raw message source.
+     *
+     * The message is parsed transiently in-memory to pull out exactly one
+     * attachment (identified by its index/`id` in the attachments array) and its
+     * bytes. Nothing is persisted or cached — the caller is expected to stream the
+     * returned buffer straight to the client and let it be garbage-collected.
+     *
+     * @param source - Raw email source (as fetched from IMAP)
+     * @param attachmentId - Index of the attachment within the parsed attachments array
+     * @returns The attachment's bytes and metadata, or `null` if the index is out of range
+     */
+    static async getAttachmentContent(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream,
+        attachmentId: number
+    ): Promise<MailParser.AttachmentContent | null> {
+        const parsed = await PostalMime.parse(source);
+        const attachment = parsed.attachments[attachmentId];
+        if (!attachment) return null;
+
+        // postal-mime hands back an ArrayBuffer/Uint8Array for binary parts and a
+        // string for text parts; normalise all cases to a single Uint8Array of bytes.
+        const raw = attachment.content;
+        const content = typeof raw === 'string'
+            ? new TextEncoder().encode(raw)
+            : raw instanceof Uint8Array
+                ? raw
+                : new Uint8Array(raw);
+
+        return {
+            filename: attachment.filename || undefined,
+            contentType: attachment.mimeType || 'application/octet-stream',
+            content,
+            contentId: attachment.contentId || undefined,
+            contentDisposition: attachment.disposition || undefined,
+        };
     }
 
     /**
@@ -166,6 +204,22 @@ export class MailParser {
             headersDict[line.key] = line.line;
         }
         return headersDict;
+    }
+
+}
+
+export namespace MailParser {
+
+    /**
+     * A single attachment's decoded bytes plus the metadata needed to serve it.
+     * Held only transiently — never persisted or cached server-side.
+     */
+    export interface AttachmentContent {
+        filename?: string;
+        contentType: string;
+        content: Uint8Array;
+        contentId?: string;
+        contentDisposition?: string;
     }
 
 }

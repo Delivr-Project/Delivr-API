@@ -24,6 +24,7 @@ export namespace MailsModel {
     export type MailFlags = Utils.SameType<z.infer<typeof MailFlags>, MailRessource.MailFlags>;
 
     export const MailAttachment = z.object({
+        id: z.number(),
         filename: z.string().optional(),
         contentType: z.string(),
         size: z.number(),

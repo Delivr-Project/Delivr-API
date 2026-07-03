@@ -3,6 +3,7 @@ import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { MailAccountsModel } from "../../../api/versions/v1/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
 import { MailboxRessource } from "../ressources/mailbox";
+import { MailParser } from "../parser";
 import { Logger } from "../../logger";
 import { QuickSort } from "@cleverjs/utils";
 
@@ -240,6 +241,32 @@ export class IMAPAccount {
 
             if (!message) return null;
             return await MailRessource.fromIMAPMessage(message);
+        } finally {
+            lock.release();
+        }
+    }
+
+    /**
+     * Fetch a single attachment's decoded content on demand.
+     *
+     * The raw message source is fetched from IMAP and parsed transiently to pull
+     * out one attachment's bytes. Nothing is written to disk or cached — the buffer
+     * is returned for the caller to stream straight to the client.
+     *
+     * @param mailbox - Mailbox path
+     * @param uid - Message UID
+     * @param attachmentId - Index of the attachment within the parsed attachments array
+     * @returns The attachment content, or `null` if the message or attachment does not exist
+     */
+    async getAttachmentContent(mailbox: string, uid: number, attachmentId: number): Promise<MailParser.AttachmentContent | null> {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            const message = await this.client.fetchOne(uid, {
+                source: true
+            }, { uid: true });
+
+            if (!message || !message.source) return null;
+            return await MailParser.getAttachmentContent(message.source, attachmentId);
         } finally {
             lock.release();
         }
