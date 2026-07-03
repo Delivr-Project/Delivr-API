@@ -7,6 +7,7 @@ import { desc, eq } from "drizzle-orm";
 import { AuthModel } from "../src/api/routes/auth/model";
 import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
+import { AccountPreferencesModel } from "../src/api/routes/account/preferences/model";
 import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
@@ -278,6 +279,189 @@ describe("Account routes", async () => {
         // recreate test user for further tests
         testUser = await seedUser("user", { username: "testuser" }, "UserP@ss1");
     });
+});
+
+describe("Account Preferences Routes", async () => {
+
+    let preferencesTestUser: SeededUser;
+    let session_token: string;
+
+    beforeAll(async () => {
+        preferencesTestUser = await seedUser("user", { username: "preferencesuser" }, "PrefsP@ss1");
+        session_token = await seedSession(preferencesTestUser.id).then(s => s.token);
+    });
+
+    afterAll(async () => {
+        SessionHandler.inValidateAllSessionsForUser(preferencesTestUser.id);
+
+        DB.instance().delete(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        ).run();
+
+        DB.instance().delete(DB.Schema.users).where(
+            eq(DB.Schema.users.id, preferencesTestUser.id)
+        ).run();
+    });
+
+    test("GET /account/preferences/remote-content-policy returns empty defaults when nothing is saved yet", async () => {
+
+        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
+        });
+
+        expect(data.addresses).toEqual({});
+        expect(data.domains).toEqual({});
+
+        // No row should exist yet - this is a computed default, not a persisted one.
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+    });
+
+    test("GET /account/preferences/remote-content-policy without auth fails", async () => {
+        await makeAPIRequest("/account/preferences/remote-content-policy", {}, 401);
+    });
+
+    test("PUT /account/preferences/remote-content-policy saves a new policy", async () => {
+
+        await makeAPIRequest("/account/preferences/remote-content-policy", {
+            method: "PUT",
+            authToken: session_token,
+            body: {
+                addresses: { "sender@example.com": "allow" },
+                domains: {}
+            }
+        });
+
+        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
+        });
+
+        expect(data.addresses).toEqual({ "sender@example.com": "allow" });
+        expect(data.domains).toEqual({});
+
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        ).all();
+        expect(dbresult.length).toBe(1);
+        expect(dbresult[0]?.key).toBe("remote-content-policy");
+    });
+
+    test("PUT /account/preferences/remote-content-policy overwrites the previous policy without creating a duplicate row", async () => {
+
+        await makeAPIRequest("/account/preferences/remote-content-policy", {
+            method: "PUT",
+            authToken: session_token,
+            body: {
+                addresses: {},
+                domains: { "example.com": "block" }
+            }
+        });
+
+        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
+        });
+
+        // Replace semantics, not merge: the earlier "addresses" rule is gone.
+        expect(data.addresses).toEqual({});
+        expect(data.domains).toEqual({ "example.com": "block" });
+
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("PUT /account/preferences/remote-content-policy concurrently still results in exactly one stored row", async () => {
+
+        await Promise.all([
+            makeAPIRequest("/account/preferences/remote-content-policy", {
+                method: "PUT",
+                authToken: session_token,
+                body: { addresses: { "race1@example.com": "allow" }, domains: {} }
+            }),
+            makeAPIRequest("/account/preferences/remote-content-policy", {
+                method: "PUT",
+                authToken: session_token,
+                body: { addresses: { "race2@example.com": "block" }, domains: {} }
+            })
+        ]);
+
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("PUT /account/preferences/remote-content-policy with invalid decision fails", async () => {
+
+        await makeAPIRequest("/account/preferences/remote-content-policy", {
+            method: "PUT",
+            authToken: session_token,
+            body: {
+                addresses: { "sender@example.com": "maybe" },
+                domains: {}
+            }
+        }, 400);
+    });
+
+    test("PUT /account/preferences/remote-content-policy without auth fails", async () => {
+
+        await makeAPIRequest("/account/preferences/remote-content-policy", {
+            method: "PUT",
+            body: { addresses: {}, domains: {} }
+        }, 401);
+    });
+
+    test("Preferences are isolated per user", async () => {
+
+        const otherUser = await seedUser("user", { username: "preferencesotheruser" }, "OtherP@ss1");
+        const otherSession = await seedSession(otherUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+            authToken: otherSession,
+            expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
+        });
+
+        // Should NOT see preferencesTestUser's saved rules.
+        expect(data.addresses).toEqual({});
+        expect(data.domains).toEqual({});
+
+        SessionHandler.inValidateAllSessionsForUser(otherUser.id);
+        DB.instance().delete(DB.Schema.users).where(eq(DB.Schema.users.id, otherUser.id)).run();
+    });
+
+    test("DELETE /account also removes stored preferences", async () => {
+
+        const deletableUser = await seedUser("user", { username: "preferencesdeletableuser" }, "DeleteP@ss1");
+        const deletableSession = await seedSession(deletableUser.id).then(s => s.token);
+
+        await makeAPIRequest("/account/preferences/remote-content-policy", {
+            method: "PUT",
+            authToken: deletableSession,
+            body: { addresses: { "keep@example.com": "allow" }, domains: {} }
+        });
+
+        const beforeDelete = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, deletableUser.id)
+        ).all();
+        expect(beforeDelete.length).toBe(1);
+
+        await makeAPIRequest("/account", {
+            method: "DELETE",
+            authToken: deletableSession
+        });
+
+        const afterDelete = DB.instance().select().from(DB.Schema.userPreferences).where(
+            eq(DB.Schema.userPreferences.user_id, deletableUser.id)
+        ).all();
+        expect(afterDelete.length).toBe(0);
+    });
+
 });
 
 describe("Mail Account Routes", async () => {
