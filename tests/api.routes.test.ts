@@ -17,12 +17,13 @@ import { MailsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxe
 import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/model";
 import { MailBulkActionsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mail-bulk-actions/model";
 import { AttachmentsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/attachments/model";
+import { hashResetToken } from "../src/api/versions/v1/routes/auth/reset-password";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
 
 async function seedUser(role: DB.Models.User["role"], overrides: Partial<DB.Models.User> = {}, password = "TestP@ssw0rd") {
-    const user = DB.instance().insert(DB.Schema.users).values({
+    const user = DB.instance().insert(DB.Tables.users).values({
         username: overrides.username ?? `user_${randomUUID().slice(0, 8)}`,
         display_name: overrides.display_name ?? "Test User",
         email: overrides.email ?? `${randomUUID()}@example.com`,
@@ -61,7 +62,7 @@ async function seedMailAccount(ownerUserId: number) {
     }
 
     // Seed a mail account
-    const mailAccount = await DB.instance().insert(DB.Schema.mailAccounts).values({
+    const mailAccount = await DB.instance().insert(DB.Tables.mailAccounts).values({
         owner_user_id: ownerUserId,
         display_name: "Test Mail Account",
         smtp_encrypted_connection_data: encryptedSMTPData,
@@ -155,6 +156,102 @@ describe("Auth routes and access checks", async () => {
     });
 });
 
+describe("Auth reset-password routes", async () => {
+
+    let resetUser: SeededUser;
+    let resetSessionToken: string;
+
+    beforeAll(async () => {
+        resetUser = await seedUser("user");
+        resetSessionToken = await seedSession(resetUser.id).then(s => s.token);
+    });
+
+    test("POST /v1/auth/reset-password/request returns success for existing and unknown emails", async () => {
+        await makeAPIRequest("/v1/auth/reset-password/request", {
+            method: "POST",
+            body: { email: resetUser.email }
+        }, 200);
+
+        await makeAPIRequest("/v1/auth/reset-password/request", {
+            method: "POST",
+            body: { email: `nope-${randomUUID()}@example.com` }
+        }, 200);
+    });
+
+    test("POST /v1/auth/reset-password/request denies authenticated users", async () => {
+        await makeAPIRequest("/v1/auth/reset-password/request", {
+            method: "POST",
+            authToken: resetSessionToken,
+            body: { email: resetUser.email }
+        }, 401);
+    });
+
+    test("POST /v1/auth/reset-password with invalid token fails", async () => {
+        await makeAPIRequest("/v1/auth/reset-password", {
+            method: "POST",
+            body: {
+                reset_token: "invalid-token",
+                new_password: "ResetP@ssw0rd1"
+            }
+        }, 400);
+    });
+
+    test("POST /v1/auth/reset-password updates credentials for a valid reset token", async () => {
+        const validResetToken = `reset_${randomUUID().replace(/-/g, "")}`;
+        const nextPassword = "ResetP@ssw0rd1";
+        const wrongLoginIP = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+        const correctLoginIP = `203.0.114.${Math.floor(Math.random() * 200) + 1}`;
+
+        await DB.instance().insert(DB.Tables.passwordResets).values({
+            token: hashResetToken(validResetToken),
+            user_id: resetUser.id,
+            expires_at: Date.now() + 10 * 60 * 1000
+        }).run();
+
+        await makeAPIRequest("/v1/auth/reset-password", {
+            method: "POST",
+            body: {
+                reset_token: validResetToken,
+                new_password: nextPassword
+            }
+        }, 200);
+
+        await makeAPIRequest("/v1/auth/session", {
+            authToken: resetSessionToken
+        }, 401);
+
+        await makeAPIRequest("/v1/auth/login", {
+            method: "POST",
+            body: {
+                username: resetUser.username,
+                password: resetUser.password
+            },
+            additionalOptions: {
+                headers: {
+                    "x-forwarded-for": wrongLoginIP
+                }
+            }
+        }, 401);
+
+        const login = await makeAPIRequest("/v1/auth/login", {
+            method: "POST",
+            body: {
+                username: resetUser.username,
+                password: nextPassword
+            },
+            additionalOptions: {
+                headers: {
+                    "x-forwarded-for": correctLoginIP
+                }
+            },
+            expectedBodySchema: AuthModel.Login.Response
+        }, 200);
+
+        expect(login.token.startsWith("dla_sess_")).toBe(true);
+        resetUser.password = nextPassword;
+    });
+});
+
 describe("Account routes", async () => {
 
     let session_token: string;
@@ -195,7 +292,7 @@ describe("Account routes", async () => {
         testUser.username = newUserData.username;
         testUser.email = newUserData.email;
 
-        const dbresult = DB.instance().select().from(DB.Schema.users).where(eq(DB.Schema.users.id, testUser.id)).get();
+        const dbresult = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, testUser.id)).get();
 
         expect(dbresult?.display_name).toBe(newUserData.display_name);
         expect(dbresult?.username).toBe(newUserData.username);
@@ -210,7 +307,7 @@ describe("Account routes", async () => {
             body: { role: "admin" }
         }, 400);
         
-        const dbresult = DB.instance().select().from(DB.Schema.users).where(eq(DB.Schema.users.id, testUser.id)).get();
+        const dbresult = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, testUser.id)).get();
         expect(dbresult?.role).toBe("user");
     });
 
@@ -263,8 +360,8 @@ describe("Account routes", async () => {
             authToken: session_token
         }, 400);
 
-        await DB.instance().delete(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        await DB.instance().delete(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).run();
     });
 
@@ -275,7 +372,7 @@ describe("Account routes", async () => {
             authToken: session_token
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.users).where(eq(DB.Schema.users.id, testUser.id)).get();
+        const dbresult = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, testUser.id)).get();
         expect(dbresult).toBeUndefined();
 
         // recreate test user for further tests
@@ -296,12 +393,12 @@ describe("Account Preferences Routes", async () => {
     afterAll(async () => {
         SessionHandler.inValidateAllSessionsForUser(preferencesTestUser.id);
 
-        DB.instance().delete(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        DB.instance().delete(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id)
         ).run();
 
-        DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, preferencesTestUser.id)
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, preferencesTestUser.id)
         ).run();
     });
 
@@ -316,8 +413,8 @@ describe("Account Preferences Routes", async () => {
         expect(data.domains).toEqual({});
 
         // No row should exist yet - this is a computed default, not a persisted one.
-        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id)
         ).all();
         expect(dbresult.length).toBe(0);
     });
@@ -345,8 +442,8 @@ describe("Account Preferences Routes", async () => {
         expect(data.addresses).toEqual({ "sender@example.com": "allow" });
         expect(data.domains).toEqual({});
 
-        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id)
         ).all();
         expect(dbresult.length).toBe(1);
         expect(dbresult[0]?.key).toBe("remote-content-policy");
@@ -372,8 +469,8 @@ describe("Account Preferences Routes", async () => {
         expect(data.addresses).toEqual({});
         expect(data.domains).toEqual({ "example.com": "block" });
 
-        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id)
         ).all();
         expect(dbresult.length).toBe(1);
     });
@@ -393,8 +490,8 @@ describe("Account Preferences Routes", async () => {
             })
         ]);
 
-        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id)
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id)
         ).all();
         expect(dbresult.length).toBe(1);
     });
@@ -434,7 +531,7 @@ describe("Account Preferences Routes", async () => {
         expect(data.domains).toEqual({});
 
         SessionHandler.inValidateAllSessionsForUser(otherUser.id);
-        DB.instance().delete(DB.Schema.users).where(eq(DB.Schema.users.id, otherUser.id)).run();
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, otherUser.id)).run();
     });
 
     test("DELETE /v1/account also removes stored preferences", async () => {
@@ -448,8 +545,8 @@ describe("Account Preferences Routes", async () => {
             body: { addresses: { "keep@example.com": "allow" }, domains: {} }
         });
 
-        const beforeDelete = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, deletableUser.id)
+        const beforeDelete = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, deletableUser.id)
         ).all();
         expect(beforeDelete.length).toBe(1);
 
@@ -458,8 +555,8 @@ describe("Account Preferences Routes", async () => {
             authToken: deletableSession
         });
 
-        const afterDelete = DB.instance().select().from(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, deletableUser.id)
+        const afterDelete = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, deletableUser.id)
         ).all();
         expect(afterDelete.length).toBe(0);
     });
@@ -507,8 +604,8 @@ describe("Mail Account Routes", async () => {
 
         expect(data.id).toBeGreaterThan(0);
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, data.id)
+        const dbresult = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, data.id)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -547,9 +644,9 @@ describe("Mail Account Routes", async () => {
 
         expect(Array.isArray(data)).toBe(true);
 
-        const dbresults = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.owner_user_id, mailAccountTestUser.id)
-        ).orderBy(desc(DB.Schema.mailAccounts.id)).all();
+        const dbresults = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.owner_user_id, mailAccountTestUser.id)
+        ).orderBy(desc(DB.Tables.mailAccounts.id)).all();
 
         expect(data.length).toBe(dbresults.length);
 
@@ -587,9 +684,9 @@ describe("Mail Account Routes", async () => {
 
         expect(Array.isArray(data)).toBe(true);
 
-        const dbresults = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.owner_user_id, mailAccountTestUser.id)
-        ).orderBy(desc(DB.Schema.mailAccounts.id)).all();
+        const dbresults = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.owner_user_id, mailAccountTestUser.id)
+        ).orderBy(desc(DB.Tables.mailAccounts.id)).all();
 
         expect(data.length).toBe(dbresults.length);
 
@@ -657,8 +754,8 @@ describe("Mail Account Routes", async () => {
 
         expect(data.id).toBe(mailAccountID);
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -744,8 +841,8 @@ describe("Mail Account Routes", async () => {
             body: updatedData
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -797,8 +894,8 @@ describe("Mail Account Routes", async () => {
             body: updatedData
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -860,8 +957,8 @@ describe("Mail Account Routes", async () => {
             authToken: session_token,
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).get();
 
         expect(dbresult).toBeUndefined();
@@ -880,8 +977,8 @@ describe("Mail Account Routes", async () => {
     afterAll(async () => {
         SessionHandler.inValidateAllSessionsForUser(mailAccountTestUser.id);
 
-        DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, mailAccountTestUser.id)
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, mailAccountTestUser.id)
         ).run();
     });
 
@@ -919,8 +1016,8 @@ describe("Mail Identity Routes", async () => {
 
         expect(data.id).toBeGreaterThan(0);
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.id, data.id)
+        const dbresult = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -942,9 +1039,9 @@ describe("Mail Identity Routes", async () => {
 
         expect(Array.isArray(data)).toBe(true);
 
-        const dbresults = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.mail_account_id, mailAccountID)
-        ).orderBy(desc(DB.Schema.mailIdentities.id)).all();
+        const dbresults = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)
+        ).orderBy(desc(DB.Tables.mailIdentities.id)).all();
 
         expect(data.length).toBe(dbresults.length);
 
@@ -976,8 +1073,8 @@ describe("Mail Identity Routes", async () => {
 
         expect(data.id).toBe(mailIdentityID);
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, mailIdentityID)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -1015,8 +1112,8 @@ describe("Mail Identity Routes", async () => {
             body: updatedData
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, mailIdentityID)
         ).get();
 
         expect(dbresult).toBeDefined();
@@ -1055,8 +1152,8 @@ describe("Mail Identity Routes", async () => {
             authToken: session_token,
         });
 
-        const dbresult = DB.instance().select().from(DB.Schema.mailIdentities).where(
-            eq(DB.Schema.mailIdentities.id, mailIdentityID)
+        const dbresult = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, mailIdentityID)
         ).get();
 
         expect(dbresult).toBeUndefined();
@@ -1077,12 +1174,12 @@ describe("Mail Identity Routes", async () => {
 
         SessionHandler.inValidateAllSessionsForUser(mailIdentityTestUser.id);
 
-        DB.instance().delete(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        DB.instance().delete(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).run();
 
-        DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, mailIdentityTestUser.id)
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, mailIdentityTestUser.id)
         ).run();
     });
 });
@@ -1141,7 +1238,7 @@ describe("Mail Mailbox Routes", async () => {
             throw new Error("Failed to encrypt mail account data");
         }
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
             owner_user_id: mailIdentityTestUser.id,
             display_name: "Test Mail Account",
             smtp_encrypted_connection_data: encryptedSMTPData,
@@ -1348,7 +1445,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             throw new Error("Failed to encrypt mail account data");
         }
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
             owner_user_id: mailIdentityTestUser.id,
             display_name: "Test Mail Account",
             smtp_encrypted_connection_data: encryptedSMTPData,
@@ -1915,7 +2012,7 @@ describe("Mail Search Routes", async () => {
             throw new Error("Failed to encrypt mail account data");
         }
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
             owner_user_id: searchTestUser.id,
             display_name: "Test Mail Account",
             smtp_encrypted_connection_data: encryptedSMTPData,
@@ -1928,12 +2025,12 @@ describe("Mail Search Routes", async () => {
 
         SessionHandler.inValidateAllSessionsForUser(searchTestUser.id);
 
-        DB.instance().delete(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.id, mailAccountID)
+        DB.instance().delete(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.id, mailAccountID)
         ).run();
 
-        DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, searchTestUser.id)
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, searchTestUser.id)
         ).run();
     });
 

@@ -6,6 +6,7 @@ import { Utils } from "./utils";
 import { MailClientsCache } from "./utils/mails/mail-clients-cache";
 import { CronJobHandler } from "./utils/cron";
 import { MailAccountEncryption } from "./utils/crypto/mailCrypt";
+import { EmailService } from "./api/utils/email";
 
 export class Main {
 
@@ -32,6 +33,7 @@ export class Main {
 
         await Utils.ensureDirectoryExists(config.DLA_LOG_DIR ?? "./data/logs");
 
+        EmailService.init();
         
         await CronJobHandler.init();
         await CronJobHandler.startAll();
@@ -52,6 +54,7 @@ export class Main {
 
             await CronJobHandler.stopAll();
             await API.stop();
+            EmailService.reset();
             await MailClientsCache.clearAllClients();
             await DB.close();
             

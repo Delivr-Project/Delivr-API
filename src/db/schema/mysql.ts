@@ -8,7 +8,7 @@
 // import { InetModels } from '../../api/utils/shared-models/inetModels';
 
 // /**
-//  * @deprecated Use DB.Schema.users instead
+//  * @deprecated Use DB.Tables.users instead
 //  */
 // export const users = mysqlTable('users', {
 //     id: integer().primaryKey({ autoIncrement: true }),
@@ -23,7 +23,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.passwordResets instead
+//  * @deprecated Use DB.Tables.passwordResets instead
 //  */
 // export const passwordResets = mysqlTable('password_resets', {
 //     token: text().primaryKey(),
@@ -33,7 +33,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.sessions instead
+//  * @deprecated Use DB.Tables.sessions instead
 //  */
 // export const sessions = mysqlTable('sessions', {
 //     id: text().primaryKey(),
@@ -47,7 +47,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.apiKeys instead
+//  * @deprecated Use DB.Tables.apiKeys instead
 //  */
 // export const apiKeys = mysqlTable('api_keys', {
 //     id: text().primaryKey(),
@@ -63,7 +63,7 @@
 
 
 // /**
-//  * @deprecated Use DB.Schema.mailAccounts instead
+//  * @deprecated Use DB.Tables.mailAccounts instead
 //  */
 // export const mailAccounts = mysqlTable('mail_accounts', {
 //     id: integer().primaryKey({ autoIncrement: true }),
@@ -93,7 +93,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.mailIdentities instead
+//  * @deprecated Use DB.Tables.mailIdentities instead
 //  */
 // export const mailIdentities = mysqlTable('mail_identities', {
 //     id: integer().primaryKey({ autoIncrement: true }),
@@ -108,7 +108,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.metadata instead
+//  * @deprecated Use DB.Tables.metadata instead
 //  */
 // export const metadata = mysqlTable('metadata', {
 //     key: text().primaryKey(),
@@ -116,7 +116,7 @@
 // });
 
 // /**
-//  * @deprecated Use DB.Schema.userPreferences instead
+//  * @deprecated Use DB.Tables.userPreferences instead
 //  */
 // export const userPreferences = mysqlTable('user_preferences', {
 //     id: integer().primaryKey({ autoIncrement: true }),

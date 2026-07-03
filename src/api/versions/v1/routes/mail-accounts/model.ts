@@ -7,7 +7,7 @@ import { MailboxesModel } from "./mailboxes/model";
 
 export namespace MailAccountsModel {
 
-    export const BASE = createSelectSchema(DB.Schema.mailAccounts).extend({
+    export const BASE = createSelectSchema(DB.Tables.mailAccounts).extend({
         id: z.int().positive(),
         created_at: z.int().positive(),
 

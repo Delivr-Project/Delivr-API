@@ -34,21 +34,21 @@ router.get('/',
         let predicate: ReturnType<typeof eq> | undefined;
 
         if (filters.role) {
-            predicate = eq(DB.Schema.users.role, filters.role);
+            predicate = eq(DB.Tables.users.role, filters.role);
         }
 
         if (filters.search) {
             const pattern = `%${filters.search}%`;
             const searchPredicate = or(
-                like(DB.Schema.users.username, pattern),
-                like(DB.Schema.users.display_name, pattern),
-                like(DB.Schema.users.email, pattern),
+                like(DB.Tables.users.username, pattern),
+                like(DB.Tables.users.display_name, pattern),
+                like(DB.Tables.users.email, pattern),
             );
 
             predicate = predicate ? and(predicate, searchPredicate) : searchPredicate;
         }
 
-        let query = DB.instance().select().from(DB.Schema.users).$dynamic();
+        let query = DB.instance().select().from(DB.Tables.users).$dynamic();
 
         if (predicate) {
             query = query.where(predicate);
@@ -62,7 +62,7 @@ router.get('/',
             query = query.offset(filters.offset);
         }
 
-        const users = await query.orderBy(DB.Schema.users.id);
+        const users = await query.orderBy(DB.Tables.users.id);
 
         return APIResponse.success(c, "Users retrieved successfully", users.map(sanitizeUser));
     }
@@ -86,10 +86,10 @@ router.post('/',
     async (c) => {
         const body = c.req.valid("json") as AdminUsersModel.Create.Body;
 
-        const duplicate = DB.instance().select().from(DB.Schema.users).where(
+        const duplicate = DB.instance().select().from(DB.Tables.users).where(
             or(
-                eq(DB.Schema.users.username, body.username),
-                eq(DB.Schema.users.email, body.email)
+                eq(DB.Tables.users.username, body.username),
+                eq(DB.Tables.users.email, body.email)
             )
         ).get();
 
@@ -99,7 +99,7 @@ router.post('/',
 
         const { password, ...userData } = body;
 
-        const createdUser = DB.instance().insert(DB.Schema.users).values({
+        const createdUser = DB.instance().insert(DB.Tables.users).values({
             ...userData,
             password_hash: await Bun.password.hash(password)
         }).returning().get();
@@ -116,8 +116,8 @@ router.use('/:userId/*',
         // @ts-ignore - hono-openapi does not type "param" yet
         const { userId } = c.req.valid("param") as AdminUsersModel.UserId.Params;
 
-        const user = DB.instance().select().from(DB.Schema.users).where(
-            eq(DB.Schema.users.id, userId)
+        const user = DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, userId)
         ).get();
 
         if (!user) {
@@ -181,8 +181,8 @@ router.put('/:userId',
         }
 
         if (updates.username && updates.username !== user.username) {
-            const usernameConflict = DB.instance().select().from(DB.Schema.users).where(
-                eq(DB.Schema.users.username, updates.username)
+            const usernameConflict = DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.username, updates.username)
             ).get();
 
             if (usernameConflict) {
@@ -191,8 +191,8 @@ router.put('/:userId',
         }
 
         if (updates.email && updates.email !== user.email) {
-            const emailConflict = DB.instance().select().from(DB.Schema.users).where(
-                eq(DB.Schema.users.email, updates.email)
+            const emailConflict = DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.email, updates.email)
             ).get();
 
             if (emailConflict) {
@@ -202,16 +202,16 @@ router.put('/:userId',
 
         const roleChanged = updates.role && updates.role !== user.role;
 
-        await DB.instance().update(DB.Schema.users).set(updates).where(
-            eq(DB.Schema.users.id, user.id)
+        await DB.instance().update(DB.Tables.users).set(updates).where(
+            eq(DB.Tables.users.id, user.id)
         ).run();
 
         if (roleChanged && updates.role) {
             await AuthHandler.changeUserRoleInAuthContexts(user.id, updates.role);
         }
 
-        const refreshed = DB.instance().select().from(DB.Schema.users).where(
-            eq(DB.Schema.users.id, user.id)
+        const refreshed = DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, user.id)
         ).get();
 
         if (!refreshed) {
@@ -244,10 +244,10 @@ router.put('/:userId/password',
 
         const passwordHash = await Bun.password.hash(password);
 
-        await DB.instance().update(DB.Schema.users).set({
+        await DB.instance().update(DB.Tables.users).set({
             password_hash: passwordHash
         }).where(
-            eq(DB.Schema.users.id, user.id)
+            eq(DB.Tables.users.id, user.id)
         ).run();
 
         await SessionHandler.inValidateAllSessionsForUser(user.id);
@@ -278,12 +278,12 @@ router.delete('/:userId',
 
         await AuthHandler.invalidateAllAuthContextsForUser(user.id);
 
-        await DB.instance().delete(DB.Schema.passwordResets).where(
-            eq(DB.Schema.passwordResets.user_id, user.id)
+        await DB.instance().delete(DB.Tables.passwordResets).where(
+            eq(DB.Tables.passwordResets.user_id, user.id)
         ).run();
 
-        await DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, user.id)
+        await DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, user.id)
         ).run();
 
         return APIResponse.successNoData(c, "User deleted successfully");

@@ -9,7 +9,7 @@ import { UserAccountSettings } from '../../api/utils/shared-models/accountData';
 import { InetModels } from '../../api/utils/shared-models/inetModels';
 
 /**
- * @deprecated Use DB.Schema.users instead
+ * @deprecated Use DB.Tables.users instead
  */
 export const users = sqliteTable('users', {
     id: integer().primaryKey({ autoIncrement: true }),
@@ -24,7 +24,7 @@ export const users = sqliteTable('users', {
 });
 
 /**
- * @deprecated Use DB.Schema.passwordResets instead
+ * @deprecated Use DB.Tables.passwordResets instead
  */
 export const passwordResets = sqliteTable('password_resets', {
     token: text().primaryKey(),
@@ -34,7 +34,7 @@ export const passwordResets = sqliteTable('password_resets', {
 });
 
 /**
- * @deprecated Use DB.Schema.sessions instead
+ * @deprecated Use DB.Tables.sessions instead
  */
 export const sessions = sqliteTable('sessions', {
     id: text().primaryKey(),
@@ -48,7 +48,7 @@ export const sessions = sqliteTable('sessions', {
 });
 
 /**
- * @deprecated Use DB.Schema.apiKeys instead
+ * @deprecated Use DB.Tables.apiKeys instead
  */
 export const apiKeys = sqliteTable('api_keys', {
     id: text().primaryKey(),
@@ -64,7 +64,7 @@ export const apiKeys = sqliteTable('api_keys', {
 
 
 /**
- * @deprecated Use DB.Schema.mailAccounts instead
+ * @deprecated Use DB.Tables.mailAccounts instead
  */
 export const mailAccounts = sqliteTable('mail_accounts', {
     id: integer().primaryKey({ autoIncrement: true }),
@@ -97,7 +97,7 @@ export const mailAccounts = sqliteTable('mail_accounts', {
 });
 
 /**
- * @deprecated Use DB.Schema.mailIdentities instead
+ * @deprecated Use DB.Tables.mailIdentities instead
  */
 export const mailIdentities = sqliteTable('mail_identities', {
     id: integer().primaryKey({ autoIncrement: true }),
@@ -112,7 +112,7 @@ export const mailIdentities = sqliteTable('mail_identities', {
 });
 
 /**
- * @deprecated Use DB.Schema.metadata instead
+ * @deprecated Use DB.Tables.metadata instead
  */
 export const metadata = sqliteTable('metadata', {
     key: text().primaryKey(),
@@ -120,7 +120,7 @@ export const metadata = sqliteTable('metadata', {
 });
 
 /**
- * @deprecated Use DB.Schema.userPreferences instead
+ * @deprecated Use DB.Tables.userPreferences instead
  */
 export const userPreferences = sqliteTable('user_preferences', {
     id: integer().primaryKey({ autoIncrement: true }),

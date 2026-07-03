@@ -118,7 +118,14 @@ export class ConfigHandler {
         .add("DLA_CONFIG_BASE_DIR", false)
 
         .add("DLA_DB_CONNECTION_URL", false)
-        .add("DLA_DB_AUTO_MIGRATE", false, [true, false]);
+        .add("DLA_DB_AUTO_MIGRATE", false, [true, false])
+
+        .add("DLA_SMTP_HOST", false)
+        .add("DLA_SMTP_PORT", false)
+        .add("DLA_SMTP_USERNAME", false)
+        .add("DLA_SMTP_PASSWORD", false)
+        .add("DLA_SMTP_FROM", false)
+        .add("DLA_SMTP_SECURE", false, [true, false]);
 
 
     private static config: ParsedConfig | null = null;

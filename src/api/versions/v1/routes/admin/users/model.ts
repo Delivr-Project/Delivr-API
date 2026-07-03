@@ -5,7 +5,7 @@ import { UserAccountSettings, UserDataPolicys } from "../../../../../utils/share
 
 export namespace AdminUsersModel {
 
-    const BaseUser = createSelectSchema(DB.Schema.users);
+    const BaseUser = createSelectSchema(DB.Tables.users);
 
     export const SafeUser = BaseUser.omit({ password_hash: true });
     export type SafeUser = z.infer<typeof SafeUser>;
@@ -24,7 +24,7 @@ export namespace AdminUsersModel {
     }
 
     export namespace Create {
-        const InsertSchema = createInsertSchema(DB.Schema.users, {
+        const InsertSchema = createInsertSchema(DB.Tables.users, {
             username: UserDataPolicys.Username,
             display_name: z.string().min(1).max(64),
             email: z.email(),
@@ -44,7 +44,7 @@ export namespace AdminUsersModel {
     }
 
     export namespace Update {
-        export const Body = createUpdateSchema(DB.Schema.users).omit({
+        export const Body = createUpdateSchema(DB.Tables.users).omit({
             id: true,
             password_hash: true,
             created_at: true
