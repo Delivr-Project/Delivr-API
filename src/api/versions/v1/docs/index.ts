@@ -21,5 +21,7 @@ export const DOCS_TAGS = {
         MAILBOXES: "Mail Accounts / Mailboxes",
         MAILBOXES_MAILS: "Mail Accounts / Mailboxes / Mails",
         MAILBOXES_MAILS_ATTACHMENTS: "Mail Accounts / Mailboxes / Mails / Attachments",
+
+        MAILBOXES_MAIL_BULK_ACTIONS: "Mail Accounts / Mailboxes / Mail Bulk Actions",
     }
 }

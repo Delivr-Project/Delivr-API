@@ -10,6 +10,7 @@ import { Logger } from "../../../../../../utils/logger";
 import { MailboxService } from "../../../../../utils/services/maiboxService";
 import { router as mailsRouter } from "./mails";
 import { MailAccountsModel } from "../model";
+import { router as mailBulkActionsRouter } from "./mail-bulk-actions";
 
 export const router = new Hono();
 
@@ -222,3 +223,4 @@ router.delete('/:mailboxPath',
 );
 
 router.route('/:mailboxPath/mails', mailsRouter);
+router.route('/:mailboxPath/mail-bulk-actions', mailBulkActionsRouter);
