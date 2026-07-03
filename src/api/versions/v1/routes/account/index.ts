@@ -42,8 +42,8 @@ router.get('/',
 
         const authContext = AuthHandler.AuthContext.getAsSession(c);
 
-        const user = DB.instance().select().from(DB.Schema.users).where(
-            eq(DB.Schema.users.id, authContext.user_id)
+        const user = DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, authContext.user_id)
         ).get();
 
         if (!user) {
@@ -77,8 +77,8 @@ router.put('/',
 
         const body = c.req.valid("json") as AccountModel.UpdateInfo.Body;
 
-        DB.instance().update(DB.Schema.users).set(body).where(
-            eq(DB.Schema.users.id, authContext.user_id)
+        DB.instance().update(DB.Tables.users).set(body).where(
+            eq(DB.Tables.users.id, authContext.user_id)
         ).run();
 
         return APIResponse.successNoData(c, "Account information updated successfully");
@@ -111,8 +111,8 @@ router.put('/password',
 
         const body = c.req.valid("json")
 
-        const user = DB.instance().select().from(DB.Schema.users).where(
-            eq(DB.Schema.users.id, authContext.user_id)
+        const user = DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, authContext.user_id)
         ).get();
     
         if (!user) {
@@ -125,10 +125,10 @@ router.put('/password',
 
         const newPasswordHash = await Bun.password.hash(body.new_password);
 
-        DB.instance().update(DB.Schema.users).set({
+        DB.instance().update(DB.Tables.users).set({
             password_hash: newPasswordHash
         }).where(
-            eq(DB.Schema.users.id, authContext.user_id)
+            eq(DB.Tables.users.id, authContext.user_id)
         ).run();
 
         await SessionHandler.inValidateAllSessionsForUser(authContext.user_id);
@@ -156,8 +156,8 @@ router.delete('/',
 
         const authContext = AuthHandler.AuthContext.getAsSession(c);
 
-        const mailAccounts = DB.instance().select().from(DB.Schema.mailAccounts).where(
-            eq(DB.Schema.mailAccounts.owner_user_id, authContext.user_id)
+        const mailAccounts = DB.instance().select().from(DB.Tables.mailAccounts).where(
+            eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id)
         ).all();
 
         if (mailAccounts.length > 0) {
@@ -168,16 +168,16 @@ router.delete('/',
         await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id);
 
         // delete password resets
-        DB.instance().delete(DB.Schema.passwordResets).where(
-            eq(DB.Schema.passwordResets.user_id, authContext.user_id)
+        DB.instance().delete(DB.Tables.passwordResets).where(
+            eq(DB.Tables.passwordResets.user_id, authContext.user_id)
         ).run();
 
         // delete stored preferences
         await UserPreferencesHandler.deleteAllForUser(authContext.user_id);
 
         // finally, delete the user account
-        DB.instance().delete(DB.Schema.users).where(
-            eq(DB.Schema.users.id, authContext.user_id)
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, authContext.user_id)
         ).run();
 
         return APIResponse.successNoData(c, "Account deleted successfully");

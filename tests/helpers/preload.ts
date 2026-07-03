@@ -1,7 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { afterAll, beforeAll } from "bun:test";
-import { ConfigHandler } from "../../src/utils/config";
+import { ConfigHandler, type ParsedConfig } from "../../src/utils/config";
 import { DB } from "../../src/db";
 import { API } from "../../src/api";
 import { MockIMAPServer } from "./mock-mail-servers/imap/server";
@@ -12,21 +12,36 @@ import { MailAccountEncryption } from "../../src/utils/crypto/mailCrypt";
 // Allow overriding the env file used for tests without clobbering existing env vars.
 const TEST_ENV_FILE = process.env.TEST_ENV_FILE ?? ".env.local";
 
-async function loadTestEnv(filePath: string) {
-    try {
-        const content = await Bun.file(filePath).text();
-        for (const rawLine of content.split(/\r?\n/)) {
-            const line = rawLine.trim();
-            if (!line || line.startsWith("#")) continue;
-            const [key, ...rest] = line.split("=");
-            if (!key) continue;
-            const value = rest.join("=").trim();
-            if (process.env[key] === undefined) {
-                process.env[key] = value;
-            }
-        }
-    } catch (err: any) {
-        if (err?.code !== "ENOENT") throw err;
+function setTestEnv(rootDir: string) {
+
+    const envVars = {
+        DLA_LOG_LEVEL: "debug",
+
+        DLA_APP_URL: "http://localhost:12153",
+        
+        DLA_API_HOST: "::",
+        DLA_API_PORT: "1",
+        DLA_DISABLE_DOCS: true,
+
+        DLA_ENCRYPTION_KEY: "67e3d03dc88682553deed5fa4484bd80a500783850efbb49f6912ad0935eedeb",
+
+        DLA_LOG_DIR: path.join(rootDir, "logs"),
+        DLA_CONFIG_BASE_DIR: rootDir,
+
+        DLA_DB_CONNECTION_URL: path.join(rootDir, "db.sqlite"),
+        DLA_DB_AUTO_MIGRATE: true,
+
+        DLA_SMTP_HOST: "127.0.0.1",
+        DLA_SMTP_PORT: "12587",
+        DLA_SMTP_USERNAME: "",
+        DLA_SMTP_PASSWORD: "",
+        DLA_SMTP_FROM: "\"Delivr Test\" <test@delivr.local>",
+        DLA_SMTP_SECURE: false,
+
+    } as const satisfies ParsedConfig;
+
+    for (const [key, value] of Object.entries(envVars)) {
+        process.env[key] = String(value);
     }
 }
 
@@ -131,10 +146,12 @@ const mockIMAPServer = new MockIMAPServer({
 });
 
 
-beforeAll(async () => {
-    await loadTestEnv(TEST_ENV_FILE);
-    
+beforeAll(async () => {    
     TMP_ROOT = await createIsolatedDataDir();
+
+    setTestEnv(TMP_ROOT);
+
+    const config = await ConfigHandler.loadConfig();
 
     const encryptionKey = LCrypt.randomBytes(32).toString("hex");
     MailAccountEncryption.init(encryptionKey);
@@ -144,6 +161,9 @@ beforeAll(async () => {
         true,
         TMP_ROOT
     );
+
+    // EmailService is NOT initialised here — tests that need it call
+    // EmailService.init(mockTransport) in their own beforeAll.
 
     mockIMAPServer.listen(11143);
 

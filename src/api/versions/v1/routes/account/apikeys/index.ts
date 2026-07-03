@@ -28,8 +28,8 @@ router.get('/',
         // @ts-ignore
         const authContext = c.get("authContext") as AuthHandler.SessionAuthContext;
 
-        const apiKeys = DB.instance().select().from(DB.Schema.apiKeys).where(
-            eq(DB.Schema.apiKeys.user_id, authContext.user_id)
+        const apiKeys = DB.instance().select().from(DB.Tables.apiKeys).where(
+            eq(DB.Tables.apiKeys.user_id, authContext.user_id)
         ).all();
 
         const apiKeysWithoutSensitive = apiKeys.map(key => ({
@@ -119,9 +119,9 @@ router.use('/:apiKeyID/*',
         // @ts-ignore
         const apiKeyID = (c.req.valid("param") as { apiKeyID: string }).apiKeyID;
 
-        const apiKey = await DB.instance().select().from(DB.Schema.apiKeys).where(and(
-            eq(DB.Schema.apiKeys.id, apiKeyID),
-            eq(DB.Schema.apiKeys.user_id, authContext.user_id)
+        const apiKey = await DB.instance().select().from(DB.Tables.apiKeys).where(and(
+            eq(DB.Tables.apiKeys.id, apiKeyID),
+            eq(DB.Tables.apiKeys.user_id, authContext.user_id)
         )).get();
 
         if (!apiKey) {

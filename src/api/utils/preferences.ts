@@ -31,10 +31,10 @@ export class UserPreferencesHandler {
         key: T
     ): Promise<z.infer<(typeof UserPreferences.schemas)[T]>> {
 
-        const record = await DB.instance().select().from(DB.Schema.userPreferences).where(
+        const record = await DB.instance().select().from(DB.Tables.userPreferences).where(
             and(
-                eq(DB.Schema.userPreferences.user_id, userID),
-                eq(DB.Schema.userPreferences.key, key)
+                eq(DB.Tables.userPreferences.user_id, userID),
+                eq(DB.Tables.userPreferences.key, key)
             )
         ).get();
 
@@ -55,12 +55,12 @@ export class UserPreferencesHandler {
 
         const parsed = UserPreferences.schemas[key].parse(data);
 
-        await DB.instance().insert(DB.Schema.userPreferences).values({
+        await DB.instance().insert(DB.Tables.userPreferences).values({
             user_id: userID,
             key,
             data: parsed
         }).onConflictDoUpdate({
-            target: [DB.Schema.userPreferences.user_id, DB.Schema.userPreferences.key],
+            target: [DB.Tables.userPreferences.user_id, DB.Tables.userPreferences.key],
             set: { data: parsed }
         });
     }
@@ -74,8 +74,8 @@ export class UserPreferencesHandler {
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {
-        await DB.instance().delete(DB.Schema.userPreferences).where(
-            eq(DB.Schema.userPreferences.user_id, userID)
+        await DB.instance().delete(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, userID)
         );
     }
 
