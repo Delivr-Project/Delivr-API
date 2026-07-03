@@ -55,7 +55,7 @@ export class DB {
 
         const DASHBOARD_URL = ConfigHandler.getConfig()?.DLA_APP_URL || "https://{DELIVR_APP_URL}";
 
-        Bun.write(`${configBaseDir}/initial_admin_password_reset_token.txt`, `${DASHBOARD_URL}/auth/reset-password?token=${passwordResetToken}`, {
+        await Bun.write(`${configBaseDir}/initial_admin_password_reset_token.txt`, `${DASHBOARD_URL}/auth/reset-password?token=${passwordResetToken}`, {
             mode: 0o600,
             createPath: true
         });
@@ -76,9 +76,15 @@ export class DB {
 
     static async close() {
         if (!this.db) return;
-        
+
         Logger.info("Database connection closed.");
         this.db.$client.close();
+
+        // `close()` calls sqlite3_close_v2, which defers releasing the OS file
+        // handle until any unfinalized prepared statements are garbage collected.
+        // Force that now so the underlying file is actually free (e.g. for tests
+        // that remove the DB file/directory right after closing).
+        Bun.gc(true);
         await Bun.sleep(100);
     }
 

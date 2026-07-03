@@ -1528,6 +1528,10 @@ describe("Mail Mailbox Mails Routes", async () => {
         await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
             authToken: session_token
         }, 404);
+
+        // Verify it actually landed in Trash (specialUse-based resolution), not just vanished
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Mail to Delete" });
+        expect(trashMails.length).toBeGreaterThan(0);
     });
 
     test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with permanent=true deletes permanently", async () => {
@@ -1558,6 +1562,15 @@ describe("Mail Mailbox Mails Routes", async () => {
         });
 
         expect(data.success).toBe(true);
+
+        // Verify the mail was actually expunged, not merely flagged \Deleted in place
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
+            authToken: session_token
+        }, 404);
+
+        // And that it wasn't just silently moved to Trash instead
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Mail to Permanently Delete" });
+        expect(trashMails.length).toBe(0);
     });
 
     test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
@@ -1566,6 +1579,180 @@ describe("Mail Mailbox Mails Routes", async () => {
             method: "DELETE",
             authToken: session_token
         }, 404);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move moves multiple mails to another mailbox", async () => {
+
+        await testIMAPClient.createMailbox("TestBulkMoveTarget");
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Move 1", "Bulk Move 2"]) {
+            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk move test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, targetMailbox: "TestBulkMoveTarget" },
+            expectedBodySchema: MailsModel.BulkMove.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        for (const uid of uids) {
+            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token
+            }, 404);
+        }
+
+        const targetMails = await testIMAPClient.getMails("TestBulkMoveTarget");
+        expect(targetMails.length).toBe(uids.length);
+
+        await testIMAPClient.deleteMailbox("TestBulkMoveTarget");
+    });
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-copy copies multiple mails without removing originals", async () => {
+
+        await testIMAPClient.createMailbox("TestBulkCopyTarget");
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Copy 1", "Bulk Copy 2"]) {
+            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk copy test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-copy`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, targetMailbox: "TestBulkCopyTarget" },
+            expectedBodySchema: MailsModel.BulkCopy.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        // Originals should still be present in INBOX
+        for (const uid of uids) {
+            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token
+            });
+        }
+
+        const targetMails = await testIMAPClient.getMails("TestBulkCopyTarget");
+        expect(targetMails.length).toBe(uids.length);
+
+        await testIMAPClient.deleteMailbox("TestBulkCopyTarget");
+    });
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete moves multiple mails to trash", async () => {
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Delete 1", "Bulk Delete 2"]) {
+            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk delete test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids },
+            expectedBodySchema: MailsModel.BulkDelete.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        for (const uid of uids) {
+            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token
+            }, 404);
+        }
+
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Bulk Delete" });
+        expect(trashMails.length).toBeGreaterThanOrEqual(uids.length);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete with permanent=true removes multiple mails", async () => {
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Perm Delete 1", "Bulk Perm Delete 2"]) {
+            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk perm delete test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, permanent: true },
+            expectedBodySchema: MailsModel.BulkDelete.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        for (const uid of uids) {
+            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token
+            }, 404);
+        }
+
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Bulk Perm Delete" });
+        expect(trashMails.length).toBe(0);
+    });
+
+    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move with empty uids fails validation", async () => {
+
+        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids: [], targetMailbox: "Drafts" }
+        }, 400);
     });
 
     test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
