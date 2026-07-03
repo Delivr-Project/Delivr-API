@@ -35,6 +35,25 @@ async function createIsolatedDataDir(): Promise<string> {
     return root;
 }
 
+/**
+ * On Windows, file handles (e.g. the SQLite DB file) can take a moment to be
+ * released after closing, making an immediate recursive removal flaky (EBUSY).
+ * Retries manually since Bun's `fs.rm` doesn't reliably honor `maxRetries`/`retryDelay`.
+ */
+async function removeDirWithRetry(dir: string, attempts = 10, delayMs = 300) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            await fs.rm(dir, { recursive: true, force: true });
+            return;
+        } catch (err: any) {
+            if (attempt === attempts || (err?.code !== "EBUSY" && err?.code !== "ENOTEMPTY" && err?.code !== "EPERM")) {
+                throw err;
+            }
+            await Bun.sleep(delayMs);
+        }
+    }
+}
+
 let TMP_ROOT: string | null = null;
 
 
@@ -143,7 +162,6 @@ afterAll(async () => {
     await DB.close();
 
     if (TMP_ROOT) {
-        
-        await fs.rm(TMP_ROOT, { recursive: true, force: true });
+        await removeDirWithRetry(TMP_ROOT);
     }
 });

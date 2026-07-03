@@ -281,17 +281,51 @@ export class IMAPAccount {
         }
     }
 
+    async copyToMailbox(mailbox: string, uids: number[], targetMailbox: string) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageCopy(uids, targetMailbox, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    /**
+     * Resolves the account's Trash mailbox path, preferring the server-advertised
+     * `\Trash` special-use folder over name heuristics (which only cover common
+     * naming conventions like Gmail's `[Gmail]/Trash`).
+     */
+    async resolveTrashPath(): Promise<string> {
+        const mailboxes = await this.client.list();
+
+        const specialUseTrash = mailboxes.find(mb => mb.specialUse === '\\Trash');
+        if (specialUseTrash) return specialUseTrash.path;
+
+        const commonTrashNames = ['[gmail]/trash', 'trash', 'deleted items', 'deleted messages'];
+        const nameMatch = mailboxes.find(mb => commonTrashNames.includes(mb.path.toLowerCase()));
+        if (nameMatch) return nameMatch.path;
+
+        return 'Trash';
+    }
+
     async moveToTrash(mailbox: string, uids: number[]) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            // Try standard trash locations
-            let trashPath = '[Gmail]/Trash'; // Gmail
-            try {
-                await this.client.messageMove(uids, trashPath, { uid: true });
-            } catch {
-                // Try other common names
-                await this.client.messageMove(uids, 'Trash', { uid: true });
-            }
+            const trashPath = await this.resolveTrashPath();
+            await this.client.messageMove(uids, trashPath, { uid: true });
+        } finally {
+            lock.release();
+        }
+    }
+
+    /**
+     * Permanently removes messages: imapflow's `messageDelete` flags the given
+     * UIDs `\Deleted` and expunges them, unlike `addFlags` alone.
+     */
+    async permanentlyDelete(mailbox: string, uids: number[]) {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            await this.client.messageDelete(uids, { uid: true });
         } finally {
             lock.release();
         }
