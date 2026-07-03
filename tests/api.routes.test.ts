@@ -15,6 +15,7 @@ import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { MailsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/model";
 import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/model";
+import { MailBulkActionsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mail-bulk-actions/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -1581,7 +1582,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         }, 404);
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move moves multiple mails to another mailbox", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/move moves multiple mails to another mailbox", async () => {
 
         await testIMAPClient.createMailbox("TestBulkMoveTarget");
 
@@ -1603,11 +1604,11 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/move`, {
             method: "POST",
             authToken: session_token,
             body: { uids, targetMailbox: "TestBulkMoveTarget" },
-            expectedBodySchema: MailsModel.BulkMove.Response
+            expectedBodySchema: MailBulkActionsModel.BulkMove.Response
         });
 
         expect(data.success).toBe(true);
@@ -1624,7 +1625,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         await testIMAPClient.deleteMailbox("TestBulkMoveTarget");
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-copy copies multiple mails without removing originals", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/copy copies multiple mails without removing originals", async () => {
 
         await testIMAPClient.createMailbox("TestBulkCopyTarget");
 
@@ -1646,11 +1647,11 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-copy`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/copy`, {
             method: "POST",
             authToken: session_token,
             body: { uids, targetMailbox: "TestBulkCopyTarget" },
-            expectedBodySchema: MailsModel.BulkCopy.Response
+            expectedBodySchema: MailBulkActionsModel.BulkCopy.Response
         });
 
         expect(data.success).toBe(true);
@@ -1668,7 +1669,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         await testIMAPClient.deleteMailbox("TestBulkCopyTarget");
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete moves multiple mails to trash", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete moves multiple mails to trash", async () => {
 
         const uids: number[] = [];
         for (const subject of ["Bulk Delete 1", "Bulk Delete 2"]) {
@@ -1688,11 +1689,11 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/delete`, {
             method: "POST",
             authToken: session_token,
             body: { uids },
-            expectedBodySchema: MailsModel.BulkDelete.Response
+            expectedBodySchema: MailBulkActionsModel.BulkDelete.Response
         });
 
         expect(data.success).toBe(true);
@@ -1707,7 +1708,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBeGreaterThanOrEqual(uids.length);
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete with permanent=true removes multiple mails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete with permanent=true removes multiple mails", async () => {
 
         const uids: number[] = [];
         for (const subject of ["Bulk Perm Delete 1", "Bulk Perm Delete 2"]) {
@@ -1727,11 +1728,11 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/delete`, {
             method: "POST",
             authToken: session_token,
             body: { uids, permanent: true },
-            expectedBodySchema: MailsModel.BulkDelete.Response
+            expectedBodySchema: MailBulkActionsModel.BulkDelete.Response
         });
 
         expect(data.success).toBe(true);
