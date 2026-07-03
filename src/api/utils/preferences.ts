@@ -4,6 +4,8 @@ import { z } from "zod";
 
 const RemoteContentDecision = z.enum(["allow", "block"]);
 
+const MailListPageSize = z.union([z.literal(25), z.literal(50), z.literal(100), z.literal("all")]);
+
 export namespace UserPreferences {
 
     export const schemas = {
@@ -12,6 +14,9 @@ export namespace UserPreferences {
             addresses: z.record(z.string(), RemoteContentDecision).default({}),
             // Sender domain (lowercase, e.g. "example.com") -> decision.
             domains: z.record(z.string(), RemoteContentDecision).default({}),
+        }),
+        "mail-list-page-size": z.object({
+            pageSize: MailListPageSize.default(25),
         }),
     } as const;
 
@@ -71,6 +76,14 @@ export class UserPreferencesHandler {
 
     static async setRemoteContentPolicy(userID: number, data: z.infer<(typeof UserPreferences.schemas)["remote-content-policy"]>) {
         await this.set(userID, "remote-content-policy", data);
+    }
+
+    static async getMailListPageSize(userID: number) {
+        return this.get(userID, "mail-list-page-size");
+    }
+
+    static async setMailListPageSize(userID: number, data: z.infer<(typeof UserPreferences.schemas)["mail-list-page-size"]>) {
+        await this.set(userID, "mail-list-page-size", data);
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {

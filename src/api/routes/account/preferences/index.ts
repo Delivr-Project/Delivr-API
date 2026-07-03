@@ -56,3 +56,51 @@ router.put('/remote-content-policy',
     }
 
 );
+
+router.get('/mail-list-page-size',
+
+    APIRouteSpec.authenticated({
+        summary: "Get mail list page size",
+        description: "Retrieve the authenticated user's preferred number of mails shown per page in a mailbox list.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Mail list page size retrieved successfully", AccountPreferencesModel.MailListPageSize.Response),
+        )
+    }),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const preference = await UserPreferencesHandler.getMailListPageSize(authContext.user_id);
+
+        return APIResponse.success(c, "Mail list page size retrieved successfully", preference);
+    }
+
+);
+
+router.put('/mail-list-page-size',
+
+    APIRouteSpec.authenticated({
+        summary: "Set mail list page size",
+        description: "Replace the authenticated user's preferred number of mails shown per page in a mailbox list.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Mail list page size updated successfully"),
+        )
+    }),
+
+    validator("json", AccountPreferencesModel.MailListPageSize.Body),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const body = c.req.valid("json");
+
+        await UserPreferencesHandler.setMailListPageSize(authContext.user_id, body);
+
+        return APIResponse.successNoData(c, "Mail list page size updated successfully");
+    }
+
+);

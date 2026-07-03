@@ -3,7 +3,7 @@ import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
 import { randomUUID } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { AuthModel } from "../src/api/routes/auth/model";
 import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/routes/account/model";
@@ -415,6 +415,127 @@ describe("Account Preferences Routes", async () => {
             method: "PUT",
             body: { addresses: {}, domains: {} }
         }, 401);
+    });
+
+    test("GET /account/preferences/mail-list-page-size returns default of 25 when nothing is saved yet", async () => {
+
+        const data = await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.MailListPageSize.Response
+        });
+
+        expect(data.pageSize).toBe(25);
+
+        // No row should exist yet - this is a computed default, not a persisted one.
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            and(
+                eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Schema.userPreferences.key, "mail-list-page-size")
+            )
+        ).all();
+        expect(dbresult.length).toBe(0);
+    });
+
+    test("GET /account/preferences/mail-list-page-size without auth fails", async () => {
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {}, 401);
+    });
+
+    test("PUT /account/preferences/mail-list-page-size saves a new page size", async () => {
+
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            method: "PUT",
+            authToken: session_token,
+            body: { pageSize: 50 }
+        });
+
+        const data = await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.MailListPageSize.Response
+        });
+
+        expect(data.pageSize).toBe(50);
+
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            and(
+                eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Schema.userPreferences.key, "mail-list-page-size")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("PUT /account/preferences/mail-list-page-size overwrites the previous value without creating a duplicate row", async () => {
+
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            method: "PUT",
+            authToken: session_token,
+            body: { pageSize: 100 }
+        });
+
+        const data = await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.MailListPageSize.Response
+        });
+
+        expect(data.pageSize).toBe(100);
+
+        const dbresult = DB.instance().select().from(DB.Schema.userPreferences).where(
+            and(
+                eq(DB.Schema.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Schema.userPreferences.key, "mail-list-page-size")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("PUT /account/preferences/mail-list-page-size accepts the 'all' option", async () => {
+
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            method: "PUT",
+            authToken: session_token,
+            body: { pageSize: "all" }
+        });
+
+        const data = await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.MailListPageSize.Response
+        });
+
+        expect(data.pageSize).toBe("all");
+    });
+
+    test("PUT /account/preferences/mail-list-page-size with an unsupported value fails", async () => {
+
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            method: "PUT",
+            authToken: session_token,
+            body: { pageSize: 30 }
+        }, 400);
+    });
+
+    test("PUT /account/preferences/mail-list-page-size without auth fails", async () => {
+
+        await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            method: "PUT",
+            body: { pageSize: 50 }
+        }, 401);
+    });
+
+    test("Mail list page size preference is isolated per user", async () => {
+
+        const otherUser = await seedUser("user", { username: "pagesizeotheruser" }, "OtherP@ss1");
+        const otherSession = await seedSession(otherUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/account/preferences/mail-list-page-size", {
+            authToken: otherSession,
+            expectedBodySchema: AccountPreferencesModel.MailListPageSize.Response
+        });
+
+        // Should NOT see preferencesTestUser's saved value.
+        expect(data.pageSize).toBe(25);
+
+        SessionHandler.inValidateAllSessionsForUser(otherUser.id);
+        DB.instance().delete(DB.Schema.users).where(eq(DB.Schema.users.id, otherUser.id)).run();
     });
 
     test("Preferences are isolated per user", async () => {
