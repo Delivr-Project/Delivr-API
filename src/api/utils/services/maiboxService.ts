@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { MailClientsCache } from "../../../utils/mails/mail-clients-cache";
 import { APIResponse } from "../api-res";
 import { Logger } from "../../../utils/logger";
-import type { MailboxesModel } from "../../routes/mail-accounts/mailboxes/model";
+import type { MailboxesModel } from "../../versions/v1/routes/mail-accounts/mailboxes/model";
 
 
 export class MailboxService {

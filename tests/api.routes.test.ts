@@ -4,17 +4,17 @@ import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
 import { randomUUID } from "crypto";
 import { desc, eq } from "drizzle-orm";
-import { AuthModel } from "../src/api/routes/auth/model";
+import { AuthModel } from "../src/api/versions/v1/routes/auth/model";
 import { makeAPIRequest } from "./helpers/api";
-import { AccountModel } from "../src/api/routes/account/model";
-import { AccountPreferencesModel } from "../src/api/routes/account/preferences/model";
-import { MailAccountsModel } from "../src/api/routes/mail-accounts/model";
-import { MailIdentitiesModel } from "../src/api/routes/mail-accounts/identities/model";
-import { MailboxesModel } from "../src/api/routes/mail-accounts/mailboxes/model";
+import { AccountModel } from "../src/api/versions/v1/routes/account/model";
+import { AccountPreferencesModel } from "../src/api/versions/v1/routes/account/preferences/model";
+import { MailAccountsModel } from "../src/api/versions/v1/routes/mail-accounts/model";
+import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts/identities/model";
+import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
-import { MailsModel } from "../src/api/routes/mail-accounts/mailboxes/mails/model";
-import { SearchModel } from "../src/api/routes/mail-accounts/search/model";
+import { MailsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/model";
+import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -81,9 +81,9 @@ describe("Auth routes and access checks", async () => {
 
     let session_token: string;
 
-    test("POST /auth/login authenticates and creates session", async () => {
+    test("POST /v1/auth/login authenticates and creates session", async () => {
 
-        const data = await makeAPIRequest("/auth/login", {
+        const data = await makeAPIRequest("/v1/auth/login", {
             method: "POST",
             body: { username: testUser.username, password: testUser.password },
             expectedBodySchema: AuthModel.Login.Response
@@ -112,18 +112,18 @@ describe("Auth routes and access checks", async () => {
         expect(tokenParts.id).toBe(session.id);
     });
 
-    test("POST /auth/login with invalid credentials fails", async () => {
+    test("POST /v1/auth/login with invalid credentials fails", async () => {
 
-        await makeAPIRequest("/auth/login", {
+        await makeAPIRequest("/v1/auth/login", {
             method: "POST",
             body: { username: testUser.username, password: "WrongPassword" },
         }, 401);
 
     });
 
-    test("GET /auth/session returns current session info", async () => {
+    test("GET /v1/auth/session returns current session info", async () => {
 
-        const data = await makeAPIRequest("/auth/session", {
+        const data = await makeAPIRequest("/v1/auth/session", {
             authToken: session_token,
             expectedBodySchema: AuthModel.Session.Response
         });
@@ -132,17 +132,17 @@ describe("Auth routes and access checks", async () => {
         expect(data.user_role).toBe("user");
     });
 
-    test("GET /auth/session with invalid token fails", async () => {
+    test("GET /v1/auth/session with invalid token fails", async () => {
 
-        await makeAPIRequest("/auth/session", {
+        await makeAPIRequest("/v1/auth/session", {
             authToken: "invalid_token",
         }, 401);
 
     });
 
-    test("POST /auth/logout invalidates session", async () => {
+    test("POST /v1/auth/logout invalidates session", async () => {
 
-        await makeAPIRequest("/auth/logout", {
+        await makeAPIRequest("/v1/auth/logout", {
             method: "POST",
             authToken: session_token
         });
@@ -161,9 +161,9 @@ describe("Account routes", async () => {
         session_token = await seedSession(testUser.id).then(s => s.token);
     });
 
-    test("GET /account returns current user", async () => {
+    test("GET /v1/account returns current user", async () => {
 
-        const data = await makeAPIRequest("/account", {
+        const data = await makeAPIRequest("/v1/account", {
             authToken: session_token,
             expectedBodySchema: AccountModel.GetInfo.Response
         });
@@ -175,7 +175,7 @@ describe("Account routes", async () => {
         expect(data.role).toBe("user");
     });
 
-    test("PUT /account updates profile fields", async () => {
+    test("PUT /v1/account updates profile fields", async () => {
         
         const newUserData = {
             display_name: "Updated Name",
@@ -183,7 +183,7 @@ describe("Account routes", async () => {
             email: "updated@example.com"
         }
 
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             method: "PUT",
             authToken: session_token,
             body: newUserData
@@ -200,9 +200,9 @@ describe("Account routes", async () => {
         expect(dbresult?.email).toBe(newUserData.email);
     });
 
-    test("PUT /account try updating role fails", async () => {
+    test("PUT /v1/account try updating role fails", async () => {
         
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             method: "PUT",
             authToken: session_token,
             body: { role: "admin" }
@@ -212,12 +212,12 @@ describe("Account routes", async () => {
         expect(dbresult?.role).toBe("user");
     });
 
-    test("PUT /account/password rotates credentials and invalidates old sessions", async () => {
+    test("PUT /v1/account/password rotates credentials and invalidates old sessions", async () => {
 
         const oldPassword = testUser.password;
         const newPassword = "NewP@ssw0rd1";
 
-        await makeAPIRequest("/account/password", {
+        await makeAPIRequest("/v1/account/password", {
             method: "PUT",
             authToken: session_token,
             body: {
@@ -229,18 +229,18 @@ describe("Account routes", async () => {
         testUser.password = newPassword;
 
         // Old session should be invalidated
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             authToken: session_token,
         }, 401);
 
         // Login with old password should fail
-        await makeAPIRequest("/auth/login", {
+        await makeAPIRequest("/v1/auth/login", {
             method: "POST",
             body: { username: testUser.username, password: oldPassword }
         }, 401);
 
         // Login with new password should succeed
-        const data = await makeAPIRequest("/auth/login", {
+        const data = await makeAPIRequest("/v1/auth/login", {
             method: "POST",
             body: { username: testUser.username, password: newPassword },
             expectedBodySchema: AuthModel.Login.Response
@@ -251,12 +251,12 @@ describe("Account routes", async () => {
         session_token = data.token;
     });
 
-    test("DELETE /account fails because of existing mail accounts", async () => {
+    test("DELETE /v1/account fails because of existing mail accounts", async () => {
         
         // Seed a mail account
         const mailAccountID = (await seedMailAccount(testUser.id)).id;
 
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             method: "DELETE",
             authToken: session_token
         }, 400);
@@ -266,9 +266,9 @@ describe("Account routes", async () => {
         ).run();
     });
 
-    test("DELETE /account removes user data", async () => {
+    test("DELETE /v1/account removes user data", async () => {
         
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             method: "DELETE",
             authToken: session_token
         });
@@ -303,9 +303,9 @@ describe("Account Preferences Routes", async () => {
         ).run();
     });
 
-    test("GET /account/preferences/remote-content-policy returns empty defaults when nothing is saved yet", async () => {
+    test("GET /v1/account/preferences/remote-content-policy returns empty defaults when nothing is saved yet", async () => {
 
-        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+        const data = await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             authToken: session_token,
             expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
         });
@@ -320,13 +320,13 @@ describe("Account Preferences Routes", async () => {
         expect(dbresult.length).toBe(0);
     });
 
-    test("GET /account/preferences/remote-content-policy without auth fails", async () => {
-        await makeAPIRequest("/account/preferences/remote-content-policy", {}, 401);
+    test("GET /v1/account/preferences/remote-content-policy without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {}, 401);
     });
 
-    test("PUT /account/preferences/remote-content-policy saves a new policy", async () => {
+    test("PUT /v1/account/preferences/remote-content-policy saves a new policy", async () => {
 
-        await makeAPIRequest("/account/preferences/remote-content-policy", {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             method: "PUT",
             authToken: session_token,
             body: {
@@ -335,7 +335,7 @@ describe("Account Preferences Routes", async () => {
             }
         });
 
-        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+        const data = await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             authToken: session_token,
             expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
         });
@@ -350,9 +350,9 @@ describe("Account Preferences Routes", async () => {
         expect(dbresult[0]?.key).toBe("remote-content-policy");
     });
 
-    test("PUT /account/preferences/remote-content-policy overwrites the previous policy without creating a duplicate row", async () => {
+    test("PUT /v1/account/preferences/remote-content-policy overwrites the previous policy without creating a duplicate row", async () => {
 
-        await makeAPIRequest("/account/preferences/remote-content-policy", {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             method: "PUT",
             authToken: session_token,
             body: {
@@ -361,7 +361,7 @@ describe("Account Preferences Routes", async () => {
             }
         });
 
-        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+        const data = await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             authToken: session_token,
             expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
         });
@@ -376,15 +376,15 @@ describe("Account Preferences Routes", async () => {
         expect(dbresult.length).toBe(1);
     });
 
-    test("PUT /account/preferences/remote-content-policy concurrently still results in exactly one stored row", async () => {
+    test("PUT /v1/account/preferences/remote-content-policy concurrently still results in exactly one stored row", async () => {
 
         await Promise.all([
-            makeAPIRequest("/account/preferences/remote-content-policy", {
+            makeAPIRequest("/v1/account/preferences/remote-content-policy", {
                 method: "PUT",
                 authToken: session_token,
                 body: { addresses: { "race1@example.com": "allow" }, domains: {} }
             }),
-            makeAPIRequest("/account/preferences/remote-content-policy", {
+            makeAPIRequest("/v1/account/preferences/remote-content-policy", {
                 method: "PUT",
                 authToken: session_token,
                 body: { addresses: { "race2@example.com": "block" }, domains: {} }
@@ -397,9 +397,9 @@ describe("Account Preferences Routes", async () => {
         expect(dbresult.length).toBe(1);
     });
 
-    test("PUT /account/preferences/remote-content-policy with invalid decision fails", async () => {
+    test("PUT /v1/account/preferences/remote-content-policy with invalid decision fails", async () => {
 
-        await makeAPIRequest("/account/preferences/remote-content-policy", {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             method: "PUT",
             authToken: session_token,
             body: {
@@ -409,9 +409,9 @@ describe("Account Preferences Routes", async () => {
         }, 400);
     });
 
-    test("PUT /account/preferences/remote-content-policy without auth fails", async () => {
+    test("PUT /v1/account/preferences/remote-content-policy without auth fails", async () => {
 
-        await makeAPIRequest("/account/preferences/remote-content-policy", {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             method: "PUT",
             body: { addresses: {}, domains: {} }
         }, 401);
@@ -422,7 +422,7 @@ describe("Account Preferences Routes", async () => {
         const otherUser = await seedUser("user", { username: "preferencesotheruser" }, "OtherP@ss1");
         const otherSession = await seedSession(otherUser.id).then(s => s.token);
 
-        const data = await makeAPIRequest("/account/preferences/remote-content-policy", {
+        const data = await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             authToken: otherSession,
             expectedBodySchema: AccountPreferencesModel.RemoteContentPolicy.Response
         });
@@ -435,12 +435,12 @@ describe("Account Preferences Routes", async () => {
         DB.instance().delete(DB.Schema.users).where(eq(DB.Schema.users.id, otherUser.id)).run();
     });
 
-    test("DELETE /account also removes stored preferences", async () => {
+    test("DELETE /v1/account also removes stored preferences", async () => {
 
         const deletableUser = await seedUser("user", { username: "preferencesdeletableuser" }, "DeleteP@ss1");
         const deletableSession = await seedSession(deletableUser.id).then(s => s.token);
 
-        await makeAPIRequest("/account/preferences/remote-content-policy", {
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
             method: "PUT",
             authToken: deletableSession,
             body: { addresses: { "keep@example.com": "allow" }, domains: {} }
@@ -451,7 +451,7 @@ describe("Account Preferences Routes", async () => {
         ).all();
         expect(beforeDelete.length).toBe(1);
 
-        await makeAPIRequest("/account", {
+        await makeAPIRequest("/v1/account", {
             method: "DELETE",
             authToken: deletableSession
         });
@@ -476,7 +476,7 @@ describe("Mail Account Routes", async () => {
 
     const mailAccountIDs: number[] = [];
 
-    test("POST /mail-accounts creates mail account", async () => {
+    test("POST /v1/mail-accounts creates mail account", async () => {
 
         const mailAccountData = {
             display_name: "Test Mail Account",
@@ -496,7 +496,7 @@ describe("Mail Account Routes", async () => {
             is_default: false
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
-        const data = await makeAPIRequest("/mail-accounts", {
+        const data = await makeAPIRequest("/v1/mail-accounts", {
             method: "POST",
             authToken: session_token,
             body: mailAccountData,
@@ -536,9 +536,9 @@ describe("Mail Account Routes", async () => {
         mailAccountIDs.push(data.id);
     });
 
-    test("GET /mail-accounts retrieves mail accounts", async () => {
+    test("GET /v1/mail-accounts retrieves mail accounts", async () => {
 
-        const data = await makeAPIRequest("/mail-accounts", {
+        const data = await makeAPIRequest("/v1/mail-accounts", {
             authToken: session_token,
             expectedBodySchema: MailAccountsModel.GetAllMailAccounts.BaseResponse
         });
@@ -576,9 +576,9 @@ describe("Mail Account Routes", async () => {
         expect(data[0].imap_username).toBe(decryptedIMAPData.username);
     });
 
-    test("GET /mail-accounts?withMailboxes=true retrieves mail accounts with mailboxes", async () => {
+    test("GET /v1/mail-accounts?withMailboxes=true retrieves mail accounts with mailboxes", async () => {
 
-        const data = await makeAPIRequest("/mail-accounts?withMailboxes=true", {
+        const data = await makeAPIRequest("/v1/mail-accounts?withMailboxes=true", {
             authToken: session_token,
             expectedBodySchema: MailAccountsModel.GetAllMailAccounts.ResponseWithMailboxes,
         });
@@ -639,13 +639,13 @@ describe("Mail Account Routes", async () => {
 
     });
 
-    test("Get /mail-accounts/:mailAccountID retrieves specific mail account", async () => {
+    test("Get /v1/mail-accounts/:mailAccountID retrieves specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
         if (!mailAccountID) return;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}`, {
             authToken: session_token,
             expectedBodySchema: MailAccountsModel.GetMailAccountByID.Response
         });
@@ -679,13 +679,13 @@ describe("Mail Account Routes", async () => {
         expect(data.imap_username).toBe(decryptedIMAPData.username);
     });
 
-    test("Get /mail-accounts/:mailAccountID?withMailboxes=true retrieves specific mail account with mailboxes", async () => {
+    test("Get /v1/mail-accounts/:mailAccountID?withMailboxes=true retrieves specific mail account with mailboxes", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
         if (!mailAccountID) return;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}?withMailboxes=true`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}?withMailboxes=true`, {
             authToken: session_token,
             expectedBodySchema: MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes
         });
@@ -716,16 +716,16 @@ describe("Mail Account Routes", async () => {
         expect(inbox.parentPath).toBe("");
     });
 
-    test("Get /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+    test("Get /v1/mail-accounts/:mailAccountID with invalid ID fails", async () => {
         
         const invalidMailAccountID = 999999;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${invalidMailAccountID}`, {
             authToken: session_token
         }, 404);
     });
 
-    test("PUT /mail-accounts/:mailAccountID updates mail account info", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID updates mail account info", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
@@ -736,7 +736,7 @@ describe("Mail Account Routes", async () => {
             is_default: true
         } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -753,7 +753,7 @@ describe("Mail Account Routes", async () => {
         expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
-    test("PUT /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID with invalid ID fails", async () => {
 
         const invalidMailAccountID = 999999;
 
@@ -762,14 +762,14 @@ describe("Mail Account Routes", async () => {
             is_default: true
         } satisfies MailAccountsModel.UpdateMailAccountInfo.Body;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${invalidMailAccountID}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
         }, 404);
     });
 
-    test("PUT /mail-accounts/:mailAccountID/credentials updates specific mail account", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/credentials updates specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
@@ -789,7 +789,7 @@ describe("Mail Account Routes", async () => {
             imap_password: "updatedimappass",
         } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/credentials`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -822,7 +822,7 @@ describe("Mail Account Routes", async () => {
         expect(imapData.password).toBe(updatedData.imap_password);
     });
 
-    test("PUT /mail-accounts/:mailAccountID/credentials with invalid ID fails", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/credentials with invalid ID fails", async () => {
         
         const invalidMailAccountID = 999999;
 
@@ -840,20 +840,20 @@ describe("Mail Account Routes", async () => {
             imap_password: "updatedimappass",
         } satisfies MailAccountsModel.UpdateMailAccountCredentials.Body;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}/credentials`, {
+        await makeAPIRequest(`/v1/mail-accounts/${invalidMailAccountID}/credentials`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
         }, 404);
     });
 
-    test("DELETE /mail-accounts/:mailAccountID deletes specific mail account", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID deletes specific mail account", async () => {
 
         const mailAccountID = mailAccountIDs[0];
         expect(mailAccountID).toBeNumber();
         if (!mailAccountID) return;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}`, {
             method: "DELETE",
             authToken: session_token,
         });
@@ -865,11 +865,11 @@ describe("Mail Account Routes", async () => {
         expect(dbresult).toBeUndefined();
     });
 
-    test("DELETE /mail-accounts/:mailAccountID with invalid ID fails", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID with invalid ID fails", async () => {
         
         const invalidMailAccountID = 999999;
 
-        await makeAPIRequest(`/mail-accounts/${invalidMailAccountID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${invalidMailAccountID}`, {
             method: "DELETE",
             authToken: session_token,
         }, 404);
@@ -900,7 +900,7 @@ describe("Mail Identity Routes", async () => {
     
     const mailIdentityIDs: number[] = [];
 
-    test("POST /mail-accounts/:mailAccountID/identities creates mail identity", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/identities creates mail identity", async () => {
 
         const mailIdentityData = {
             display_name: "Test Identity",
@@ -908,7 +908,7 @@ describe("Mail Identity Routes", async () => {
             is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
             method: "POST",
             authToken: session_token,
             body: mailIdentityData,
@@ -931,9 +931,9 @@ describe("Mail Identity Routes", async () => {
         mailIdentityIDs.push(data.id);
     });
 
-    test("GET /mail-accounts/:mailAccountID/identities retrieves mail identities", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/identities retrieves mail identities", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
             authToken: session_token,
             expectedBodySchema: MailIdentitiesModel.GetAll.Response
         });
@@ -958,13 +958,13 @@ describe("Mail Identity Routes", async () => {
 
     });
 
-    test("GET /mail-accounts/:mailAccountID/identities/:mailIdentityID retrieves specific mail identity", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID retrieves specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
         expect(mailIdentityID).toBeNumber();
         if (!mailIdentityID) return;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             authToken: session_token,
             expectedBodySchema: MailIdentitiesModel.GetByID.Response
         });
@@ -985,17 +985,17 @@ describe("Mail Identity Routes", async () => {
         expect(data.email_address).toBe(dbresult.email_address);
     });
 
-    test("GET /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
         
         const invalidMailIdentityID = 999999;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
             authToken: session_token
         }, 404);
 
     });
 
-    test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID updates specific mail identity", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID updates specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
         expect(mailIdentityID).toBeNumber();
@@ -1007,7 +1007,7 @@ describe("Mail Identity Routes", async () => {
             is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -1025,7 +1025,7 @@ describe("Mail Identity Routes", async () => {
         expect(dbresult.is_default).toBe(updatedData.is_default);
     });
 
-    test("PUT /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
         
         const invalidMailIdentityID = 999999;
 
@@ -1035,20 +1035,20 @@ describe("Mail Identity Routes", async () => {
             is_default: false
         } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
         }, 404);
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
         expect(mailIdentityID).toBeNumber();
         if (!mailIdentityID) return;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             method: "DELETE",
             authToken: session_token,
         });
@@ -1060,11 +1060,11 @@ describe("Mail Identity Routes", async () => {
         expect(dbresult).toBeUndefined();
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
         
         const invalidMailIdentityID = 999999;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${invalidMailIdentityID}`, {
             method: "DELETE",
             authToken: session_token,
         }, 404);
@@ -1148,13 +1148,13 @@ describe("Mail Mailbox Routes", async () => {
 
     });
     
-    test("POST /mail-accounts/:mailAccountID/mailboxes creates new mailbox / folder", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes creates new mailbox / folder", async () => {
 
         const mailboxData = {
             path: "INBOX/Social Media",
         } satisfies MailboxesModel.Create.Body;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
             method: "POST",
             authToken: session_token,
             body: mailboxData
@@ -1165,9 +1165,9 @@ describe("Mail Mailbox Routes", async () => {
         expect(await testIMAPClient.getMailbox(mailboxData.path)).not.toBeNull();
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
             authToken: session_token,
             expectedBodySchema: MailboxesModel.GetAll.Response
         });
@@ -1195,11 +1195,11 @@ describe("Mail Mailbox Routes", async () => {
         expect(inbox.parentPath).toBe("");
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath retrieves specific mail mailbox", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath retrieves specific mail mailbox", async () => {
 
         const mailboxPath = "INBOX/Social Media";
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
             authToken: session_token,
             expectedBodySchema: MailboxesModel.GetByPath.Response
         });
@@ -1215,17 +1215,17 @@ describe("Mail Mailbox Routes", async () => {
         expect(data.parentPath).toBe("INBOX");
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
         
         const invalidMailboxPath = "NONEXISTENT";
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
             authToken: session_token
         }, 404);
 
     });
 
-    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath updates specific mail mailbox", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath updates specific mail mailbox", async () => {
 
         const newMailboxPath = "INBOX/Socials";
         const oldMailboxPath = "INBOX/Social Media";
@@ -1234,7 +1234,7 @@ describe("Mail Mailbox Routes", async () => {
             path: newMailboxPath
         } satisfies MailboxesModel.Update.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(oldMailboxPath)}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(oldMailboxPath)}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -1248,7 +1248,7 @@ describe("Mail Mailbox Routes", async () => {
         expect(updatedMailbox.path).toBe(newMailboxPath);
     });
 
-    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
         
         const invalidMailboxPath = "NONEXISTENT";
 
@@ -1256,7 +1256,7 @@ describe("Mail Mailbox Routes", async () => {
             path: "INBOX/DoesNotMatter"
         } satisfies MailboxesModel.Update.Body;
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
             method: "PUT",
             authToken: session_token,
             body: updatedData
@@ -1264,11 +1264,11 @@ describe("Mail Mailbox Routes", async () => {
 
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath deletes specific mail mailbox", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath deletes specific mail mailbox", async () => {
 
         const mailboxPath = "INBOX/Socials";
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(mailboxPath)}`, {
             method: "DELETE",
             authToken: session_token,
         });
@@ -1276,11 +1276,11 @@ describe("Mail Mailbox Routes", async () => {
         expect(await testIMAPClient.getMailbox(mailboxPath)).toBeNull();
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath with invalid path fails", async () => {
         
         const invalidMailboxPath = "NONEXISTENT";
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(invalidMailboxPath)}`, {
             method: "DELETE",
             authToken: session_token,
         }, 404);
@@ -1361,7 +1361,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
     let createdMailUID: number;
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails creates new draft mail", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails creates new draft mail", async () => {
 
         const mailData = {
             from: { name: "Test Sender", address: "sender@test.com" },
@@ -1373,7 +1373,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             flags: { draft: true }
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
             method: "POST",
             authToken: session_token,
             body: mailData,
@@ -1384,7 +1384,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         createdMailUID = data.uid;
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
 
         const mailData = {
             from: { name: "Test Sender", address: "sender@test.com" },
@@ -1395,16 +1395,16 @@ describe("Mail Mailbox Mails Routes", async () => {
             body: { text: "Test body" }
         };
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/NONEXISTENT/mails`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/NONEXISTENT/mails`, {
             method: "POST",
             authToken: session_token,
             body: mailData
         }, 404);
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID retrieves specific mail", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID retrieves specific mail", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
             authToken: session_token,
             expectedBodySchema: MailsModel.GetByUID.Response
         });
@@ -1416,21 +1416,21 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.body?.text).toContain("This is a test draft mail body");
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
             authToken: session_token
         }, 404);
     });
 
-    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID updates mail", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID updates mail", async () => {
 
         const updateData = {
             subject: "Updated Test Draft Mail",
             body: { text: "Updated body content", html: "<p>Updated body content</p>" }
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
             method: "PUT",
             authToken: session_token,
             body: updateData,
@@ -1446,7 +1446,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         }
 
         // Verify the update
-        const updatedMail = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
+        const updatedMail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
             authToken: session_token,
             expectedBodySchema: MailsModel.GetByUID.Response
         });
@@ -1455,21 +1455,21 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(updatedMail.body?.text).toContain("Updated body content");
     });
 
-    test("PUT /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
+    test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
             method: "PUT",
             authToken: session_token,
             body: { subject: "Test" }
         }, 404);
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/move moves mail to another mailbox", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/move moves mail to another mailbox", async () => {
 
         // First create a target mailbox
         await testIMAPClient.createMailbox("TestMoveTarget");
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}/move`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}/move`, {
             method: "POST",
             authToken: session_token,
             body: { targetMailbox: "TestMoveTarget" },
@@ -1478,7 +1478,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         // Mail should now be in TestMoveTarget
         // Verify original location doesn't have it
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {
             authToken: session_token
         }, 404);
 
@@ -1486,16 +1486,16 @@ describe("Mail Mailbox Mails Routes", async () => {
         await testIMAPClient.deleteMailbox("TestMoveTarget");
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/move with invalid UID fails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/move with invalid UID fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/move`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/move`, {
             method: "POST",
             authToken: session_token,
             body: { targetMailbox: "Drafts" }
         }, 404);
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID deletes mail (move to trash)", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID deletes mail (move to trash)", async () => {
 
         // Create a new mail to delete
         const mailData = {
@@ -1507,7 +1507,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             body: { text: "This mail will be deleted" }
         };
 
-        const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
             method: "POST",
             authToken: session_token,
             body: mailData,
@@ -1516,7 +1516,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         const mailToDeleteUID = created.uid;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
             method: "DELETE",
             authToken: session_token,
             expectedBodySchema: MailsModel.Delete.Response
@@ -1525,7 +1525,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.success).toBe(true);
 
         // Verify the mail is no longer in INBOX
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
             authToken: session_token
         }, 404);
 
@@ -1534,7 +1534,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBeGreaterThan(0);
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with permanent=true deletes permanently", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with permanent=true deletes permanently", async () => {
 
         // Create a new mail to delete permanently
         const mailData = {
@@ -1546,7 +1546,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             body: { text: "This mail will be permanently deleted" }
         };
 
-        const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
             method: "POST",
             authToken: session_token,
             body: mailData,
@@ -1555,7 +1555,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         const mailToDeleteUID = created.uid;
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}?permanent=true`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}?permanent=true`, {
             method: "DELETE",
             authToken: session_token,
             expectedBodySchema: MailsModel.Delete.Response
@@ -1564,7 +1564,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.success).toBe(true);
 
         // Verify the mail was actually expunged, not merely flagged \Deleted in place
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToDeleteUID}`, {
             authToken: session_token
         }, 404);
 
@@ -1573,21 +1573,21 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBe(0);
     });
 
-    test("DELETE /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
             method: "DELETE",
             authToken: session_token
         }, 404);
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move moves multiple mails to another mailbox", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move moves multiple mails to another mailbox", async () => {
 
         await testIMAPClient.createMailbox("TestBulkMoveTarget");
 
         const uids: number[] = [];
         for (const subject of ["Bulk Move 1", "Bulk Move 2"]) {
-            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
                 method: "POST",
                 authToken: session_token,
                 body: {
@@ -1603,7 +1603,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
             method: "POST",
             authToken: session_token,
             body: { uids, targetMailbox: "TestBulkMoveTarget" },
@@ -1613,7 +1613,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.success).toBe(true);
 
         for (const uid of uids) {
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
                 authToken: session_token
             }, 404);
         }
@@ -1624,13 +1624,13 @@ describe("Mail Mailbox Mails Routes", async () => {
         await testIMAPClient.deleteMailbox("TestBulkMoveTarget");
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-copy copies multiple mails without removing originals", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-copy copies multiple mails without removing originals", async () => {
 
         await testIMAPClient.createMailbox("TestBulkCopyTarget");
 
         const uids: number[] = [];
         for (const subject of ["Bulk Copy 1", "Bulk Copy 2"]) {
-            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
                 method: "POST",
                 authToken: session_token,
                 body: {
@@ -1646,7 +1646,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-copy`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-copy`, {
             method: "POST",
             authToken: session_token,
             body: { uids, targetMailbox: "TestBulkCopyTarget" },
@@ -1657,7 +1657,7 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         // Originals should still be present in INBOX
         for (const uid of uids) {
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
                 authToken: session_token
             });
         }
@@ -1668,11 +1668,11 @@ describe("Mail Mailbox Mails Routes", async () => {
         await testIMAPClient.deleteMailbox("TestBulkCopyTarget");
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete moves multiple mails to trash", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete moves multiple mails to trash", async () => {
 
         const uids: number[] = [];
         for (const subject of ["Bulk Delete 1", "Bulk Delete 2"]) {
-            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
                 method: "POST",
                 authToken: session_token,
                 body: {
@@ -1688,7 +1688,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
             method: "POST",
             authToken: session_token,
             body: { uids },
@@ -1698,7 +1698,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.success).toBe(true);
 
         for (const uid of uids) {
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
                 authToken: session_token
             }, 404);
         }
@@ -1707,11 +1707,11 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBeGreaterThanOrEqual(uids.length);
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete with permanent=true removes multiple mails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-delete with permanent=true removes multiple mails", async () => {
 
         const uids: number[] = [];
         for (const subject of ["Bulk Perm Delete 1", "Bulk Perm Delete 2"]) {
-            const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
                 method: "POST",
                 authToken: session_token,
                 body: {
@@ -1727,7 +1727,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             uids.push(created.uid);
         }
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-delete`, {
             method: "POST",
             authToken: session_token,
             body: { uids, permanent: true },
@@ -1737,7 +1737,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(data.success).toBe(true);
 
         for (const uid of uids) {
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
                 authToken: session_token
             }, 404);
         }
@@ -1746,16 +1746,16 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBe(0);
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move with empty uids fails validation", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move with empty uids fails validation", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/bulk-move`, {
             method: "POST",
             authToken: session_token,
             body: { uids: [], targetMailbox: "Drafts" }
         }, 400);
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
 
         // Create a draft mail to send
         const mailData = {
@@ -1767,7 +1767,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             body: { text: "This is a test mail to send", html: "<p>This is a test mail to send</p>" }
         };
 
-        const created = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
             method: "POST",
             authToken: session_token,
             body: mailData,
@@ -1779,7 +1779,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         // Note: This test may fail if SMTP mock server is not running
         // In that case, we expect a 500 error
         try {
-            const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}/send`, {
+            const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}/send`, {
                 method: "POST",
                 authToken: session_token,
                 body: { moveToSent: true },
@@ -1790,12 +1790,12 @@ describe("Mail Mailbox Mails Routes", async () => {
             expect(data).toBeDefined();
 
             // Verify the mail is no longer in INBOX (moved to Sent)
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
                 authToken: session_token
             }, 404);
         } catch (e) {
             // SMTP server not available - clean up the created mail
-            await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
                 method: "DELETE",
                 authToken: session_token
             });
@@ -1803,18 +1803,18 @@ describe("Mail Mailbox Mails Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send with invalid UID fails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send with invalid UID fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/send`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/send`, {
             method: "POST",
             authToken: session_token,
             body: { moveToSent: true }
         }, 404);
     });
 
-    test("GET /mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails retrieves mails in mailbox", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails retrieves mails in mailbox", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
             authToken: session_token,
             expectedBodySchema: MailsModel.GetAll.Response
         });
@@ -1935,9 +1935,9 @@ describe("Mail Search Routes", async () => {
         ).run();
     });
 
-    test("GET /mail-accounts/:mailAccountID/search performs quick search", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/search performs quick search", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=hello`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?q=hello`, {
             authToken: session_token,
             expectedBodySchema: SearchModel.QuickSearch.Response
         });
@@ -1959,16 +1959,16 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("GET /mail-accounts/:mailAccountID/search with empty query fails", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/search with empty query fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?q=`, {
             authToken: session_token
         }, 400);
     });
 
-    test("GET /mail-accounts/:mailAccountID/search with limit and offset", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/search with limit and offset", async () => {
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?q=hello&limit=5&offset=0&order=newest`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?q=hello&limit=5&offset=0&order=newest`, {
             authToken: session_token,
             expectedBodySchema: SearchModel.QuickSearch.Response
         });
@@ -1976,13 +1976,13 @@ describe("Mail Search Routes", async () => {
         expect(data.results.length).toBeLessThanOrEqual(5);
     });
 
-    test("POST /mail-accounts/:mailAccountID/search performs advanced search by subject", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search performs advanced search by subject", async () => {
 
         const searchBody = {
             subject: "hello"
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -1999,13 +1999,13 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/search performs advanced search by from", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search performs advanced search by from", async () => {
 
         const searchBody = {
             from: "sender@example.com"
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -2020,13 +2020,13 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/search with flag filters", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search with flag filters", async () => {
 
         const searchBody = {
             seen: true
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -2041,13 +2041,13 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/search with mailbox filter", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search with mailbox filter", async () => {
 
         const searchBody = {
             text: "hello"
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search?mailboxes=INBOX`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?mailboxes=INBOX`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -2062,24 +2062,24 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/search without criteria fails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search without criteria fails", async () => {
 
         const searchBody = {};
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search`, {
             method: "POST",
             authToken: session_token,
             body: searchBody
         }, 400);
     });
 
-    test("POST /mail-accounts/:mailAccountID/search/count returns count and breakdown", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search/count returns count and breakdown", async () => {
 
         const searchBody = {
             text: "hello"
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search/count`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search/count`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -2101,25 +2101,25 @@ describe("Mail Search Routes", async () => {
         }
     });
 
-    test("POST /mail-accounts/:mailAccountID/search/count without criteria fails", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search/count without criteria fails", async () => {
 
         const searchBody = {};
 
-        await makeAPIRequest(`/mail-accounts/${mailAccountID}/search/count`, {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search/count`, {
             method: "POST",
             authToken: session_token,
             body: searchBody
         }, 400);
     });
 
-    test("GET /mail-accounts/:mailAccountID/search with invalid mail account fails", async () => {
+    test("GET /v1/mail-accounts/:mailAccountID/search with invalid mail account fails", async () => {
 
-        await makeAPIRequest(`/mail-accounts/999999/search?q=hello`, {
+        await makeAPIRequest(`/v1/mail-accounts/999999/search?q=hello`, {
             authToken: session_token
         }, 404);
     });
 
-    test("POST /mail-accounts/:mailAccountID/search combined criteria search", async () => {
+    test("POST /v1/mail-accounts/:mailAccountID/search combined criteria search", async () => {
 
         const searchBody = {
             subject: "hello",
@@ -2128,7 +2128,7 @@ describe("Mail Search Routes", async () => {
             flagged: true
         };
 
-        const data = await makeAPIRequest(`/mail-accounts/${mailAccountID}/search`, {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search`, {
             method: "POST",
             authToken: session_token,
             body: searchBody,
@@ -2149,12 +2149,12 @@ describe("Mail Search Routes", async () => {
 
 describe("Docs Routes", async () => {
 
-    test("GET /docs/openapi returns API docs if enabled", async () => {
-        await makeAPIRequest(`/docs/openapi`, {}, 200);
+    test("GET /docs/v1/openapi returns API docs if enabled", async () => {
+        await makeAPIRequest(`/docs/v1/openapi`, {}, 200);
     });
 
-    test("GET /docs returns API docs UI if enabled", async () => {
-        await makeAPIRequest(`/docs`, {}, 200);
+    test("GET /docs/v1 returns API docs UI if enabled", async () => {
+        await makeAPIRequest(`/docs/v1`, {}, 200);
     });
 
     test("GET /docs/openapi returns 404 if disabled", async () => {
@@ -2163,11 +2163,11 @@ describe("Docs Routes", async () => {
         await API.init([], true);
         await API.start(14123, "::");
 
-        await makeAPIRequest(`/docs/openapi`, {}, 404);
+        await makeAPIRequest(`/docs/v1/openapi`, {}, 404);
     });
 
-    test("GET /docs returns 404 if disabled", async () => {
+    test("GET /docs/v1 returns 404 if disabled", async () => {
 
-        await makeAPIRequest(`/docs`, {}, 404);
+        await makeAPIRequest(`/docs/v1`, {}, 404);
     });
 });

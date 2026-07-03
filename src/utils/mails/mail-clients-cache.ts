@@ -1,4 +1,4 @@
-import { MailAccountsModel } from "../../api/routes/mail-accounts/model";
+import { MailAccountsModel } from "../../api/versions/v1/routes/mail-accounts/model";
 import { IMAPAccount } from "./backends/imap";
 
 export class MailClientsCache {

@@ -1,6 +1,6 @@
 import { ImapFlow, type ListResponse as MailboxListResponse, type ListTreeResponse as MailboxTreeResponse, type SearchObject } from "imapflow";
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
-import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
+import { MailAccountsModel } from "../../../api/versions/v1/routes/mail-accounts/model";
 import { MailRessource } from "../ressources/mail";
 import { MailboxRessource } from "../ressources/mailbox";
 import { Logger } from "../../logger";

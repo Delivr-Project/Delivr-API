@@ -1,7 +1,7 @@
 import { InetModels } from "../../../api/utils/shared-models/inetModels";
 import { createTransport, type Transporter } from "nodemailer";
 import { MailRessource } from "../ressources/mail";
-import { MailAccountsModel } from "../../../api/routes/mail-accounts/model";
+import { MailAccountsModel } from "../../../api/versions/v1/routes/mail-accounts/model";
 
 export class SMTPAccount {
 
