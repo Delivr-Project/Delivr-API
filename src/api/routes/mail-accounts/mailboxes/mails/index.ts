@@ -126,6 +126,122 @@ router.post('/',
     }
 );
 
+router.post('/bulk-move',
+
+    APIRouteSpec.authenticated({
+        summary: "Bulk Move Mails",
+        description: "Move multiple mails to another mailbox/folder.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("Mails moved successfully", MailsModel.BulkMove.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    validator('json', MailsModel.BulkMove.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const body = c.req.valid('json');
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            await imap.moveToMailbox(mailbox.path, body.uids, body.targetMailbox);
+
+            return APIResponse.success(c, "Mails moved successfully", { success: true } satisfies MailsModel.BulkMove.Response);
+        } catch (e) {
+            Logger.error("Failed to bulk move mails", e);
+            return APIResponse.serverError(c, "Failed to move mails");
+        }
+    }
+);
+
+router.post('/bulk-copy',
+
+    APIRouteSpec.authenticated({
+        summary: "Bulk Copy Mails",
+        description: "Copy multiple mails to another mailbox/folder.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("Mails copied successfully", MailsModel.BulkCopy.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    validator('json', MailsModel.BulkCopy.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const body = c.req.valid('json');
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            await imap.copyToMailbox(mailbox.path, body.uids, body.targetMailbox);
+
+            return APIResponse.success(c, "Mails copied successfully", { success: true } satisfies MailsModel.BulkCopy.Response);
+        } catch (e) {
+            Logger.error("Failed to bulk copy mails", e);
+            return APIResponse.serverError(c, "Failed to copy mails");
+        }
+    }
+);
+
+router.post('/bulk-delete',
+
+    APIRouteSpec.authenticated({
+        summary: "Bulk Delete Mails",
+        description: "Delete multiple mails by moving them to trash, or permanently delete them.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("Mails deleted successfully", MailsModel.BulkDelete.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    validator('json', MailsModel.BulkDelete.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const body = c.req.valid('json');
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+
+            if (body.permanent) {
+                await imap.permanentlyDelete(mailbox.path, body.uids);
+            } else {
+                await imap.moveToTrash(mailbox.path, body.uids);
+            }
+
+            return APIResponse.success(c, "Mails deleted successfully", { success: true } satisfies MailsModel.BulkDelete.Response);
+        } catch (e) {
+            Logger.error("Failed to bulk delete mails", e);
+            return APIResponse.serverError(c, "Failed to delete mails");
+        }
+    }
+);
+
 router.use('/:mailUID/*',
     
     validator('param', MailsModel.Param),
@@ -389,118 +505,3 @@ router.delete('/:mailUID',
 
 router.route('/:mailUID/attachments', attachmentsRouter);
 
-router.post('/bulk-move',
-
-    APIRouteSpec.authenticated({
-        summary: "Bulk Move Mails",
-        description: "Move multiple mails to another mailbox/folder.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
-
-        responses: APIResponseSpec.describeWithWrongInputs(
-            APIResponseSpec.success("Mails moved successfully", MailsModel.BulkMove.Response),
-            APIResponseSpec.notFound("Mailbox with specified path not found")
-        )
-    }),
-
-    validator('json', MailsModel.BulkMove.Body),
-
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
-
-        const body = c.req.valid('json');
-
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
-
-        try {
-            await imap.connect();
-            await imap.moveToMailbox(mailbox.path, body.uids, body.targetMailbox);
-
-            return APIResponse.success(c, "Mails moved successfully", { success: true } satisfies MailsModel.BulkMove.Response);
-        } catch (e) {
-            Logger.error("Failed to bulk move mails", e);
-            return APIResponse.serverError(c, "Failed to move mails");
-        }
-    }
-);
-
-router.post('/bulk-copy',
-
-    APIRouteSpec.authenticated({
-        summary: "Bulk Copy Mails",
-        description: "Copy multiple mails to another mailbox/folder.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
-
-        responses: APIResponseSpec.describeWithWrongInputs(
-            APIResponseSpec.success("Mails copied successfully", MailsModel.BulkCopy.Response),
-            APIResponseSpec.notFound("Mailbox with specified path not found")
-        )
-    }),
-
-    validator('json', MailsModel.BulkCopy.Body),
-
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
-
-        const body = c.req.valid('json');
-
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
-
-        try {
-            await imap.connect();
-            await imap.copyToMailbox(mailbox.path, body.uids, body.targetMailbox);
-
-            return APIResponse.success(c, "Mails copied successfully", { success: true } satisfies MailsModel.BulkCopy.Response);
-        } catch (e) {
-            Logger.error("Failed to bulk copy mails", e);
-            return APIResponse.serverError(c, "Failed to copy mails");
-        }
-    }
-);
-
-router.post('/bulk-delete',
-
-    APIRouteSpec.authenticated({
-        summary: "Bulk Delete Mails",
-        description: "Delete multiple mails by moving them to trash, or permanently delete them.",
-        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
-
-        responses: APIResponseSpec.describeWithWrongInputs(
-            APIResponseSpec.success("Mails deleted successfully", MailsModel.BulkDelete.Response),
-            APIResponseSpec.notFound("Mailbox with specified path not found")
-        )
-    }),
-
-    validator('json', MailsModel.BulkDelete.Body),
-
-    async (c) => {
-        // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
-
-        const body = c.req.valid('json');
-
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
-
-        try {
-            await imap.connect();
-
-            if (body.permanent) {
-                await imap.permanentlyDelete(mailbox.path, body.uids);
-            } else {
-                await imap.moveToTrash(mailbox.path, body.uids);
-            }
-
-            return APIResponse.success(c, "Mails deleted successfully", { success: true } satisfies MailsModel.BulkDelete.Response);
-        } catch (e) {
-            Logger.error("Failed to bulk delete mails", e);
-            return APIResponse.serverError(c, "Failed to delete mails");
-        }
-    }
-);
