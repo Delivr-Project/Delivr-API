@@ -16,6 +16,7 @@ import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { MailsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/model";
 import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/model";
 import { MailBulkActionsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mail-bulk-actions/model";
+import { AttachmentsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/attachments/model";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -2144,6 +2145,221 @@ describe("Mail Search Routes", async () => {
             expect(result.mail.flags?.seen).toBe(true);
             expect(result.mail.flags?.flagged).toBe(true);
         }
+    });
+
+});
+
+describe("Mail Attachment Routes", async () => {
+
+    let attachmentTestUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
+    let testIMAPClient: IMAPAccount;
+
+    // UID of the appended message that carries an attachment.
+    let attachmentMailUID: number;
+    // UID of a preseeded plain-text message with no attachments.
+    let plainMailUID: number;
+
+    const ATTACHMENT_FILENAME = "hello.txt";
+    const ATTACHMENT_CONTENT = "Attachment content here";
+    const UNIQUE_SUBJECT = `Mail With Attachment ${randomUUID().slice(0, 8)}`;
+
+    const connectionSettings = {
+        smtp_host: "127.0.0.1",
+        smtp_port: 11125,
+        smtp_encryption: "NONE",
+        smtp_username: "testuser",
+        smtp_password: "testpass",
+
+        imap_host: "127.0.0.1",
+        imap_port: 11143,
+        imap_encryption: "NONE",
+        imap_username: "testuser",
+        imap_password: "testpass"
+    } as const;
+
+    /** Build the attachments base path for a given mail UID. */
+    function attachmentsPath(uid: number) {
+        return `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}/attachments`;
+    }
+
+    beforeAll(async () => {
+
+        attachmentTestUser = await seedUser("user", { username: "attachmenttestuser" }, "AttachTestP@ss1");
+        session_token = await seedSession(attachmentTestUser.id).then(s => s.token);
+
+        testIMAPClient = await IMAPAccount.fromConfig({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        }).connect();
+
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
+            host: connectionSettings.smtp_host,
+            port: connectionSettings.smtp_port,
+            username: connectionSettings.smtp_username,
+            password: connectionSettings.smtp_password,
+            useSSL: connectionSettings.smtp_encryption
+        });
+
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
+            host: connectionSettings.imap_host,
+            port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username,
+            password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption
+        });
+
+        if (!encryptedSMTPData || !encryptedIMAPData) {
+            throw new Error("Failed to encrypt mail account data");
+        }
+
+        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+            owner_user_id: attachmentTestUser.id,
+            display_name: "Test Mail Account",
+            smtp_encrypted_connection_data: encryptedSMTPData,
+            imap_encrypted_connection_data: encryptedIMAPData
+        }).returning().get().id;
+
+        // Append a MIME message with a single text attachment.
+        const rawMessage = [
+            "From: sender@test.com",
+            "To: receiver@test.com",
+            `Subject: ${UNIQUE_SUBJECT}`,
+            "MIME-Version: 1.0",
+            'Content-Type: multipart/mixed; boundary="XBOUNDARYX"',
+            "",
+            "--XBOUNDARYX",
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "This is the email body.",
+            "--XBOUNDARYX",
+            `Content-Type: text/plain; name="${ATTACHMENT_FILENAME}"`,
+            `Content-Disposition: attachment; filename="${ATTACHMENT_FILENAME}"`,
+            "",
+            ATTACHMENT_CONTENT,
+            "--XBOUNDARYX--",
+            ""
+        ].join("\r\n");
+
+        await testIMAPClient.createMail("INBOX", rawMessage, []);
+
+        // Resolve the UIDs of both the appended attachment mail and a plain mail.
+        const mails = await testIMAPClient.getMails("INBOX", { order: "newest", limit: 100 });
+
+        const appended = mails.find(m => m.subject === UNIQUE_SUBJECT);
+        if (!appended) throw new Error("Failed to locate appended attachment mail");
+        attachmentMailUID = appended.uid;
+
+        const plain = mails.find(m => m.subject === "hello 1");
+        if (!plain) throw new Error("Failed to locate preseeded plain mail");
+        plainMailUID = plain.uid;
+    });
+
+    afterAll(async () => {
+        await testIMAPClient.disconnect();
+    });
+
+    test("GET .../attachments lists attachment metadata", async () => {
+
+        const data = await makeAPIRequest(attachmentsPath(attachmentMailUID), {
+            authToken: session_token,
+            expectedBodySchema: AttachmentsModel.GetAll.Response
+        });
+
+        expect(data.length).toBe(1);
+
+        const att = data[0];
+        expect(att).toBeDefined();
+        if (!att) return;
+
+        expect(att.id).toBe(0);
+        expect(att.filename).toBe(ATTACHMENT_FILENAME);
+        expect(att.contentType).toContain("text/plain");
+        expect(att.size).toBeGreaterThan(0);
+    });
+
+    test("GET .../attachments for a mail without attachments returns an empty list", async () => {
+
+        const data = await makeAPIRequest(attachmentsPath(plainMailUID), {
+            authToken: session_token,
+            expectedBodySchema: AttachmentsModel.GetAll.Response
+        });
+
+        expect(Array.isArray(data)).toBe(true);
+        expect(data.length).toBe(0);
+    });
+
+    test("GET .../attachments/:id streams the content inline with the right headers", async () => {
+
+        const res = await API.getApp().request(`${attachmentsPath(attachmentMailUID)}/0`, {
+            headers: { Authorization: `Bearer ${session_token}` }
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type") || "").toContain("text/plain");
+
+        const disposition = res.headers.get("content-disposition") || "";
+        expect(disposition).toContain("inline");
+        expect(disposition).toContain(`filename="${ATTACHMENT_FILENAME}"`);
+
+        // Must never be cached on any hop.
+        expect(res.headers.get("cache-control") || "").toContain("no-store");
+        expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        expect(new TextDecoder().decode(bytes)).toContain(ATTACHMENT_CONTENT);
+
+        // The advertised size must match the actual number of bytes streamed.
+        const list = await makeAPIRequest(attachmentsPath(attachmentMailUID), {
+            authToken: session_token,
+            expectedBodySchema: AttachmentsModel.GetAll.Response
+        });
+        expect(list[0]?.size).toBe(bytes.byteLength);
+    });
+
+    test("GET .../attachments/:id?download=true forces an attachment disposition", async () => {
+
+        const res = await API.getApp().request(`${attachmentsPath(attachmentMailUID)}/0?download=true`, {
+            headers: { Authorization: `Bearer ${session_token}` }
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-disposition") || "").toContain("attachment");
+    });
+
+    test("GET .../attachments/:id with an out-of-range id returns 404", async () => {
+
+        await makeAPIRequest(`${attachmentsPath(attachmentMailUID)}/5`, {
+            authToken: session_token
+        }, 404);
+    });
+
+    test("GET .../attachments/:id on a mail without attachments returns 404", async () => {
+
+        await makeAPIRequest(`${attachmentsPath(plainMailUID)}/0`, {
+            authToken: session_token
+        }, 404);
+    });
+
+    test("GET .../attachments for a non-existent mail UID returns 404", async () => {
+
+        await makeAPIRequest(attachmentsPath(999999), {
+            authToken: session_token
+        }, 404);
+
+        await makeAPIRequest(`${attachmentsPath(999999)}/0`, {
+            authToken: session_token
+        }, 404);
+    });
+
+    test("Attachment routes require authentication", async () => {
+
+        await makeAPIRequest(attachmentsPath(attachmentMailUID), {}, 401);
+        await makeAPIRequest(`${attachmentsPath(attachmentMailUID)}/0`, {}, 401);
     });
 
 });
