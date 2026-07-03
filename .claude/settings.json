@@ -1,0 +1,28 @@
+{
+  "commands": {
+    "verify": {
+      "description": "Typecheck and run relevant tests",
+      "prompt": "Verify the current work in this repository.\n\n1. Run `bun run typecheck` first.\n2. Then run the smallest relevant `bun test <file>` command if a focused test target is obvious from the current changes.\n3. If no focused target is obvious, run `bun test`.\n\nDo not stop at the first failure. Summarize what passed, what failed, and the next fix to make."
+    },
+    "typecheck": {
+      "description": "Run the TypeScript typecheck",
+      "prompt": "Run `bun run typecheck` for this repository and report any failures clearly. If it fails, identify the smallest code change needed to fix it."
+    },
+    "test": {
+      "description": "Run the Bun test suite",
+      "prompt": "Run the most appropriate test command for this repository.\n\nIf the current task points to a specific test file, prefer `bun test <file>`. Otherwise run `bun test`.\n\nKeep in mind this repo's tests are integration-heavy: `bunfig.toml` preloads `tests/helpers/preload.ts`, uses fixed ports `12150` and `12151`, and may need host tools like `dpkg` and `unzip`.\nSummarize any failures with the exact command that was run."
+    }
+  },
+  "fileScan": {
+    "exclude": [
+      "node_modules/**",
+      ".git/**",
+      "data/**",
+      "build/**",
+      "coverage/**",
+      "dist/**",
+      "out/**",
+      "tmp*/**"
+    ]
+  }
+}
