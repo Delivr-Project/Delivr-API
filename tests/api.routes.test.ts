@@ -1594,6 +1594,86 @@ describe("Mail Mailbox Mails Routes", async () => {
         }, 404);
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/flags sets and clears flags", async () => {
+
+        // Create a fresh mail to flag (createdMailUID was consumed by the move test)
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Test Sender", address: "sender@test.com" },
+                to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Test Flags Mail",
+                body: { text: "flags test body" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const flagMailUID = created.uid;
+
+        // Set the seen and flagged flags
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: true, flagged: true },
+            expectedBodySchema: MailsModel.SetFlags.Response
+        });
+
+        expect(data.success).toBe(true);
+        expect(data.flags.seen).toBe(true);
+        expect(data.flags.flagged).toBe(true);
+
+        // Verify the flags were actually applied on the server
+        const afterSet = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+
+        expect(afterSet.rawFlags).toContain("\\Seen");
+        expect(afterSet.rawFlags).toContain("\\Flagged");
+        expect(afterSet.flags?.seen).toBe(true);
+        expect(afterSet.flags?.flagged).toBe(true);
+
+        // Clear the seen flag while leaving flagged untouched (omitted flags are unchanged)
+        const cleared = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: false },
+            expectedBodySchema: MailsModel.SetFlags.Response
+        });
+
+        expect(cleared.success).toBe(true);
+        expect(cleared.flags.seen).toBe(false);
+
+        const afterClear = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+
+        expect(afterClear.rawFlags).not.toContain("\\Seen");
+        expect(afterClear.rawFlags).toContain("\\Flagged");
+        expect(afterClear.flags?.seen).toBe(false);
+        expect(afterClear.flags?.flagged).toBe(true);
+
+        // Clean up
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            method: "DELETE",
+            authToken: session_token,
+            body: { permanent: true }
+        });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/flags with invalid UID fails", async () => {
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: true }
+        }, 404);
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID deletes mail (move to trash)", async () => {
 
         // Create a new mail to delete
