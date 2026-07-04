@@ -1594,6 +1594,86 @@ describe("Mail Mailbox Mails Routes", async () => {
         }, 404);
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/flags sets and clears flags", async () => {
+
+        // Create a fresh mail to flag (createdMailUID was consumed by the move test)
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Test Sender", address: "sender@test.com" },
+                to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Test Flags Mail",
+                body: { text: "flags test body" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const flagMailUID = created.uid;
+
+        // Set the seen and flagged flags
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: true, flagged: true },
+            expectedBodySchema: MailsModel.SetFlags.Response
+        });
+
+        expect(data.success).toBe(true);
+        expect(data.flags.seen).toBe(true);
+        expect(data.flags.flagged).toBe(true);
+
+        // Verify the flags were actually applied on the server
+        const afterSet = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+
+        expect(afterSet.rawFlags).toContain("\\Seen");
+        expect(afterSet.rawFlags).toContain("\\Flagged");
+        expect(afterSet.flags?.seen).toBe(true);
+        expect(afterSet.flags?.flagged).toBe(true);
+
+        // Clear the seen flag while leaving flagged untouched (omitted flags are unchanged)
+        const cleared = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: false },
+            expectedBodySchema: MailsModel.SetFlags.Response
+        });
+
+        expect(cleared.success).toBe(true);
+        expect(cleared.flags.seen).toBe(false);
+
+        const afterClear = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+
+        expect(afterClear.rawFlags).not.toContain("\\Seen");
+        expect(afterClear.rawFlags).toContain("\\Flagged");
+        expect(afterClear.flags?.seen).toBe(false);
+        expect(afterClear.flags?.flagged).toBe(true);
+
+        // Clean up
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${flagMailUID}`, {
+            method: "DELETE",
+            authToken: session_token,
+            body: { permanent: true }
+        });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/flags with invalid UID fails", async () => {
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { seen: true }
+        }, 404);
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID deletes mail (move to trash)", async () => {
 
         // Create a new mail to delete
@@ -1852,6 +1932,62 @@ describe("Mail Mailbox Mails Routes", async () => {
             authToken: session_token,
             body: { uids: [], targetMailbox: "Drafts" }
         }, 400);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/flags sets and clears flags on multiple mails", async () => {
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Flag Read 1", "Bulk Flag Read 2"]) {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk flag test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, flags: { seen: true } },
+            expectedBodySchema: MailBulkActionsModel.BulkSetFlags.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        for (const uid of uids) {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(mail.flags?.seen).toBe(true);
+        }
+
+        // Now clear the seen flag on the same UIDs
+        const cleared = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, flags: { seen: false } },
+            expectedBodySchema: MailBulkActionsModel.BulkSetFlags.Response
+        });
+
+        expect(cleared.success).toBe(true);
+
+        for (const uid of uids) {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(mail.flags?.seen).toBe(false);
+        }
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
@@ -2314,7 +2450,7 @@ describe("Mail Attachment Routes", async () => {
             throw new Error("Failed to encrypt mail account data");
         }
 
-        mailAccountID = DB.instance().insert(DB.Schema.mailAccounts).values({
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
             owner_user_id: attachmentTestUser.id,
             display_name: "Test Mail Account",
             smtp_encrypted_connection_data: encryptedSMTPData,

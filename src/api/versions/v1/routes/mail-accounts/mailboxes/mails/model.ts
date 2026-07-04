@@ -129,6 +129,20 @@ export namespace MailsModel.Move {
     export type Response = z.infer<typeof Response>;
 }
 
+export namespace MailsModel.SetFlags {
+
+    /** Only the provided flags are changed; `true` sets the flag, `false` clears it. */
+    export const Body = MailsModel.MailFlags.omit({ recent: true });
+    export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        success: z.boolean(),
+        flags: MailsModel.MailFlags.describe("The resulting flags after the update")
+    });
+
+    export type Response = z.infer<typeof Response>;
+}
+
 export namespace MailsModel.Update {
 
     export const Body = MailsModel.Create.Body.partial();
