@@ -10,3 +10,13 @@ export namespace AccountPreferencesModel.RemoteContentPolicy {
     export type Body = z.infer<typeof Body>;
 
 }
+
+export namespace AccountPreferencesModel.AutoMarkSeen {
+
+    export const Response = UserPreferences.schemas["auto-mark-seen"];
+    export type Response = z.infer<typeof Response>;
+
+    export const Body = Response;
+    export type Body = z.infer<typeof Body>;
+
+}
