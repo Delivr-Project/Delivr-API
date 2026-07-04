@@ -8,6 +8,8 @@ export const DOCS_TAGS = {
 
     AUTHENTICATION: "Authentication",
 
+    BIMI: "BIMI",
+
     ADMIN_API: {
         BASE: "Admin API",
 

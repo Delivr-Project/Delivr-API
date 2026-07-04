@@ -4,6 +4,7 @@ import { authMiddlewareV1 } from "./middleware/auth";
 import { router as authRouter } from "./routes/auth";
 import { router as accountRouter } from "./routes/account";
 import { router as mailAccountsRouter } from "./routes/mail-accounts";
+import { router as bimiRouter } from "./routes/bimi";
 import { router as adminRouter } from "./routes/admin";
 import { APIVersionRouter } from "../../utils/apiVersionRouter";
 
@@ -71,7 +72,8 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                     "Mail Accounts / Identities",
                     "Mail Accounts / Mailboxes",
                     "Mail Accounts / Mailboxes / Mails",
-                    "Mail Accounts / Mailboxes / Mails / Attachments"
+                    "Mail Accounts / Mailboxes / Mails / Attachments",
+                    "BIMI"
                 ]
             }
         ],
@@ -160,6 +162,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Mail Attachments",
                 parent: "Mail Accounts / Mailboxes / Mails",
                 description: "Endpoints for listing and downloading mail attachments. Attachment content is fetched from the mail server and streamed on demand — it is never stored or cached on the API server.",
+            },
+            {
+                name: "BIMI",
+                // @ts-ignore
+                "x-displayName": "BIMI Brand Logos",
+                summary: "BIMI Brand Logos",
+                parent: "Mail",
+                description: "Resolve BIMI (Brand Indicators for Message Identification) DNS records to obtain sender brand logos for use as profile pictures. Only the record metadata is read via DNS — the logo SVG is never fetched or stored by the API.",
             }
         ]
     }
@@ -172,6 +182,7 @@ router.use(authMiddlewareV1)
 router.route("/", authRouter);
 router.route("/", accountRouter);
 router.route("/", mailAccountsRouter);
+router.route("/", bimiRouter);
 router.route("/", adminRouter);
 
 export class APIv1Router extends APIVersionRouter {
