@@ -3,7 +3,7 @@ import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
 import { randomUUID } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { AuthModel } from "../src/api/versions/v1/routes/auth/model";
 import { makeAPIRequest } from "./helpers/api";
 import { AccountModel } from "../src/api/versions/v1/routes/account/model";
@@ -559,6 +559,56 @@ describe("Account Preferences Routes", async () => {
             eq(DB.Tables.userPreferences.user_id, deletableUser.id)
         ).all();
         expect(afterDelete.length).toBe(0);
+    });
+
+    test("GET /v1/account/preferences/auto-mark-seen defaults to enabled=true with no stored row", async () => {
+
+        const autoSeenUser = await seedUser("user", { username: "autoseenuser" }, "AutoP@ss1");
+        const autoSeenSession = await seedSession(autoSeenUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {
+            authToken: autoSeenSession,
+            expectedBodySchema: AccountPreferencesModel.AutoMarkSeen.Response
+        });
+
+        expect(data.enabled).toBe(true);
+
+        // Default is computed, not persisted.
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, autoSeenUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+
+        SessionHandler.inValidateAllSessionsForUser(autoSeenUser.id);
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, autoSeenUser.id)).run();
+    });
+
+    test("PUT /v1/account/preferences/auto-mark-seen persists enabled=false and reads it back", async () => {
+
+        await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {
+            method: "PUT",
+            authToken: session_token,
+            body: { enabled: false }
+        });
+
+        const data = await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.AutoMarkSeen.Response
+        });
+
+        expect(data.enabled).toBe(false);
+
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            and(
+                eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Tables.userPreferences.key, "auto-mark-seen")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("GET /v1/account/preferences/auto-mark-seen without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {}, 401);
     });
 
 });

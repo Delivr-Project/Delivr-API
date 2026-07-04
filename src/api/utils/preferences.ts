@@ -13,6 +13,10 @@ export namespace UserPreferences {
             // Sender domain (lowercase, e.g. "example.com") -> decision.
             domains: z.record(z.string(), RemoteContentDecision).default({}),
         }),
+        "auto-mark-seen": z.object({
+            // Whether opening/viewing a mail automatically marks it as seen. Default on.
+            enabled: z.boolean().default(true),
+        }),
     } as const;
 
     export type Key = keyof typeof schemas;
@@ -38,13 +42,17 @@ export class UserPreferencesHandler {
             )
         ).get();
 
+        // Indexing the heterogeneous `schemas` record by the generic key widens the
+        // parse result to a union, so narrow it back to this key's inferred type.
+        type Parsed = z.infer<(typeof UserPreferences.schemas)[T]>;
+
         if (!record) {
             // schemas[key] has per-field (not top-level) defaults, so it must be
             // parsed against `{}` rather than `undefined` to fill them in.
-            return UserPreferences.schemas[key].parse({});
+            return UserPreferences.schemas[key].parse({}) as Parsed;
         }
 
-        return UserPreferences.schemas[key].parse(record.data);
+        return UserPreferences.schemas[key].parse(record.data) as Parsed;
     }
 
     static async set<T extends UserPreferences.Key>(
@@ -71,6 +79,14 @@ export class UserPreferencesHandler {
 
     static async setRemoteContentPolicy(userID: number, data: z.infer<(typeof UserPreferences.schemas)["remote-content-policy"]>) {
         await this.set(userID, "remote-content-policy", data);
+    }
+
+    static async getAutoMarkSeen(userID: number) {
+        return this.get(userID, "auto-mark-seen");
+    }
+
+    static async setAutoMarkSeen(userID: number, data: z.infer<(typeof UserPreferences.schemas)["auto-mark-seen"]>) {
+        await this.set(userID, "auto-mark-seen", data);
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {

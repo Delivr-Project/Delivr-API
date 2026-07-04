@@ -56,3 +56,51 @@ router.put('/remote-content-policy',
     }
 
 );
+
+router.get('/auto-mark-seen',
+
+    APIRouteSpec.authenticated({
+        summary: "Get auto-mark-as-seen preference",
+        description: "Retrieve whether opening/viewing a mail automatically marks it as seen for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Auto-mark-as-seen preference retrieved successfully", AccountPreferencesModel.AutoMarkSeen.Response),
+        )
+    }),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const preference = await UserPreferencesHandler.getAutoMarkSeen(authContext.user_id);
+
+        return APIResponse.success(c, "Auto-mark-as-seen preference retrieved successfully", preference);
+    }
+
+);
+
+router.put('/auto-mark-seen',
+
+    APIRouteSpec.authenticated({
+        summary: "Update auto-mark-as-seen preference",
+        description: "Set whether opening/viewing a mail automatically marks it as seen for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Auto-mark-as-seen preference updated successfully"),
+        )
+    }),
+
+    validator("json", AccountPreferencesModel.AutoMarkSeen.Body),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const body = c.req.valid("json");
+
+        await UserPreferencesHandler.setAutoMarkSeen(authContext.user_id, body);
+
+        return APIResponse.successNoData(c, "Auto-mark-as-seen preference updated successfully");
+    }
+
+);
