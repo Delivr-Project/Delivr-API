@@ -1934,6 +1934,62 @@ describe("Mail Mailbox Mails Routes", async () => {
         }, 400);
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/flags sets and clears flags on multiple mails", async () => {
+
+        const uids: number[] = [];
+        for (const subject of ["Bulk Flag Read 1", "Bulk Flag Read 2"]) {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "bulk flag test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, flags: { seen: true } },
+            expectedBodySchema: MailBulkActionsModel.BulkSetFlags.Response
+        });
+
+        expect(data.success).toBe(true);
+
+        for (const uid of uids) {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(mail.flags?.seen).toBe(true);
+        }
+
+        // Now clear the seen flag on the same UIDs
+        const cleared = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mail-bulk-actions/flags`, {
+            method: "POST",
+            authToken: session_token,
+            body: { uids, flags: { seen: false } },
+            expectedBodySchema: MailBulkActionsModel.BulkSetFlags.Response
+        });
+
+        expect(cleared.success).toBe(true);
+
+        for (const uid of uids) {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(mail.flags?.seen).toBe(false);
+        }
+    });
+
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
 
         // Create a draft mail to send

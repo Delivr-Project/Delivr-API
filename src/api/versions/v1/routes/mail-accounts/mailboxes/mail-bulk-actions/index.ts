@@ -126,3 +126,59 @@ router.post('/delete',
         }
     }
 );
+
+router.post('/flags',
+
+    APIRouteSpec.authenticated({
+        summary: "Bulk Set Mail Flags",
+        description: "Set message flags such as the seen/read state on multiple mails at once. Only the flags present in the body are changed (`true` sets the flag, `false` clears it); omitted flags are left untouched.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAIL_BULK_ACTIONS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("Mail flags updated successfully", MailBulkActionsModel.BulkSetFlags.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    validator('json', MailBulkActionsModel.BulkSetFlags.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const body = c.req.valid('json');
+
+        // Map user-facing flag names to their IMAP system flags. `\Recent` is
+        // server-managed and cannot be set by clients, so it is intentionally omitted.
+        const FLAG_MAP: Record<string, string> = {
+            seen: '\\Seen',
+            answered: '\\Answered',
+            flagged: '\\Flagged',
+            draft: '\\Draft',
+            deleted: '\\Deleted'
+        };
+
+        const flagsToAdd: string[] = [];
+        const flagsToRemove: string[] = [];
+        for (const [key, imapFlag] of Object.entries(FLAG_MAP)) {
+            const value = body.flags[key as keyof MailBulkActionsModel.BulkSetFlags.Body['flags']];
+            if (value === true) flagsToAdd.push(imapFlag);
+            else if (value === false) flagsToRemove.push(imapFlag);
+        }
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+            if (flagsToAdd.length > 0) await imap.addFlags(mailbox.path, body.uids, flagsToAdd);
+            if (flagsToRemove.length > 0) await imap.removeFlags(mailbox.path, body.uids, flagsToRemove);
+
+            return APIResponse.success(c, "Mail flags updated successfully", { success: true } satisfies MailBulkActionsModel.BulkSetFlags.Response);
+        } catch (e) {
+            Logger.error("Failed to bulk update mail flags", e);
+            return APIResponse.serverError(c, "Failed to update mail flags");
+        }
+    }
+);
