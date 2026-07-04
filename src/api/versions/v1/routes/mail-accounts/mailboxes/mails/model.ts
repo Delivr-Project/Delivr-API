@@ -132,8 +132,7 @@ export namespace MailsModel.Move {
 export namespace MailsModel.SetFlags {
 
     /** Only the provided flags are changed; `true` sets the flag, `false` clears it. */
-    export const Body = MailsModel.MailFlags;
-
+    export const Body = MailsModel.MailFlags.omit({ recent: true });
     export type Body = z.infer<typeof Body>;
 
     export const Response = z.object({
