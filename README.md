@@ -28,6 +28,8 @@ speaking IMAP and SMTP so your inbox stays yours.
 - 📬 **Real mail, real protocols** — connects to any IMAP/SMTP provider via [`imapflow`](https://github.com/postalsys/imapflow) and [`nodemailer`](https://nodemailer.com); nothing proprietary in the way.
 - 🗂️ **Nested mail resources** — mail accounts → mailboxes → mails → attachments, modelled cleanly all the way down.
 - 📎 **Privacy-first attachments** — content is **never stored or cached** server-side. Attachments are re-fetched from IMAP, parsed in-memory, and streamed out with `Cache-Control: no-store`.
+- ⚡ **Bulk mail actions** — move, copy, delete, and flag many messages in one request.
+- 🖼️ **BIMI brand logos** — resolves sender brand logos from DNS for use as profile pictures; only record metadata is read, the logo is never fetched or stored.
 - 🔐 **JWT auth + API keys** — token-based sessions plus scoped API keys for programmatic access.
 - 🔒 **ECC crypto** — mail-backend credentials protected with elliptic-curve encryption and signing.
 - 📖 **First-class OpenAPI** — every route is documented via `hono-openapi` and browsable through an embedded [Scalar](https://scalar.com) reference.
@@ -68,7 +70,7 @@ bun run db:sqlite:migrate
 bun run dev
 ```
 
-The API is now live at **http://localhost:14123**, with interactive docs at **`/v1/docs`** (unless `DLA_DISABLE_DOCS=true`).
+The API is now live at **http://localhost:14123**, with the interactive [Scalar](https://scalar.com) reference at **`/docs/v1`** and the raw OpenAPI spec at **`/docs/v1/openapi`** (unless `DLA_DISABLE_DOCS=true`). The root path `/` redirects to the latest version's docs.
 
 ## ⚙️ Configuration
 
@@ -77,15 +79,21 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DLA_LOG_LEVEL` | Log verbosity | `info` |
-| `DLA_APP_URL` | URL of the Delivr web client | — |
+| `DLA_APP_URL` | **Required.** URL of the Delivr web client | — |
 | `DLA_API_HOST` | Bind address | `::` |
 | `DLA_API_PORT` | Listen port | `14123` |
 | `DLA_DISABLE_DOCS` | Disable the Scalar API reference | `false` |
-| `DLA_ENCRYPTION_KEY` | **32-character** key for credential encryption | — |
+| `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |
 | `DLA_DB_CONNECTION_URL` | Database connection string / path | `./data/db.sqlite` |
 | `DLA_DB_AUTO_MIGRATE` | Run migrations on startup | `true` |
 | `DLA_LOG_DIR` | Log output directory | `./data/logs` |
 | `DLA_CONFIG_BASE_DIR` | Config base directory | `./config` |
+| `DLA_SMTP_HOST` | Outbound SMTP host for system mail (e.g. password-reset emails) | — |
+| `DLA_SMTP_PORT` | Outbound SMTP port | — |
+| `DLA_SMTP_USERNAME` | Outbound SMTP username | — |
+| `DLA_SMTP_PASSWORD` | Outbound SMTP password | — |
+| `DLA_SMTP_FROM` | `From` address for system mail | — |
+| `DLA_SMTP_SECURE` | Use TLS for the SMTP connection | `false` |
 
 ## 🛠️ Commands
 
@@ -111,9 +119,12 @@ src/
 │   ├── utils/              # Response helpers, auth, OpenAPI, services
 │   └── versions/v1/
 │       ├── middleware/     # Auth middleware
-│       ├── docs/           # Scalar API reference
-│       └── routes/         # auth · account · mail-accounts · admin
-│                           #   mail-accounts → mailboxes → mails → attachments
+│       ├── docs/           # OpenAPI tag definitions (Scalar UI mounted in api/index.ts)
+│       └── routes/         # auth · account · mail-accounts · bimi · admin
+│                           #   auth → reset-password
+│                           #   account → apikeys · preferences
+│                           #   mail-accounts → identities · search · mailboxes
+│                           #     mailboxes → mail-bulk-actions · mails → attachments
 ├── db/
 │   ├── index.ts            # DB connection
 │   └── schema/             # Per-dialect Drizzle schema (sqlite · postgresql · mysql)

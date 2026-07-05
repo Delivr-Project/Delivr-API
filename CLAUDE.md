@@ -35,9 +35,12 @@ src/
 │           ├── middleware/
 │           │   └── auth.ts
 │           ├── docs/
-│           │   └── index.ts  # Scalar API reference
-│           └── routes/       # Route modules (auth, account, mail-accounts, admin)
-│                              #   mail-accounts → mailboxes → mails → attachments (nested)
+│           │   └── index.ts  # OpenAPI tag definitions (DOCS_TAGS)
+│           └── routes/       # Route modules (auth, account, mail-accounts, bimi, admin)
+│                              #   auth → reset-password
+│                              #   account → apikeys, preferences
+│                              #   mail-accounts → identities, search, mailboxes (nested)
+│                              #     mailboxes → mail-bulk-actions, mails → attachments
 ├── db/
 │   ├── index.ts              # DB connection setup
 │   ├── utils.ts              # DB utilities
@@ -73,7 +76,7 @@ src/
 ## Key Conventions
 
 - **API versioning**: Routes live under `src/api/versions/v{n}/routes/`. Each route module has an `index.ts` (router) and `model.ts` (Zod schemas).
-- **OpenAPI specs**: Use `hono-openapi` decorators on route handlers. Spec helpers in `specHelpers.ts`.
+- **OpenAPI specs**: Use `hono-openapi` decorators on route handlers via `APIRouteSpec`/`APIResponseSpec` helpers in `specHelpers.ts` (`summary`, `description`, `tags`). Tags come from `DOCS_TAGS` in `versions/v1/docs/index.ts`. When adding a new tag, also register it in the `tags` array **and** an `x-tagGroups` group in `versions/v1/index.ts`, or it renders orphaned in Scalar. The spec is served at `/docs/v1/openapi` and the Scalar UI at `/docs/v1` (both mounted in `api/index.ts`, gated by `DLA_DISABLE_DOCS`).
 - **Database**: Schema files are per-dialect in `src/db/schema/`. Migrations managed via Drizzle Kit.
 - **Auth**: JWT-based auth via `authHandler.ts`. Middleware in `src/api/versions/v1/middleware/auth.ts`.
 - **Validation**: Zod schemas in `model.ts` files, validated via `@hono/standard-validator`.
@@ -88,4 +91,8 @@ src/
 - **Mail parsing is metadata-only**: `MailParser.parseMail` (via `postal-mime`) intentionally strips attachment *content*, keeping only metadata (`id`, `filename`, `contentType`, `size`, `contentId`, `contentDisposition`). The `id` is the attachment's index within the mail and is the handle used to fetch its bytes.
 - **Attachment content is never stored or cached server-side**: the `attachments/:attachmentId` route re-fetches the message source from IMAP, parses it transiently in-memory (`MailParser.getAttachmentContent`), and streams the single attachment out with `Cache-Control: no-store` (+ `nosniff`). `MailClientsCache` pools IMAP *connections* only, never message/attachment data.
 - Drizzle schema files are dialect-specific — changes should be mirrored across all three when adding new tables/columns.
+- **User preferences are schemaless rows**, not columns: the `user_preferences` table stores one row per `(user_id, key)` with the value in a JSON `data` column. Both the remote-content-policy and auto-mark-as-seen preferences live here (keyed strings), accessed via `UserPreferencesHandler` (`utils/preferences.ts`). Adding a preference does **not** require a migration.
+- **BIMI is resolved live, never persisted**: the `bimi/:domain` route uses `BimiService` to read the sender domain's BIMI DNS record and return the brand `logoUrl`. Only DNS metadata is read — the logo SVG is never fetched or stored server-side; the client loads it directly.
+- **Bulk mail actions** (`mailboxes/.../mail-bulk-actions`) apply move/copy/delete/flag operations to many UIDs in a single IMAP round-trip, separate from the per-mail routes under `mails/`.
+- **Outbound system mail** (e.g. password-reset emails) uses the `DLA_SMTP_*` config vars — distinct from the per-account IMAP/SMTP credentials stored encrypted in `mail_accounts`.
 - The `data/` directory contains runtime data (SQLite DB files, etc.).
