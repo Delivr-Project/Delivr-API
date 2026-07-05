@@ -611,6 +611,56 @@ describe("Account Preferences Routes", async () => {
         await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {}, 401);
     });
 
+    test("GET /v1/account/preferences/folder-nesting defaults to nestUnderInbox=true with no stored row", async () => {
+
+        const nestingUser = await seedUser("user", { username: "nestinguser" }, "NestP@ss1");
+        const nestingSession = await seedSession(nestingUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/v1/account/preferences/folder-nesting", {
+            authToken: nestingSession,
+            expectedBodySchema: AccountPreferencesModel.FolderNesting.Response
+        });
+
+        expect(data.nestUnderInbox).toBe(true);
+
+        // Default is computed, not persisted.
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, nestingUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+
+        SessionHandler.inValidateAllSessionsForUser(nestingUser.id);
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, nestingUser.id)).run();
+    });
+
+    test("PUT /v1/account/preferences/folder-nesting persists nestUnderInbox=false and reads it back", async () => {
+
+        await makeAPIRequest("/v1/account/preferences/folder-nesting", {
+            method: "PUT",
+            authToken: session_token,
+            body: { nestUnderInbox: false }
+        });
+
+        const data = await makeAPIRequest("/v1/account/preferences/folder-nesting", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.FolderNesting.Response
+        });
+
+        expect(data.nestUnderInbox).toBe(false);
+
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            and(
+                eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Tables.userPreferences.key, "folder-nesting")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("GET /v1/account/preferences/folder-nesting without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences/folder-nesting", {}, 401);
+    });
+
 });
 
 describe("Mail Account Routes", async () => {
