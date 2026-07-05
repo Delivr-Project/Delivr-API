@@ -22,6 +22,11 @@ export namespace UserPreferences {
             // instead of lifting them to top-level siblings. Default on.
             nestUnderInbox: z.boolean().default(true),
         }),
+        "folder-dnd": z.object({
+            // Whether folders can be reorganised by drag-and-drop in the sidebar.
+            // Opt-in, so default off.
+            enabled: z.boolean().default(false),
+        }),
     } as const;
 
     export type Key = keyof typeof schemas;
@@ -100,6 +105,14 @@ export class UserPreferencesHandler {
 
     static async setFolderNesting(userID: number, data: z.infer<(typeof UserPreferences.schemas)["folder-nesting"]>) {
         await this.set(userID, "folder-nesting", data);
+    }
+
+    static async getFolderDnd(userID: number) {
+        return this.get(userID, "folder-dnd");
+    }
+
+    static async setFolderDnd(userID: number, data: z.infer<(typeof UserPreferences.schemas)["folder-dnd"]>) {
+        await this.set(userID, "folder-dnd", data);
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {

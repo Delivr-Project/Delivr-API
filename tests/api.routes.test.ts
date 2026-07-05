@@ -661,6 +661,56 @@ describe("Account Preferences Routes", async () => {
         await makeAPIRequest("/v1/account/preferences/folder-nesting", {}, 401);
     });
 
+    test("GET /v1/account/preferences/folder-dnd defaults to enabled=false with no stored row", async () => {
+
+        const dndUser = await seedUser("user", { username: "folderdnduser" }, "DndP@ss1");
+        const dndSession = await seedSession(dndUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/v1/account/preferences/folder-dnd", {
+            authToken: dndSession,
+            expectedBodySchema: AccountPreferencesModel.FolderDnd.Response
+        });
+
+        expect(data.enabled).toBe(false);
+
+        // Default is computed, not persisted.
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, dndUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+
+        SessionHandler.inValidateAllSessionsForUser(dndUser.id);
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, dndUser.id)).run();
+    });
+
+    test("PUT /v1/account/preferences/folder-dnd persists enabled=true and reads it back", async () => {
+
+        await makeAPIRequest("/v1/account/preferences/folder-dnd", {
+            method: "PUT",
+            authToken: session_token,
+            body: { enabled: true }
+        });
+
+        const data = await makeAPIRequest("/v1/account/preferences/folder-dnd", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.FolderDnd.Response
+        });
+
+        expect(data.enabled).toBe(true);
+
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            and(
+                eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Tables.userPreferences.key, "folder-dnd")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("GET /v1/account/preferences/folder-dnd without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences/folder-dnd", {}, 401);
+    });
+
 });
 
 describe("Mail Account Routes", async () => {

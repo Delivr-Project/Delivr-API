@@ -152,3 +152,51 @@ router.put('/folder-nesting',
     }
 
 );
+
+router.get('/folder-dnd',
+
+    APIRouteSpec.authenticated({
+        summary: "Get folder drag-and-drop preference",
+        description: "Retrieve whether folders can be reorganised by drag-and-drop in the sidebar for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Folder drag-and-drop preference retrieved successfully", AccountPreferencesModel.FolderDnd.Response),
+        )
+    }),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const preference = await UserPreferencesHandler.getFolderDnd(authContext.user_id);
+
+        return APIResponse.success(c, "Folder drag-and-drop preference retrieved successfully", preference);
+    }
+
+);
+
+router.put('/folder-dnd',
+
+    APIRouteSpec.authenticated({
+        summary: "Update folder drag-and-drop preference",
+        description: "Set whether folders can be reorganised by drag-and-drop in the sidebar for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Folder drag-and-drop preference updated successfully"),
+        )
+    }),
+
+    validator("json", AccountPreferencesModel.FolderDnd.Body),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const body = c.req.valid("json");
+
+        await UserPreferencesHandler.setFolderDnd(authContext.user_id, body);
+
+        return APIResponse.successNoData(c, "Folder drag-and-drop preference updated successfully");
+    }
+
+);
