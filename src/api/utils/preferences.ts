@@ -17,6 +17,11 @@ export namespace UserPreferences {
             // Whether opening/viewing a mail automatically marks it as seen. Default on.
             enabled: z.boolean().default(true),
         }),
+        "folder-nesting": z.object({
+            // Whether the sidebar nests INBOX sub-folders under the Inbox item
+            // instead of lifting them to top-level siblings. Default on.
+            nestUnderInbox: z.boolean().default(true),
+        }),
     } as const;
 
     export type Key = keyof typeof schemas;
@@ -87,6 +92,14 @@ export class UserPreferencesHandler {
 
     static async setAutoMarkSeen(userID: number, data: z.infer<(typeof UserPreferences.schemas)["auto-mark-seen"]>) {
         await this.set(userID, "auto-mark-seen", data);
+    }
+
+    static async getFolderNesting(userID: number) {
+        return this.get(userID, "folder-nesting");
+    }
+
+    static async setFolderNesting(userID: number, data: z.infer<(typeof UserPreferences.schemas)["folder-nesting"]>) {
+        await this.set(userID, "folder-nesting", data);
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {

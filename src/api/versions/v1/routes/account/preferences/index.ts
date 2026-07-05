@@ -104,3 +104,51 @@ router.put('/auto-mark-seen',
     }
 
 );
+
+router.get('/folder-nesting',
+
+    APIRouteSpec.authenticated({
+        summary: "Get folder-nesting preference",
+        description: "Retrieve whether the sidebar nests INBOX sub-folders under the Inbox item for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Folder-nesting preference retrieved successfully", AccountPreferencesModel.FolderNesting.Response),
+        )
+    }),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const preference = await UserPreferencesHandler.getFolderNesting(authContext.user_id);
+
+        return APIResponse.success(c, "Folder-nesting preference retrieved successfully", preference);
+    }
+
+);
+
+router.put('/folder-nesting',
+
+    APIRouteSpec.authenticated({
+        summary: "Update folder-nesting preference",
+        description: "Set whether the sidebar nests INBOX sub-folders under the Inbox item for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Folder-nesting preference updated successfully"),
+        )
+    }),
+
+    validator("json", AccountPreferencesModel.FolderNesting.Body),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const body = c.req.valid("json");
+
+        await UserPreferencesHandler.setFolderNesting(authContext.user_id, body);
+
+        return APIResponse.successNoData(c, "Folder-nesting preference updated successfully");
+    }
+
+);
