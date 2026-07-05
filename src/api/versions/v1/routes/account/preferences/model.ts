@@ -30,3 +30,13 @@ export namespace AccountPreferencesModel.FolderNesting {
     export type Body = z.infer<typeof Body>;
 
 }
+
+export namespace AccountPreferencesModel.FolderDnd {
+
+    export const Response = UserPreferences.schemas["folder-dnd"];
+    export type Response = z.infer<typeof Response>;
+
+    export const Body = Response;
+    export type Body = z.infer<typeof Body>;
+
+}
