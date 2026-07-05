@@ -73,6 +73,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                     "Mail Accounts / Mailboxes",
                     "Mail Accounts / Mailboxes / Mails",
                     "Mail Accounts / Mailboxes / Mails / Attachments",
+                    "Mail Accounts / Mailboxes / Mail Bulk Actions",
                     "BIMI"
                 ]
             }
@@ -162,6 +163,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Mail Attachments",
                 parent: "Mail Accounts / Mailboxes / Mails",
                 description: "Endpoints for listing and downloading mail attachments. Attachment content is fetched from the mail server and streamed on demand — it is never stored or cached on the API server.",
+            },
+            {
+                name: "Mail Accounts / Mailboxes / Mail Bulk Actions",
+                // @ts-ignore
+                "x-displayName": "Bulk Actions",
+                summary: "Mail Bulk Actions",
+                parent: "Mail Accounts / Mailboxes",
+                description: "Endpoints for applying move, copy, delete, and flag operations to many messages in a single request.",
             },
             {
                 name: "BIMI",
