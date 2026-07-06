@@ -23,7 +23,6 @@ export namespace SpecialUse {
 
     export type Source = 'flag' | 'guess' | 'user';
     // `path` is the assigned folder, or `null` for an explicit user "none" (the
-    // user actively wants no folder of this kind, e.g. no Archive). A null path
     // only ever pairs with source 'user'; detection never produces one.
     export interface Entry { path: string | null; source: Source; }
     export type Mapping = Partial<Record<Type, Entry>>;
