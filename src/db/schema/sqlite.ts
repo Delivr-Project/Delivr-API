@@ -145,7 +145,8 @@ export const mailAccountSpecialUse = sqliteTable('mail_account_special_use', {
     mail_account_id: integer().notNull().references(() => mailAccounts.id),
     created_at: SQLUtils.getCreatedAtColumn("sqlite"),
 
-    data: text({ mode: 'json' }).$type<Record<string, { path: string; source: 'flag' | 'guess' | 'user' }>>().notNull()
+    // `path` is null for an explicit user "none" (see SpecialUse.Entry).
+    data: text({ mode: 'json' }).$type<Record<string, { path: string | null; source: 'flag' | 'guess' | 'user' }>>().notNull()
 }, (table) => [
     uniqueIndex('mail_account_special_use_account_unique').on(table.mail_account_id)
 ]);

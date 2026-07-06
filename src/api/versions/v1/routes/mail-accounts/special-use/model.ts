@@ -3,22 +3,27 @@ import { SpecialUse } from "../../../../../utils/services/specialUseService";
 
 export namespace SpecialUseModel {
 
-    const Entry = z.object({
-        // Real IMAP path of the folder assigned to this special-use type.
+    const RequiredEntry = z.object({
+        // Real IMAP path of the folder assigned to this special-use type, or null
+        // for an explicit user "none" (only the optional archive folder).
         path: z.string(),
         // Where the assignment came from: server flag, name heuristic, or the user.
         source: z.enum(['flag', 'guess', 'user']),
     });
 
+    const OptionalEntry = RequiredEntry.extend({
+        path: z.string().nullable(),
+    });
+
     // Full resolved mapping (type -> entry). Every type is optional; a missing
     // type means no folder of that kind was detected.
     export const Mapping = z.object({
-        inbox: Entry.optional(),
-        drafts: Entry.optional(),
-        sent: Entry.optional(),
-        spam: Entry.optional(),
-        trash: Entry.optional(),
-        archive: Entry.optional(),
+        inbox: RequiredEntry.optional(),
+        drafts: RequiredEntry.optional(),
+        sent: RequiredEntry.optional(),
+        spam: RequiredEntry.optional(),
+        trash: RequiredEntry.optional(),
+        archive: OptionalEntry.optional()
     });
     export type Mapping = z.infer<typeof Mapping>;
 
@@ -28,8 +33,10 @@ export namespace SpecialUseModel {
     }
 
     export namespace Update {
-        // Each editable type maps to a folder path, or null to clear the override
-        // and fall back to auto-detection. Inbox is fixed and not editable.
+        // Each editable type's value: a folder path to assign it, or null to clear
+        // the override and fall back to auto-detection. Only the optional archive
+        // folder additionally accepts "" (empty string) for an explicit, persisted
+        // "none". Inbox is fixed and not editable.
         export const Body = z.object({
             drafts: z.string().nullable().optional(),
             sent: z.string().nullable().optional(),
