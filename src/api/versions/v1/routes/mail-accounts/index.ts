@@ -166,6 +166,37 @@ router.post('/',
             owner_user_id: authContext.user_id
         }).returning().get().id;
 
+        // Detect the special-use folder mapping (drafts/sent/spam/trash/archive)
+        // once at creation so it is pre-filled by guessing and the user only has to
+        // correct the entries we got wrong. Best-effort: a create must still succeed
+        // if the IMAP server is unreachable — the mapping is then detected lazily on
+        // the first mailbox listing instead.
+        try {
+            const imap = MailClientsCache.createOrGetClientData({
+                id: result,
+                owner_user_id: authContext.user_id,
+                display_name: body.display_name,
+                is_default: body.is_default,
+
+                smtp_host: body.smtp_host,
+                smtp_port: body.smtp_port,
+                smtp_username: body.smtp_username,
+                smtp_password: body.smtp_password,
+                smtp_encryption: body.smtp_encryption,
+
+                imap_host: body.imap_host,
+                imap_port: body.imap_port,
+                imap_username: body.imap_username,
+                imap_password: body.imap_password,
+                imap_encryption: body.imap_encryption
+            } as MailAccountsModel.BASE).imap;
+
+            await imap.connect();
+            await SpecialUseHandler.resolve(result, await imap.getMailboxes());
+        } catch (e) {
+            Logger.error(`Failed to detect special-use folders for new mail account with ID ${result}`, e);
+        }
+
         return APIResponse.success(c, "Mail account created successfully", { id: result } satisfies MailAccountsModel.CreateMailAccount.Response);
     }
 );

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../../db";
 import { MailboxRessource } from "../../../utils/mails/ressources/mailbox";
+import type { IMAPAccount } from "../../../utils/mails/backends/imap";
 
 /**
  * Special-use folder detection and per-account persistence.
@@ -163,6 +164,22 @@ export class SpecialUseHandler {
     static async applyToMailboxes(accountId: number, mailboxes: MailboxRessource[]): Promise<MailboxRessource[]> {
         const mapping = await this.resolve(accountId, mailboxes);
         return SpecialUse.apply(mailboxes, mapping);
+    }
+
+    /**
+     * Resolve the account's Trash folder path from the persisted special-use
+     * mapping instead of re-guessing on every delete. The mapping is detected
+     * once (and kept fresh after folder mutations), so the common case is a
+     * single DB read with no IMAP round-trip. Only when no mapping has been
+     * persisted yet do we detect from the live folder list, persist it, and use
+     * that; if even detection finds nothing we fall back to the literal "Trash".
+     */
+    static async resolveTrashPath(accountId: number, imap: IMAPAccount): Promise<string> {
+        const stored = await this.getStored(accountId);
+        if (stored?.trash) return stored.trash.path;
+
+        const mapping = await this.resolve(accountId, await imap.getMailboxes());
+        return mapping.trash?.path ?? 'Trash';
     }
 
     /**

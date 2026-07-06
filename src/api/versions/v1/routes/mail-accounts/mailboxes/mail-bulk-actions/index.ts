@@ -6,6 +6,7 @@ import { validator } from "hono-openapi";
 import { APIResponse } from "../../../../../../utils/api-res";
 import { Logger } from "../../../../../../../utils/logger";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
+import { SpecialUseHandler } from "../../../../../../utils/services/specialUseService";
 
 
 export const router = new Hono();
@@ -116,7 +117,8 @@ router.post('/delete',
             if (body.permanent) {
                 await imap.permanentlyDelete(mailbox.path, body.uids);
             } else {
-                await imap.moveToTrash(mailbox.path, body.uids);
+                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.moveToTrash(mailbox.path, body.uids, trashPath);
             }
 
             return APIResponse.success(c, "Mails deleted successfully", { success: true } satisfies MailBulkActionsModel.BulkDelete.Response);
