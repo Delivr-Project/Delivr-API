@@ -38,10 +38,10 @@ export namespace SpecialUseModel {
         // folder additionally accepts "" (empty string) for an explicit, persisted
         // "none". Inbox is fixed and not editable.
         export const Body = z.object({
-            drafts: z.string().optional(),
-            sent: z.string().optional(),
-            spam: z.string().optional(),
-            trash: z.string().optional(),
+            drafts: z.string().nullable().optional(),
+            sent: z.string().nullable().optional(),
+            spam: z.string().nullable().optional(),
+            trash: z.string().nullable().optional(),
             archive: z.string().nullable().optional(),
         });
         export type Body = z.infer<typeof Body>;
