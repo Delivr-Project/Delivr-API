@@ -18,24 +18,30 @@ export namespace SpecialUse {
     export const TYPES = ['inbox', 'drafts', 'sent', 'spam', 'trash', 'archive'] as const;
     export type Type = (typeof TYPES)[number];
 
-    export const EDITABLE_TYPES = ['drafts', 'sent', 'spam', 'trash', 'archive'] as const;
-    export type EditableType = (typeof EDITABLE_TYPES)[number];
+    export const REQUIRED_TYPES = ['inbox', 'drafts', 'sent', 'spam', 'trash'] as const;
+    export type RequiredType = (typeof REQUIRED_TYPES)[number];
 
     // Optional types may be explicitly set to "none" by the user (persisted as a
     // null path). Archive is the only one: many accounts simply have no archive
     // folder, so leaving it unset is a valid, first-class choice. Every other type
     // is required — it always resolves to a folder or falls back to auto-detection.
     export const OPTIONAL_TYPES = ['archive'] as const;
+    export type OptionalType = (typeof OPTIONAL_TYPES)[number];
+
     export function isOptional(type: Type): boolean {
         return (OPTIONAL_TYPES as readonly string[]).includes(type);
     }
+
+    export const EDITABLE_TYPES = ['drafts', 'sent', 'spam', 'trash', 'archive'] as const;
+    export type EditableType = (typeof EDITABLE_TYPES)[number];
 
     export type Source = 'flag' | 'guess' | 'user';
     // `path` is the assigned folder, or `null` for an explicit user "none". A null
     // path only ever occurs for an optional type (see OPTIONAL_TYPES) with source
     // 'user'; detection and required types never produce one.
-    export interface Entry { path: string | null; source: Source; }
-    export type Mapping = Partial<Record<Type, Entry>>;
+    export interface RequiredEntry { path: string; source: Source; }
+    export interface OptionalEntry { path: string | null; source: Source; }
+    export type Mapping = Partial<Record<RequiredType, RequiredEntry> & Record<OptionalType, OptionalEntry>>;
 
     // The IMAP SPECIAL-USE flag stored in `specialUse` for each type.
     export const FLAG: Record<Type, string> = {
@@ -95,7 +101,7 @@ export namespace SpecialUse {
     }
 
     /** Detect a single type: server flag first, then leaf-name heuristics. */
-    export function detectType(type: Type, mailboxes: MailboxRessource[]): Entry | undefined {
+    export function detectType(type: Type, mailboxes: MailboxRessource[]): RequiredEntry | OptionalEntry | undefined {
         const byFlag = mailboxes.find((mb) => mb.specialUse === FLAG[type]);
         if (byFlag) return { path: byFlag.path, source: 'flag' };
 
@@ -120,15 +126,17 @@ export namespace SpecialUse {
 
         // 1. Honour the user's decisions before detecting anything.
         for (const type of TYPES) {
-            const prev = existing?.[type];
-            if (prev?.source !== 'user') continue;
-            if (prev.path === null) {
+            const preference = existing?.[type];
+            if (preference?.source !== 'user') continue;
+            if (preference.path === null) {
                 // Explicit "none" — only meaningful for optional types (archive).
                 // A stray null on a required type falls through to re-detection.
-                if (isOptional(type)) result[type] = prev;
-            } else if (paths.has(prev.path)) {
-                result[type] = prev;            // override still points at a real folder
-                taken.add(prev.path);
+                if (isOptional(type)) {
+                    result[type as OptionalType] = preference;
+                }
+            } else if (paths.has(preference.path)) {
+                result[type as RequiredType] = preference as RequiredEntry;            // override still points at a real folder
+                taken.add(preference.path);
             }
             // else: the folder is gone — drop it and let step 2 re-detect.
         }
@@ -138,7 +146,7 @@ export namespace SpecialUse {
             if (result[type]) continue;
             const detected = detectType(type, mailboxes);
             if (detected && !taken.has(detected.path!)) {
-                result[type] = detected;
+                result[type as RequiredType] = detected as RequiredEntry;
                 taken.add(detected.path!);
             }
         }
@@ -252,14 +260,17 @@ export class SpecialUseHandler {
             if (path === '' && SpecialUse.isOptional(type)) {
                 // Explicit "none" for an optional type — persisted so reconcile
                 // keeps it (source 'user') instead of re-detecting a folder.
-                current[type] = { path: null, source: 'user' };
+                current[type as SpecialUse.OptionalType] = { path: null, source: 'user' };
             } else if (path == null || path === '') {
                 // Clear the override → re-detect this single type, but never reuse a
                 // folder already assigned to a different type.
                 const taken = SpecialUse.claimedPaths(current, type);
                 const detected = SpecialUse.detectType(type, mailboxes);
-                if (detected && !taken.has(detected.path!)) current[type] = detected;
-                else delete current[type];
+                if (detected && !taken.has(detected.path!)) {
+                    current[type as SpecialUse.RequiredType] = detected as SpecialUse.RequiredEntry;
+                } else {
+                    delete current[type];
+                }
             } else if (paths.has(path)) {
                 // A folder can only be one special type: release it from any other.
                 for (const other of SpecialUse.TYPES) {

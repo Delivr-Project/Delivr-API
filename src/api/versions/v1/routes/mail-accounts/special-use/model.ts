@@ -3,23 +3,27 @@ import { SpecialUse } from "../../../../../utils/services/specialUseService";
 
 export namespace SpecialUseModel {
 
-    const Entry = z.object({
+    const RequiredEntry = z.object({
         // Real IMAP path of the folder assigned to this special-use type, or null
         // for an explicit user "none" (only the optional archive folder).
-        path: z.string().nullable(),
+        path: z.string(),
         // Where the assignment came from: server flag, name heuristic, or the user.
         source: z.enum(['flag', 'guess', 'user']),
+    });
+
+    const OptionalEntry = RequiredEntry.extend({
+        path: z.string().nullable(),
     });
 
     // Full resolved mapping (type -> entry). Every type is optional; a missing
     // type means no folder of that kind was detected.
     export const Mapping = z.object({
-        inbox: Entry.optional(),
-        drafts: Entry.optional(),
-        sent: Entry.optional(),
-        spam: Entry.optional(),
-        trash: Entry.optional(),
-        archive: Entry.optional(),
+        inbox: RequiredEntry.optional(),
+        drafts: RequiredEntry.optional(),
+        sent: RequiredEntry.optional(),
+        spam: RequiredEntry.optional(),
+        trash: RequiredEntry.optional(),
+        archive: OptionalEntry.optional()
     });
     export type Mapping = z.infer<typeof Mapping>;
 
@@ -34,10 +38,10 @@ export namespace SpecialUseModel {
         // folder additionally accepts "" (empty string) for an explicit, persisted
         // "none". Inbox is fixed and not editable.
         export const Body = z.object({
-            drafts: z.string().nullable().optional(),
-            sent: z.string().nullable().optional(),
-            spam: z.string().nullable().optional(),
-            trash: z.string().nullable().optional(),
+            drafts: z.string().optional(),
+            sent: z.string().optional(),
+            spam: z.string().optional(),
+            trash: z.string().optional(),
             archive: z.string().nullable().optional(),
         });
         export type Body = z.infer<typeof Body>;
