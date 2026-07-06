@@ -22,7 +22,10 @@ export namespace SpecialUse {
     export type EditableType = (typeof EDITABLE_TYPES)[number];
 
     export type Source = 'flag' | 'guess' | 'user';
-    export interface Entry { path: string; source: Source; }
+    // `path` is the assigned folder, or `null` for an explicit user "none" (the
+    // user actively wants no folder of this kind, e.g. no Archive). A null path
+    // only ever pairs with source 'user'; detection never produces one.
+    export interface Entry { path: string | null; source: Source; }
     export type Mapping = Partial<Record<Type, Entry>>;
 
     // The IMAP SPECIAL-USE flag stored in `specialUse` for each type.
@@ -71,6 +74,17 @@ export namespace SpecialUse {
         return (mb.path.split(delimiter).pop() ?? mb.path).toLowerCase();
     }
 
+    /** Folder paths currently assigned to any type other than `exclude`. */
+    export function claimedPaths(mapping: Mapping, exclude?: Type): Set<string> {
+        const taken = new Set<string>();
+        for (const type of TYPES) {
+            if (type === exclude) continue;
+            const path = mapping[type]?.path;
+            if (path) taken.add(path);
+        }
+        return taken;
+    }
+
     /** Detect a single type: server flag first, then leaf-name heuristics. */
     export function detectType(type: Type, mailboxes: MailboxRessource[]): Entry | undefined {
         const byFlag = mailboxes.find((mb) => mb.specialUse === FLAG[type]);
@@ -84,22 +98,38 @@ export namespace SpecialUse {
     }
 
     /**
-     * Reconcile a mapping against the current folder list: keep still-valid user
-     * overrides, re-detect everything else.
+     * Reconcile a mapping against the current folder list. User decisions come
+     * first and own their folder (an override survives while its folder exists; an
+     * explicit "none" is kept verbatim). Every remaining type is auto-detected,
+     * and a folder is never assigned to two types — so neither two overrides nor a
+     * re-detection can ever collide with a folder the user already claimed.
      */
     export function reconcile(existing: Mapping | null, mailboxes: MailboxRessource[]): Mapping {
         const paths = new Set(mailboxes.map((mb) => mb.path));
         const result: Mapping = {};
+        const taken = new Set<string>();
 
+        // 1. Honour the user's decisions before detecting anything.
         for (const type of TYPES) {
             const prev = existing?.[type];
-            // A user override survives only while its target folder still exists.
-            if (prev?.source === 'user' && paths.has(prev.path)) {
-                result[type] = prev;
-                continue;
+            if (prev?.source !== 'user') continue;
+            if (prev.path === null) {
+                result[type] = prev;            // explicit "none" — detect nothing for this type
+            } else if (paths.has(prev.path)) {
+                result[type] = prev;            // override still points at a real folder
+                taken.add(prev.path);
             }
+            // else: the folder is gone — drop it and let step 2 re-detect.
+        }
+
+        // 2. Auto-detect the rest, never reusing a folder already claimed above.
+        for (const type of TYPES) {
+            if (result[type]) continue;
             const detected = detectType(type, mailboxes);
-            if (detected) result[type] = detected;
+            if (detected && !taken.has(detected.path!)) {
+                result[type] = detected;
+                taken.add(detected.path!);
+            }
         }
 
         return result;
@@ -113,8 +143,9 @@ export namespace SpecialUse {
     export function apply(mailboxes: MailboxRessource[], mapping: Mapping): MailboxRessource[] {
         const pathToFlag = new Map<string, string>();
         for (const type of TYPES) {
-            const entry = mapping[type];
-            if (entry) pathToFlag.set(entry.path, FLAG[type]);
+            // Skip explicit "none" entries (null path) — nothing to flag.
+            const path = mapping[type]?.path;
+            if (path) pathToFlag.set(path, FLAG[type]);
         }
 
         return mailboxes.map((mb) => {
@@ -176,15 +207,22 @@ export class SpecialUseHandler {
      */
     static async resolveTrashPath(accountId: number, imap: IMAPAccount): Promise<string> {
         const stored = await this.getStored(accountId);
-        if (stored?.trash) return stored.trash.path;
+        if (stored?.trash?.path) return stored.trash.path;
 
+        // No usable trash mapping yet (never persisted, or an explicit "none" that
+        // has no operational fallback) — detect from the live folder list and, if
+        // even that finds nothing, fall back to the literal "Trash".
         const mapping = await this.resolve(accountId, await imap.getMailboxes());
         return mapping.trash?.path ?? 'Trash';
     }
 
     /**
-     * Apply user overrides. Each editable type maps to a folder path, or `null`
-     * to clear the override and revert that type to auto-detection.
+     * Apply user overrides. Each editable type's value is:
+     *  - a folder path → assign it (and release that folder from any other type,
+     *    since a folder can only be one special type);
+     *  - `""` (empty string) → an explicit "none": the type gets no folder and the
+     *    choice is persisted so re-detection won't silently re-add one;
+     *  - `null` → clear the override and revert this type to auto-detection.
      */
     static async setOverrides(
         accountId: number,
@@ -198,15 +236,24 @@ export class SpecialUseHandler {
             if (!(type in overrides)) continue;
             const path = overrides[type];
 
-            if (path == null) {
-                // Clear the override → re-detect this single type.
+            if (path === '') {
+                // Explicit "none" — persisted so reconcile keeps it (source 'user').
+                current[type] = { path: null, source: 'user' };
+            } else if (path == null) {
+                // Clear the override → re-detect this single type, but never reuse a
+                // folder already assigned to a different type.
+                const taken = SpecialUse.claimedPaths(current, type);
                 const detected = SpecialUse.detectType(type, mailboxes);
-                if (detected) current[type] = detected;
+                if (detected && !taken.has(detected.path!)) current[type] = detected;
                 else delete current[type];
             } else if (paths.has(path)) {
+                // A folder can only be one special type: release it from any other.
+                for (const other of SpecialUse.TYPES) {
+                    if (other !== type && current[other]?.path === path) delete current[other];
+                }
                 current[type] = { path, source: 'user' };
             }
-            // An unknown path is ignored here (the route validates it too).
+            // An unknown non-empty path is ignored here (the route validates it too).
         }
 
         await this.store(accountId, current);

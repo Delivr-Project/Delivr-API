@@ -2841,6 +2841,29 @@ describe("SpecialUse detection (unit)", async () => {
         expect(result.drafts).toBeUndefined();
     });
 
+    test("reconcile never assigns one folder to two types (user override wins)", () => {
+        // "Archive" name-matches the archive heuristic, but the user pinned it as Sent.
+        const boxes = [fakeMailbox("INBOX"), fakeMailbox("Archive")];
+        const existing: SpecialUse.Mapping = { sent: { path: "Archive", source: "user" } };
+        const result = SpecialUse.reconcile(existing, boxes);
+        expect(result.sent).toEqual({ path: "Archive", source: "user" });
+        expect(result.archive).toBeUndefined();   // not re-detected onto a taken folder
+    });
+
+    test("reconcile keeps an explicit user 'none' and does not auto-detect it", () => {
+        const boxes = [fakeMailbox("INBOX"), fakeMailbox("Archive")];   // would otherwise detect archive
+        const existing: SpecialUse.Mapping = { archive: { path: null, source: "user" } };
+        const result = SpecialUse.reconcile(existing, boxes);
+        expect(result.archive).toEqual({ path: null, source: "user" });
+    });
+
+    test("apply ignores an explicit 'none' entry and clears the stray flag", () => {
+        const boxes = [fakeMailbox("Archive", "\\Archive")];
+        const mapping: SpecialUse.Mapping = { archive: { path: null, source: "user" } };
+        const applied = SpecialUse.apply(boxes, mapping);
+        expect(applied.find((mb) => mb.path === "Archive")?.specialUse).toBeUndefined();
+    });
+
     test("apply writes mapped flags and clears stray managed flags", () => {
         const boxes = [
             fakeMailbox("Sent", "\\Sent"),
@@ -2956,6 +2979,32 @@ describe("Mail Special-Use Routes", async () => {
             expectedBodySchema: SpecialUseModel.Update.Response,
         });
         expect(data.drafts).toEqual({ path: "Drafts", source: "flag" });
+    });
+
+    test("PUT /special-use with empty string sets an explicit 'none' that survives re-detection", async () => {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { spam: "" },
+            expectedBodySchema: SpecialUseModel.Update.Response,
+        });
+        // Persisted as a user "none" even though the mock server has a \Junk folder.
+        expect(data.spam).toEqual({ path: null, source: "user" });
+
+        // A later GET re-resolves and must NOT re-detect the \Junk folder.
+        const after = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            authToken: session_token,
+            expectedBodySchema: SpecialUseModel.Get.Response,
+        });
+        expect(after.spam).toEqual({ path: null, source: "user" });
+
+        // Revert so the shared account state is clean for any later assertions.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { spam: null },
+            expectedBodySchema: SpecialUseModel.Update.Response,
+        });
     });
 
     test("PUT /special-use rejects a path that doesn't exist", async () => {
