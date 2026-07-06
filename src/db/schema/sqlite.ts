@@ -133,3 +133,19 @@ export const userPreferences = sqliteTable('user_preferences', {
 }, (table) => [
     uniqueIndex('user_preferences_user_id_key_unique').on(table.user_id, table.key)
 ]);
+
+/**
+ * Persisted special-use folder mapping per mail account. The backend detects
+ * these once (IMAP \\Flag → name heuristic) and stores the result so neither it
+ * nor the client re-guesses on every request; users can override individual
+ * entries. One row per account; `data` is `{ [type]: { path, source } }`.
+ */
+export const mailAccountSpecialUse = sqliteTable('mail_account_special_use', {
+    id: integer().primaryKey({ autoIncrement: true }),
+    mail_account_id: integer().notNull().references(() => mailAccounts.id),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
+
+    data: text({ mode: 'json' }).$type<Record<string, { path: string; source: 'flag' | 'guess' | 'user' }>>().notNull()
+}, (table) => [
+    uniqueIndex('mail_account_special_use_account_unique').on(table.mail_account_id)
+]);

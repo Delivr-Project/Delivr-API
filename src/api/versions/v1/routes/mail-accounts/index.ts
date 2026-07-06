@@ -8,6 +8,8 @@ import { DOCS_TAGS } from "../../docs";
 import { router as mailboxesRouter } from "./mailboxes";
 import { router as identitiesRouter } from "./identities";
 import { router as searchRouter } from "./search";
+import { router as specialUseRouter } from "./special-use";
+import { SpecialUseHandler } from "../../../../utils/services/specialUseService";
 import { AuthHandler } from "../../../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../../../utils/mails/mail-clients-cache";
@@ -81,10 +83,11 @@ router.get('/',
                 try {
                     await imapClient.connect();
                     const mailboxes = await imapClient.getMailboxes();
+                    const withSpecialUse = await SpecialUseHandler.applyToMailboxes(account.id, mailboxes);
 
                     return {
                         ...mailAccount,
-                        mailboxes: mailboxes
+                        mailboxes: withSpecialUse
                     } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes;
                 } catch (e) {
                     Logger.error(`Failed to retrieve mailboxes for mail account with ID ${account.id}`, e);
@@ -272,10 +275,11 @@ router.get('/:mailAccountID',
             try {
                 await imapClient.connect();
                 const mailboxes = await imapClient.getMailboxes();
+                const withSpecialUse = await SpecialUseHandler.applyToMailboxes(mailAccount.id, mailboxes);
 
                 return APIResponse.success(c, "Mail account retrieved successfully", {
                     ...mailAccountResponse,
-                    mailboxes: mailboxes
+                    mailboxes: withSpecialUse
                 } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes);
                 
             } catch (e) {
@@ -413,6 +417,9 @@ router.delete('/:mailAccountID',
             eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
         );
 
+        // Drop the persisted special-use mapping for this account.
+        await SpecialUseHandler.deleteForAccount(mailAccount.id);
+
         await DB.instance().delete(DB.Tables.mailAccounts).where(
             eq(DB.Tables.mailAccounts.id, mailAccount.id)
         );
@@ -425,3 +432,4 @@ router.delete('/:mailAccountID',
 router.route("/:mailAccountID/mailboxes", mailboxesRouter);
 router.route("/:mailAccountID/identities", identitiesRouter);
 router.route("/:mailAccountID/search", searchRouter);
+router.route("/:mailAccountID/special-use", specialUseRouter);
