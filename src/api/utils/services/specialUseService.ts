@@ -21,9 +21,19 @@ export namespace SpecialUse {
     export const EDITABLE_TYPES = ['drafts', 'sent', 'spam', 'trash', 'archive'] as const;
     export type EditableType = (typeof EDITABLE_TYPES)[number];
 
+    // Optional types may be explicitly set to "none" by the user (persisted as a
+    // null path). Archive is the only one: many accounts simply have no archive
+    // folder, so leaving it unset is a valid, first-class choice. Every other type
+    // is required — it always resolves to a folder or falls back to auto-detection.
+    export const OPTIONAL_TYPES = ['archive'] as const;
+    export function isOptional(type: Type): boolean {
+        return (OPTIONAL_TYPES as readonly string[]).includes(type);
+    }
+
     export type Source = 'flag' | 'guess' | 'user';
-    // `path` is the assigned folder, or `null` for an explicit user "none" (the
-    // only ever pairs with source 'user'; detection never produces one.
+    // `path` is the assigned folder, or `null` for an explicit user "none". A null
+    // path only ever occurs for an optional type (see OPTIONAL_TYPES) with source
+    // 'user'; detection and required types never produce one.
     export interface Entry { path: string | null; source: Source; }
     export type Mapping = Partial<Record<Type, Entry>>;
 
@@ -113,7 +123,9 @@ export namespace SpecialUse {
             const prev = existing?.[type];
             if (prev?.source !== 'user') continue;
             if (prev.path === null) {
-                result[type] = prev;            // explicit "none" — detect nothing for this type
+                // Explicit "none" — only meaningful for optional types (archive).
+                // A stray null on a required type falls through to re-detection.
+                if (isOptional(type)) result[type] = prev;
             } else if (paths.has(prev.path)) {
                 result[type] = prev;            // override still points at a real folder
                 taken.add(prev.path);
@@ -219,8 +231,10 @@ export class SpecialUseHandler {
      * Apply user overrides. Each editable type's value is:
      *  - a folder path → assign it (and release that folder from any other type,
      *    since a folder can only be one special type);
-     *  - `""` (empty string) → an explicit "none": the type gets no folder and the
-     *    choice is persisted so re-detection won't silently re-add one;
+     *  - `""` (empty string) → an explicit "none", but only for an optional type
+     *    (archive): the type gets no folder and the choice is persisted so
+     *    re-detection won't silently re-add one. On a required type `""` is treated
+     *    like `null` (the route rejects it before we get here);
      *  - `null` → clear the override and revert this type to auto-detection.
      */
     static async setOverrides(
@@ -235,10 +249,11 @@ export class SpecialUseHandler {
             if (!(type in overrides)) continue;
             const path = overrides[type];
 
-            if (path === '') {
-                // Explicit "none" — persisted so reconcile keeps it (source 'user').
+            if (path === '' && SpecialUse.isOptional(type)) {
+                // Explicit "none" for an optional type — persisted so reconcile
+                // keeps it (source 'user') instead of re-detecting a folder.
                 current[type] = { path: null, source: 'user' };
-            } else if (path == null) {
+            } else if (path == null || path === '') {
                 // Clear the override → re-detect this single type, but never reuse a
                 // folder already assigned to a different type.
                 const taken = SpecialUse.claimedPaths(current, type);

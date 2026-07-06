@@ -2981,30 +2981,38 @@ describe("Mail Special-Use Routes", async () => {
         expect(data.drafts).toEqual({ path: "Drafts", source: "flag" });
     });
 
-    test("PUT /special-use with empty string sets an explicit 'none' that survives re-detection", async () => {
+    test("PUT /special-use can explicitly unset the optional archive folder", async () => {
         const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
             method: "PUT",
             authToken: session_token,
-            body: { spam: "" },
+            body: { archive: "" },
             expectedBodySchema: SpecialUseModel.Update.Response,
         });
-        // Persisted as a user "none" even though the mock server has a \Junk folder.
-        expect(data.spam).toEqual({ path: null, source: "user" });
+        // Persisted as an explicit user "none".
+        expect(data.archive).toEqual({ path: null, source: "user" });
 
-        // A later GET re-resolves and must NOT re-detect the \Junk folder.
+        // A later GET re-resolves and keeps the explicit "none" (no re-detection).
         const after = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
             authToken: session_token,
             expectedBodySchema: SpecialUseModel.Get.Response,
         });
-        expect(after.spam).toEqual({ path: null, source: "user" });
+        expect(after.archive).toEqual({ path: null, source: "user" });
 
         // Revert so the shared account state is clean for any later assertions.
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
             method: "PUT",
             authToken: session_token,
-            body: { spam: null },
+            body: { archive: null },
             expectedBodySchema: SpecialUseModel.Update.Response,
         });
+    });
+
+    test("PUT /special-use rejects unsetting a required type", async () => {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { spam: "" },
+        }, 400);
     });
 
     test("PUT /special-use rejects a path that doesn't exist", async () => {
