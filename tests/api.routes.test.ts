@@ -11,6 +11,9 @@ import { AccountPreferencesModel } from "../src/api/versions/v1/routes/account/p
 import { MailAccountsModel } from "../src/api/versions/v1/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
+import { SpecialUseModel } from "../src/api/versions/v1/routes/mail-accounts/special-use/model";
+import { SpecialUse } from "../src/api/utils/services/specialUseService";
+import { MailboxRessource } from "../src/utils/mails/ressources/mailbox";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { MailsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/model";
@@ -2769,5 +2772,201 @@ describe("Docs Routes", async () => {
     test("GET /docs/v1 returns 404 if disabled", async () => {
 
         await makeAPIRequest(`/docs/v1`, {}, 404);
+    });
+});
+// Fabricate a mailbox for the pure-function unit tests below.
+function fakeMailbox(path: string, specialUse?: string, delimiter = "/"): MailboxRessource {
+    return new MailboxRessource({
+        name: path.split(delimiter).pop() || path,
+        path,
+        delimiter,
+        parent: [],
+        parentPath: "",
+        flags: [],
+        specialUse,
+        status: { messages: 0, unseen: 0, recent: 0 },
+    });
+}
+
+describe("SpecialUse detection (unit)", async () => {
+
+    test("detectType prefers the server SPECIAL-USE flag", () => {
+        const boxes = [fakeMailbox("Sent", "\\Sent"), fakeMailbox("Something Else")];
+        expect(SpecialUse.detectType("sent", boxes)).toEqual({ path: "Sent", source: "flag" });
+    });
+
+    test("detectType falls back to (localized) leaf-name heuristics", () => {
+        // German "Gesendet" with no flag should still resolve as Sent.
+        const boxes = [fakeMailbox("INBOX.Gesendet", undefined, ".")];
+        expect(SpecialUse.detectType("sent", boxes)).toEqual({ path: "INBOX.Gesendet", source: "guess" });
+    });
+
+    test("detectType returns undefined when nothing matches", () => {
+        const boxes = [fakeMailbox("Random"), fakeMailbox("Another")];
+        expect(SpecialUse.detectType("archive", boxes)).toBeUndefined();
+    });
+
+    test("reconcile from scratch resolves the whole mapping and omits missing types", () => {
+        const boxes = [
+            fakeMailbox("INBOX"),
+            fakeMailbox("Sent", "\\Sent"),
+            fakeMailbox("Drafts", "\\Drafts"),
+            fakeMailbox("Trash"),   // by name only
+        ];
+        const mapping = SpecialUse.reconcile(null, boxes);
+        expect(mapping.inbox?.path).toBe("INBOX");
+        expect(mapping.sent).toEqual({ path: "Sent", source: "flag" });
+        expect(mapping.drafts).toEqual({ path: "Drafts", source: "flag" });
+        expect(mapping.trash).toEqual({ path: "Trash", source: "guess" });
+        expect(mapping.spam).toBeUndefined();
+        expect(mapping.archive).toBeUndefined();
+    });
+
+    test("reconcile keeps a still-valid user override but re-detects the rest", () => {
+        const boxes = [fakeMailbox("Custom"), fakeMailbox("Sent", "\\Sent"), fakeMailbox("Trash", "\\Trash")];
+        const existing: SpecialUse.Mapping = {
+            drafts: { path: "Custom", source: "user" },
+            sent: { path: "Old", source: "flag" },
+        };
+        const result = SpecialUse.reconcile(existing, boxes);
+        expect(result.drafts).toEqual({ path: "Custom", source: "user" });   // preserved
+        expect(result.sent).toEqual({ path: "Sent", source: "flag" });        // re-detected
+        expect(result.trash).toEqual({ path: "Trash", source: "flag" });      // newly detected
+    });
+
+    test("reconcile drops a user override whose folder no longer exists", () => {
+        const boxes = [fakeMailbox("Sent", "\\Sent")];
+        const existing: SpecialUse.Mapping = { drafts: { path: "GoneFolder", source: "user" } };
+        const result = SpecialUse.reconcile(existing, boxes);
+        expect(result.drafts).toBeUndefined();
+    });
+
+    test("apply writes mapped flags and clears stray managed flags", () => {
+        const boxes = [
+            fakeMailbox("Sent", "\\Sent"),
+            fakeMailbox("MyDrafts"),
+            fakeMailbox("OldDrafts", "\\Drafts"),
+        ];
+        const mapping: SpecialUse.Mapping = {
+            sent: { path: "Sent", source: "flag" },
+            drafts: { path: "MyDrafts", source: "user" },
+        };
+        const applied = SpecialUse.apply(boxes, mapping);
+        expect(applied.find((mb) => mb.path === "Sent")?.specialUse).toBe("\\Sent");
+        expect(applied.find((mb) => mb.path === "MyDrafts")?.specialUse).toBe("\\Drafts");
+        // OldDrafts carried \Drafts but isn't the mapped drafts folder -> cleared.
+        expect(applied.find((mb) => mb.path === "OldDrafts")?.specialUse).toBeUndefined();
+    });
+});
+
+describe("Mail Special-Use Routes", async () => {
+
+    let specialUseUser: SeededUser;
+    let session_token: string;
+    let mailAccountID: number;
+
+    const connectionSettings = {
+        smtp_host: "127.0.0.1", smtp_port: 11125, smtp_encryption: "NONE",
+        smtp_username: "testuser", smtp_password: "testpass",
+        imap_host: "127.0.0.1", imap_port: 11143, imap_encryption: "NONE",
+        imap_username: "testuser", imap_password: "testpass",
+    } as const;
+
+    beforeAll(async () => {
+        specialUseUser = await seedUser("user", { username: "specialuseuser" }, "SpecialP@ss1");
+        session_token = await seedSession(specialUseUser.id).then(s => s.token);
+
+        const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
+            host: connectionSettings.smtp_host, port: connectionSettings.smtp_port,
+            username: connectionSettings.smtp_username, password: connectionSettings.smtp_password,
+            useSSL: connectionSettings.smtp_encryption,
+        });
+        const encryptedIMAPData = MailAccountEncryption.encryptIMAPData({
+            host: connectionSettings.imap_host, port: connectionSettings.imap_port,
+            username: connectionSettings.imap_username, password: connectionSettings.imap_password,
+            useSSL: connectionSettings.imap_encryption,
+        });
+        if (!encryptedSMTPData || !encryptedIMAPData) throw new Error("Failed to encrypt mail account data");
+
+        mailAccountID = DB.instance().insert(DB.Tables.mailAccounts).values({
+            owner_user_id: specialUseUser.id,
+            display_name: "Special-Use Test Account",
+            smtp_encrypted_connection_data: encryptedSMTPData,
+            imap_encrypted_connection_data: encryptedIMAPData,
+        }).returning().get().id;
+    });
+
+    test("GET /special-use auto-detects and persists the mapping", async () => {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            authToken: session_token,
+            expectedBodySchema: SpecialUseModel.Get.Response,
+        });
+
+        // The mock server advertises \Sent / \Drafts / \Junk / \Trash flags.
+        expect(data.sent).toEqual({ path: "Sent", source: "flag" });
+        expect(data.drafts).toEqual({ path: "Drafts", source: "flag" });
+        expect(data.spam).toEqual({ path: "Spam", source: "flag" });
+        expect(data.trash).toEqual({ path: "Trash", source: "flag" });
+        expect(data.inbox?.path).toBe("INBOX");
+        // No archive folder exists on the mock server.
+        expect(data.archive).toBeUndefined();
+
+        // The resolved mapping was persisted (one row for the account).
+        const rows = DB.instance().select().from(DB.Tables.mailAccountSpecialUse).where(
+            eq(DB.Tables.mailAccountSpecialUse.mail_account_id, mailAccountID)
+        ).all();
+        expect(rows.length).toBe(1);
+    });
+
+    test("PUT /special-use overrides a mapping and marks it as user-set", async () => {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { drafts: "INBOX/Work" },
+            expectedBodySchema: SpecialUseModel.Update.Response,
+        });
+        expect(data.drafts).toEqual({ path: "INBOX/Work", source: "user" });
+
+        // Persisted and returned by a subsequent GET.
+        const after = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            authToken: session_token,
+            expectedBodySchema: SpecialUseModel.Get.Response,
+        });
+        expect(after.drafts).toEqual({ path: "INBOX/Work", source: "user" });
+    });
+
+    test("mailbox listing reflects the override and clears the stray flag", async () => {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetAll.Response,
+        });
+        // The overridden folder now carries the \Drafts flag...
+        expect(data.find(mb => mb.path === "INBOX/Work")?.specialUse).toBe("\\Drafts");
+        // ...and the server's original Drafts folder no longer does.
+        expect(data.find(mb => mb.path === "Drafts")?.specialUse).toBeUndefined();
+        // Sent is untouched.
+        expect(data.find(mb => mb.path === "Sent")?.specialUse).toBe("\\Sent");
+    });
+
+    test("PUT /special-use with null reverts a type to auto-detection", async () => {
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { drafts: null },
+            expectedBodySchema: SpecialUseModel.Update.Response,
+        });
+        expect(data.drafts).toEqual({ path: "Drafts", source: "flag" });
+    });
+
+    test("PUT /special-use rejects a path that doesn't exist", async () => {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { sent: "INBOX/DoesNotExist" },
+        }, 400);
+    });
+
+    test("GET /special-use without auth fails", async () => {
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/special-use`, {}, 401);
     });
 });

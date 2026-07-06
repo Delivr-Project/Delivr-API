@@ -11,6 +11,7 @@ import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-
 import { Logger } from "../../../../../../../utils/logger";
 import { MailboxesModel } from "../model";
 import { MailboxService } from "../../../../../../utils/services/maiboxService";
+import { SpecialUseHandler } from "../../../../../../utils/services/specialUseService";
 import { SMTPAccount } from "../../../../../../../utils/mails/backends/smtp";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import MailComposer from "nodemailer/lib/mail-composer";
@@ -247,7 +248,8 @@ router.put('/:mailUID',
                 newUid = latestMail ? latestMail.uid : undefined;
 
                 // Delete the old mail
-                await imap.moveToTrash(mailbox.path, [mailData.uid]);
+                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.moveToTrash(mailbox.path, [mailData.uid], trashPath);
             }
 
             return APIResponse.success(c, "Mail updated successfully", { success: true, newUid } satisfies MailsModel.Update.Response);
@@ -295,7 +297,8 @@ router.post('/:mailUID/send',
                 await imap.moveToMailbox(mailbox.path, [mailData.uid], 'Sent');
             } else if (body.deleteOriginal) {
                 // Only delete if not moving to Sent
-                await imap.moveToTrash(mailbox.path, [mailData.uid]);
+                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.moveToTrash(mailbox.path, [mailData.uid], trashPath);
             }
 
             return APIResponse.success(c, "Mail sent successfully", { 
@@ -437,7 +440,8 @@ router.delete('/:mailUID',
                 await imap.permanentlyDelete(mailbox.path, [mailData.uid]);
             } else {
                 // Move to trash
-                await imap.moveToTrash(mailbox.path, [mailData.uid]);
+                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.moveToTrash(mailbox.path, [mailData.uid], trashPath);
             }
 
             return APIResponse.success(c, "Mail deleted successfully", { success: true } satisfies MailsModel.Delete.Response);

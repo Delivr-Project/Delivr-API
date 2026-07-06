@@ -8,6 +8,7 @@ import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../../../utils/logger";
 import { MailboxService } from "../../../../../utils/services/maiboxService";
+import { SpecialUseHandler } from "../../../../../utils/services/specialUseService";
 import { router as mailsRouter } from "./mails";
 import { MailAccountsModel } from "../model";
 import { router as mailBulkActionsRouter } from "./mail-bulk-actions";
@@ -36,7 +37,11 @@ router.get('/',
             await imap.connect();
             const mailboxes = await imap.getMailboxes();
 
-            return APIResponse.success(c, "Mailboxes retrieved successfully", mailboxes satisfies MailboxesModel.GetAll.Response);
+            // Normalize specialUse from the persisted/detected mapping so the
+            // client can trust it without re-guessing.
+            const withSpecialUse = await SpecialUseHandler.applyToMailboxes(mailAccount.id, mailboxes);
+
+            return APIResponse.success(c, "Mailboxes retrieved successfully", withSpecialUse satisfies MailboxesModel.GetAll.Response);
         } catch (e) {
             Logger.error(`Failed to retrieve mailboxes`, e);
             return APIResponse.serverError(c, `Failed to retrieve mailboxes`);
@@ -74,6 +79,9 @@ router.post('/',
             if (!mailbox) {
                 return APIResponse.serverError(c, "Failed to verify created mailbox");
             }
+
+            // A new folder may be a special folder (or shift what is detected).
+            await SpecialUseHandler.resolve(mailAccount.id, await imap.getMailboxes());
 
             return APIResponse.successNoData(c, "Mailbox created successfully");
         } catch (e) {
@@ -181,6 +189,9 @@ router.put('/:mailboxPath',
             await imap.connect();
             await imap.renameMailbox(mailbox.path, body.path);
 
+            // Moving/renaming can invalidate a stored mapping that pointed here.
+            await SpecialUseHandler.resolve(mailAccount.id, await imap.getMailboxes());
+
             return APIResponse.successNoData(c, "Mailbox updated successfully");
         } catch (e) {
             Logger.error(`Failed to update mail mailbox with path ${mailbox.path}`, e);
@@ -213,6 +224,9 @@ router.delete('/:mailboxPath',
         try {
             await imap.connect();
             await imap.deleteMailbox(mailbox.path);
+
+            // A deleted folder may have been a mapped special folder.
+            await SpecialUseHandler.resolve(mailAccount.id, await imap.getMailboxes());
 
             return APIResponse.successNoData(c, "Mailbox deleted successfully");
         } catch (e) {

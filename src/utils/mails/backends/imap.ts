@@ -318,54 +318,12 @@ export class IMAPAccount {
     }
 
     /**
-     * Resolves the account's Trash mailbox path, preferring the server-advertised
-     * `\Trash` special-use folder over name heuristics (which only cover common
-     * naming conventions like Gmail's `[Gmail]/Trash`).
+     * Moves messages to the given Trash folder. The path is resolved by the
+     * caller from the account's persisted special-use mapping
+     * ({@link SpecialUseHandler.resolveTrashPath}) rather than re-guessed here on
+     * every delete.
      */
-    async resolveTrashPath(): Promise<string> {
-        const mailboxes = await this.client.list();
-
-        // 1. Server-advertised special-use is the most reliable signal and should
-        //    always win (it maps to whatever the provider calls its trash folder,
-        //    e.g. a localized name or a hierarchy like "[Gmail]/Trash").
-        const specialUseTrash = mailboxes.find(mb => mb.specialUse === '\\Trash');
-        if (specialUseTrash) return specialUseTrash.path;
-
-        // 2. Fall back to matching the folder's *leaf* name (so hierarchy prefixes
-        //    like "INBOX.Trash" or "[Gmail]/Trash" still match) against common
-        //    English and localized trash names. Matching only the literal full path
-        //    before — and only a couple of English names — meant many real servers
-        //    (e.g. German "Papierkorb", or dovecot's "INBOX.Trash") fell through to
-        //    the "Trash" default below and messages never landed in the real trash.
-        const trashNames = new Set([
-            'trash', 'deleted', 'deleted items', 'deleted messages', 'bin', 'recycle bin',
-            'papierkorb',   // de
-            'corbeille',    // fr
-            'papelera',     // es
-            'cestino',      // it
-            'prullenbak',   // nl
-            'lixeira',      // pt
-            'kosz',         // pl
-            'papperskorg',  // sv
-        ]);
-
-        const leafName = (mb: { path: string; delimiter?: string }): string => {
-            const delimiter = mb.delimiter || '/';
-            return (mb.path.split(delimiter).pop() ?? mb.path).toLowerCase();
-        };
-
-        const nameMatch = mailboxes.find(mb =>
-            trashNames.has(leafName(mb)) || trashNames.has(mb.path.toLowerCase())
-        );
-        if (nameMatch) return nameMatch.path;
-
-        // 3. Last resort: the literal "Trash" (the server may auto-create it).
-        return 'Trash';
-    }
-
-    async moveToTrash(mailbox: string, uids: number[]) {
-        const trashPath = await this.resolveTrashPath();
-
+    async moveToTrash(mailbox: string, uids: number[], trashPath: string) {
         // Deleting from within the Trash folder can't move anywhere further, and a
         // move onto itself would be a silent no-op that looks successful — treat it
         // as a permanent delete instead.

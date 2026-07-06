@@ -102,6 +102,7 @@ export namespace DB.Tables {
 
     export const metadata = TableSchema.metadata;
     export const userPreferences = TableSchema.userPreferences;
+    export const mailAccountSpecialUse = TableSchema.mailAccountSpecialUse;
 }
 
 export namespace DB.Models {

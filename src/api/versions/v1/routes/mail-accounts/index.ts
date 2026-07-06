@@ -8,6 +8,8 @@ import { DOCS_TAGS } from "../../docs";
 import { router as mailboxesRouter } from "./mailboxes";
 import { router as identitiesRouter } from "./identities";
 import { router as searchRouter } from "./search";
+import { router as specialUseRouter } from "./special-use";
+import { SpecialUseHandler } from "../../../../utils/services/specialUseService";
 import { AuthHandler } from "../../../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../../../utils/mails/mail-clients-cache";
@@ -81,10 +83,11 @@ router.get('/',
                 try {
                     await imapClient.connect();
                     const mailboxes = await imapClient.getMailboxes();
+                    const withSpecialUse = await SpecialUseHandler.applyToMailboxes(account.id, mailboxes);
 
                     return {
                         ...mailAccount,
-                        mailboxes: mailboxes
+                        mailboxes: withSpecialUse
                     } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes;
                 } catch (e) {
                     Logger.error(`Failed to retrieve mailboxes for mail account with ID ${account.id}`, e);
@@ -162,6 +165,37 @@ router.post('/',
             imap_encrypted_connection_data: encryptedIMAPData,
             owner_user_id: authContext.user_id
         }).returning().get().id;
+
+        // Detect the special-use folder mapping (drafts/sent/spam/trash/archive)
+        // once at creation so it is pre-filled by guessing and the user only has to
+        // correct the entries we got wrong. Best-effort: a create must still succeed
+        // if the IMAP server is unreachable — the mapping is then detected lazily on
+        // the first mailbox listing instead.
+        try {
+            const imap = MailClientsCache.createOrGetClientData({
+                id: result,
+                owner_user_id: authContext.user_id,
+                display_name: body.display_name,
+                is_default: body.is_default,
+
+                smtp_host: body.smtp_host,
+                smtp_port: body.smtp_port,
+                smtp_username: body.smtp_username,
+                smtp_password: body.smtp_password,
+                smtp_encryption: body.smtp_encryption,
+
+                imap_host: body.imap_host,
+                imap_port: body.imap_port,
+                imap_username: body.imap_username,
+                imap_password: body.imap_password,
+                imap_encryption: body.imap_encryption
+            } as MailAccountsModel.BASE).imap;
+
+            await imap.connect();
+            await SpecialUseHandler.resolve(result, await imap.getMailboxes());
+        } catch (e) {
+            Logger.error(`Failed to detect special-use folders for new mail account with ID ${result}`, e);
+        }
 
         return APIResponse.success(c, "Mail account created successfully", { id: result } satisfies MailAccountsModel.CreateMailAccount.Response);
     }
@@ -272,10 +306,11 @@ router.get('/:mailAccountID',
             try {
                 await imapClient.connect();
                 const mailboxes = await imapClient.getMailboxes();
+                const withSpecialUse = await SpecialUseHandler.applyToMailboxes(mailAccount.id, mailboxes);
 
                 return APIResponse.success(c, "Mail account retrieved successfully", {
                     ...mailAccountResponse,
-                    mailboxes: mailboxes
+                    mailboxes: withSpecialUse
                 } satisfies MailAccountsModel.GetMailAccountByID.ResponseWithMailboxes);
                 
             } catch (e) {
@@ -413,6 +448,9 @@ router.delete('/:mailAccountID',
             eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
         );
 
+        // Drop the persisted special-use mapping for this account.
+        await SpecialUseHandler.deleteForAccount(mailAccount.id);
+
         await DB.instance().delete(DB.Tables.mailAccounts).where(
             eq(DB.Tables.mailAccounts.id, mailAccount.id)
         );
@@ -425,3 +463,4 @@ router.delete('/:mailAccountID',
 router.route("/:mailAccountID/mailboxes", mailboxesRouter);
 router.route("/:mailAccountID/identities", identitiesRouter);
 router.route("/:mailAccountID/search", searchRouter);
+router.route("/:mailAccountID/special-use", specialUseRouter);
