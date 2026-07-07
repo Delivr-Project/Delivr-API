@@ -69,12 +69,17 @@ router.put('/',
             const mailboxes = await imap.getMailboxes();
             const paths = new Set(mailboxes.map((mb) => mb.path));
 
+            const inbox = mailboxes.find((mb) => mb.specialUse === SpecialUse.FLAG.inbox);
             for (const type of SpecialUse.EDITABLE_TYPES) {
                 const path = body[type];
                 // Reject overrides that point at a folder that doesn't exist. `null`
                 // and `""` both mean revert to auto-detection, so they carry no path.
                 if (path != null && path !== '' && !paths.has(path)) {
                     return APIResponse.badRequest(c, `No folder found at path "${path}" for special-use "${type}"`);
+                }
+                // Inbox is fixed and cannot be reassigned to another special-use role.
+                if (path != null && path !== '' && inbox && path === inbox.path) {
+                    return APIResponse.badRequest(c, `The Inbox cannot be assigned to special-use "${type}"`);
                 }
             }
 
