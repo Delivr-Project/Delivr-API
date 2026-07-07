@@ -18,32 +18,13 @@ export namespace SpecialUse {
     export const TYPES = ['inbox', 'drafts', 'sent', 'spam', 'trash', 'archive'] as const;
     export type Type = (typeof TYPES)[number];
 
-    export const REQUIRED_TYPES = ['inbox', 'drafts', 'sent', 'spam', 'trash'] as const;
-    export type RequiredType = (typeof REQUIRED_TYPES)[number];
-
-    // Optional types may be explicitly set to "none" by the user (persisted as a
-    // null path). Archive is the only one: many accounts simply have no archive
-    // folder, so leaving it unset is a valid, first-class choice. Every other type
-    // is required — it always resolves to a folder or falls back to auto-detection.
-    export const OPTIONAL_TYPES = ['archive'] as const;
-    export type OptionalType = (typeof OPTIONAL_TYPES)[number];
-
-    export function isOptional(type: Type): boolean {
-        return (OPTIONAL_TYPES as readonly string[]).includes(type);
-    }
-
     export const EDITABLE_TYPES = ['drafts', 'sent', 'spam', 'trash', 'archive'] as const;
     export type EditableType = (typeof EDITABLE_TYPES)[number];
 
     export type Source = 'flag' | 'guess' | 'user';
-    // `path` is the assigned folder, or `null` for an explicit user "none". A null
-    // path only ever occurs for an optional type (see OPTIONAL_TYPES) with source
-    // 'user'; detection and required types never produce one.
-    export interface RequiredEntry { path: string; source: Source; }
-    export interface OptionalEntry { path: string | null; source: Source; }
-    export type Mapping = Partial<Record<RequiredType, RequiredEntry> & Record<OptionalType, OptionalEntry>>;
+    export interface Entry { path: string; source: Source; }
+    export type Mapping = Partial<Record<Type, Entry>>;
 
-    // The IMAP SPECIAL-USE flag stored in `specialUse` for each type.
     export const FLAG: Record<Type, string> = {
         inbox: '\\Inbox',
         drafts: '\\Drafts',
@@ -101,7 +82,7 @@ export namespace SpecialUse {
     }
 
     /** Detect a single type: server flag first, then leaf-name heuristics. */
-    export function detectType(type: Type, mailboxes: MailboxRessource[]): RequiredEntry | OptionalEntry | undefined {
+    export function detectType(type: Type, mailboxes: MailboxRessource[]): Entry | undefined {
         const byFlag = mailboxes.find((mb) => mb.specialUse === FLAG[type]);
         if (byFlag) return { path: byFlag.path, source: 'flag' };
 
@@ -114,10 +95,10 @@ export namespace SpecialUse {
 
     /**
      * Reconcile a mapping against the current folder list. User decisions come
-     * first and own their folder (an override survives while its folder exists; an
-     * explicit "none" is kept verbatim). Every remaining type is auto-detected,
-     * and a folder is never assigned to two types — so neither two overrides nor a
-     * re-detection can ever collide with a folder the user already claimed.
+     * first and own their folder (an override survives while its folder exists).
+     * Every remaining type is auto-detected, and a folder is never assigned to two
+     * types — so neither two overrides nor a re-detection can ever collide with a
+     * folder the user already claimed.
      */
     export function reconcile(existing: Mapping | null, mailboxes: MailboxRessource[]): Mapping {
         const paths = new Set(mailboxes.map((mb) => mb.path));
@@ -127,27 +108,21 @@ export namespace SpecialUse {
         // 1. Honour the user's decisions before detecting anything.
         for (const type of TYPES) {
             const preference = existing?.[type];
-            if (preference?.source !== 'user') continue;
-            if (preference.path === null) {
-                // Explicit "none" — only meaningful for optional types (archive).
-                // A stray null on a required type falls through to re-detection.
-                if (isOptional(type)) {
-                    result[type as OptionalType] = preference;
-                }
-            } else if (paths.has(preference.path)) {
-                result[type as RequiredType] = preference as RequiredEntry;            // override still points at a real folder
+            if (preference?.source === 'user' && paths.has(preference.path)) {
+                result[type] = preference;
                 taken.add(preference.path);
             }
-            // else: the folder is gone — drop it and let step 2 re-detect.
+            // A user entry whose folder is gone, or a stale null-path entry, is
+            // dropped so step 2 can re-detect.
         }
 
         // 2. Auto-detect the rest, never reusing a folder already claimed above.
         for (const type of TYPES) {
             if (result[type]) continue;
             const detected = detectType(type, mailboxes);
-            if (detected && !taken.has(detected.path!)) {
-                result[type as RequiredType] = detected as RequiredEntry;
-                taken.add(detected.path!);
+            if (detected && !taken.has(detected.path)) {
+                result[type] = detected;
+                taken.add(detected.path);
             }
         }
 
@@ -162,7 +137,6 @@ export namespace SpecialUse {
     export function apply(mailboxes: MailboxRessource[], mapping: Mapping): MailboxRessource[] {
         const pathToFlag = new Map<string, string>();
         for (const type of TYPES) {
-            // Skip explicit "none" entries (null path) — nothing to flag.
             const path = mapping[type]?.path;
             if (path) pathToFlag.set(path, FLAG[type]);
         }
@@ -228,9 +202,8 @@ export class SpecialUseHandler {
         const stored = await this.getStored(accountId);
         if (stored?.trash?.path) return stored.trash.path;
 
-        // No usable trash mapping yet (never persisted, or an explicit "none" that
-        // has no operational fallback) — detect from the live folder list and, if
-        // even that finds nothing, fall back to the literal "Trash".
+        // No usable trash mapping yet (never persisted) — detect from the live
+        // folder list and, if even that finds nothing, fall back to "Trash".
         const mapping = await this.resolve(accountId, await imap.getMailboxes());
         return mapping.trash?.path ?? 'Trash';
     }
@@ -239,11 +212,7 @@ export class SpecialUseHandler {
      * Apply user overrides. Each editable type's value is:
      *  - a folder path → assign it (and release that folder from any other type,
      *    since a folder can only be one special type);
-     *  - `""` (empty string) → an explicit "none", but only for an optional type
-     *    (archive): the type gets no folder and the choice is persisted so
-     *    re-detection won't silently re-add one. On a required type `""` is treated
-     *    like `null` (the route rejects it before we get here);
-     *  - `null` → clear the override and revert this type to auto-detection.
+     *  - `null` or `""` → clear the override and revert this type to auto-detection.
      */
     static async setOverrides(
         accountId: number,
@@ -257,17 +226,13 @@ export class SpecialUseHandler {
             if (!(type in overrides)) continue;
             const path = overrides[type];
 
-            if (path === '' && SpecialUse.isOptional(type)) {
-                // Explicit "none" for an optional type — persisted so reconcile
-                // keeps it (source 'user') instead of re-detecting a folder.
-                current[type as SpecialUse.OptionalType] = { path: null, source: 'user' };
-            } else if (path == null || path === '') {
+            if (path == null || path === '') {
                 // Clear the override → re-detect this single type, but never reuse a
                 // folder already assigned to a different type.
                 const taken = SpecialUse.claimedPaths(current, type);
                 const detected = SpecialUse.detectType(type, mailboxes);
-                if (detected && !taken.has(detected.path!)) {
-                    current[type as SpecialUse.RequiredType] = detected as SpecialUse.RequiredEntry;
+                if (detected && !taken.has(detected.path)) {
+                    current[type] = detected;
                 } else {
                     delete current[type];
                 }
