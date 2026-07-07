@@ -46,7 +46,7 @@ router.put('/',
 
     APIRouteSpec.authenticated({
         summary: "Update special-use folder mapping",
-        description: "Override which folders are the account's special folders. Each type maps to a folder path, or null to clear the override and revert to auto-detection. Only the optional archive folder may additionally be set to \"\" (empty string) for an explicit, persisted \"none\" that blocks re-detection; unsetting a required type (drafts/sent/spam/trash) is rejected. A folder can only be one special type.",
+        description: "Override which folders are the account's special folders. Each type maps to a folder path, or null / \"\" to clear the override and revert to auto-detection. Inbox is fixed and not editable. A folder can only be one special type.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES],
 
         responses: APIResponseSpec.describeWithWrongInputs(
@@ -69,16 +69,17 @@ router.put('/',
             const mailboxes = await imap.getMailboxes();
             const paths = new Set(mailboxes.map((mb) => mb.path));
 
+            const inbox = mailboxes.find((mb) => mb.specialUse === SpecialUse.FLAG.inbox);
             for (const type of SpecialUse.EDITABLE_TYPES) {
                 const path = body[type];
-                // Only optional types (archive) may be explicitly unset with "".
-                if (path === '' && !SpecialUse.isOptional(type)) {
-                    return APIResponse.badRequest(c, `Special-use "${type}" is required and cannot be unset`);
-                }
                 // Reject overrides that point at a folder that doesn't exist. `null`
-                // (revert to auto) and `""` (explicit none) carry no path to validate.
+                // and `""` both mean revert to auto-detection, so they carry no path.
                 if (path != null && path !== '' && !paths.has(path)) {
                     return APIResponse.badRequest(c, `No folder found at path "${path}" for special-use "${type}"`);
+                }
+                // Inbox is fixed and cannot be reassigned to another special-use role.
+                if (path != null && path !== '' && inbox && path === inbox.path) {
+                    return APIResponse.badRequest(c, `The Inbox cannot be assigned to special-use "${type}"`);
                 }
             }
 
