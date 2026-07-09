@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { AccountModel } from './model'
 import { validator } from "hono-openapi";
 import { DB } from "../../../../../db";
+import type { DrizzleDB } from "../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
@@ -125,13 +126,15 @@ router.put('/password',
 
         const newPasswordHash = await Bun.password.hash(body.new_password);
 
-        DB.instance().update(DB.Tables.users).set({
-            password_hash: newPasswordHash
-        }).where(
-            eq(DB.Tables.users.id, authContext.user_id)
-        ).run();
+        await DB.instance().transaction(async (tx: DrizzleDB) => {
+            await tx.update(DB.Tables.users).set({
+                password_hash: newPasswordHash
+            }).where(
+                eq(DB.Tables.users.id, authContext.user_id)
+            ).run();
 
-        await SessionHandler.inValidateAllSessionsForUser(authContext.user_id);
+            await SessionHandler.inValidateAllSessionsForUser(authContext.user_id, tx);
+        });
 
         return APIResponse.successNoData(c, "Password changed successfully");
     },
@@ -164,21 +167,23 @@ router.delete('/',
             return APIResponse.badRequest(c, "Please delete all mail accounts associated with this account before deleting the account");
         }
 
-        // invalidate all sessions for the user
-        await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id);
+        await DB.instance().transaction(async (tx: DrizzleDB) => {
+            // invalidate all sessions for the user
+            await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id, tx);
 
-        // delete password resets
-        DB.instance().delete(DB.Tables.passwordResets).where(
-            eq(DB.Tables.passwordResets.user_id, authContext.user_id)
-        ).run();
+            // delete password resets
+            await tx.delete(DB.Tables.passwordResets).where(
+                eq(DB.Tables.passwordResets.user_id, authContext.user_id)
+            ).run();
 
-        // delete stored preferences
-        await UserPreferencesHandler.deleteAllForUser(authContext.user_id);
+            // delete stored preferences
+            await UserPreferencesHandler.deleteAllForUser(authContext.user_id, tx);
 
-        // finally, delete the user account
-        DB.instance().delete(DB.Tables.users).where(
-            eq(DB.Tables.users.id, authContext.user_id)
-        ).run();
+            // finally, delete the user account
+            await tx.delete(DB.Tables.users).where(
+                eq(DB.Tables.users.id, authContext.user_id)
+            ).run();
+        });
 
         return APIResponse.successNoData(c, "Account deleted successfully");
     },

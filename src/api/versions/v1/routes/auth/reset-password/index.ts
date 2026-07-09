@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { ResetPasswordModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../../db";
+import type { DrizzleDB } from "../../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../../utils/api-res";
 import { AuthHandler, SessionHandler } from "../../../../../utils/authHandler";
@@ -105,17 +106,19 @@ router.post('/',
 
         const newPasswordHash = await Bun.password.hash(resetData.new_password);
 
-        await DB.instance().update(DB.Tables.users).set({
-            password_hash: newPasswordHash
-        }).where(
-            eq(DB.Tables.users.id, user.id)
-        ).run();
+        await DB.instance().transaction(async (tx: DrizzleDB) => {
+            await tx.update(DB.Tables.users).set({
+                password_hash: newPasswordHash
+            }).where(
+                eq(DB.Tables.users.id, user.id)
+            ).run();
 
-        await AuthHandler.invalidateAllAuthContextsForUser(user.id);
+            await AuthHandler.invalidateAllAuthContextsForUser(user.id, tx);
 
-        await DB.instance().delete(DB.Tables.passwordResets).where(
-            eq(DB.Tables.passwordResets.user_id, user.id)
-        ).run();
+            await tx.delete(DB.Tables.passwordResets).where(
+                eq(DB.Tables.passwordResets.user_id, user.id)
+            ).run();
+        });
 
         return APIResponse.successNoData(c, "Password has been reset successfully");
     }
@@ -157,17 +160,19 @@ router.post('/request',
         if (user) {
             const resetToken = crypto_randomBytes(64).toString('hex');
 
-            // Delete any existing reset tokens for this user
-            await DB.instance().delete(DB.Tables.passwordResets).where(
-                eq(DB.Tables.passwordResets.user_id, user.id)
-            ).run();
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                // Delete any existing reset tokens for this user
+                await tx.delete(DB.Tables.passwordResets).where(
+                    eq(DB.Tables.passwordResets.user_id, user.id)
+                ).run();
 
-            // Create new reset token — 1 hour expiry (OWASP recommendation: 15-60 min)
-            await DB.instance().insert(DB.Tables.passwordResets).values({
-                user_id: user.id,
-                token: hashResetToken(resetToken),
-                expires_at: Date.now() + 60 * 60 * 1000 // 1 hour
-            }).run();
+                // Create new reset token — 1 hour expiry (OWASP recommendation: 15-60 min)
+                await tx.insert(DB.Tables.passwordResets).values({
+                    user_id: user.id,
+                    token: hashResetToken(resetToken),
+                    expires_at: Date.now() + 60 * 60 * 1000 // 1 hour
+                }).run();
+            });
 
             // send email with reset token (fire-and-forget — errors are logged server-side)
             if (EmailService.isEnabled()) {

@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { AuthModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../db";
+import type { DrizzleDB } from "../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { AuthHandler, SessionHandler } from "../../../../utils/authHandler";
@@ -139,7 +140,9 @@ router.post('/login',
         // Successful login — clear all counters for this user
         clearFailedLoginAttempts(loginAttemptKey, globalKey);
 
-        const session = await SessionHandler.createSession(user.id);
+        const session = await DB.instance().transaction(async (tx: DrizzleDB) => {
+            return await SessionHandler.createSession(user.id, tx);
+        });
 
         return APIResponse.success(c, "Login successful", session satisfies AuthModel.Login.Response);
     }

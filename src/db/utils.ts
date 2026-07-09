@@ -9,9 +9,15 @@ import { integer as integer_postgresql } from 'drizzle-orm/pg-core';
 import { int as integer_mysql } from 'drizzle-orm/mysql-core';
 
 import { serial as serial_postgresql } from 'drizzle-orm/pg-core';
+import type { SQLiteTransaction } from 'drizzle-orm/sqlite-core';
 
 // export type DrizzleDB = ReturnType<typeof drizzle_sqlite> | ReturnType<typeof drizzle_postgresql> | ReturnType<typeof drizzle_mysql>;
-export type DrizzleDB = ReturnType<typeof drizzle_sqlite>;
+/** The live Drizzle bun-sqlite database instance. */
+export type DrizzleDatabase = ReturnType<typeof drizzle_sqlite>;
+/** The transaction object passed by Drizzle's bun-sqlite `transaction()` callback. */
+export type DrizzleTx = Parameters<Parameters<DrizzleDatabase['transaction']>[0]>[0];
+/** Either a live database instance or an active transaction callback object. */
+export type DrizzleDB = DrizzleDatabase | DrizzleTx;
 
 export namespace SQLUtils {
 

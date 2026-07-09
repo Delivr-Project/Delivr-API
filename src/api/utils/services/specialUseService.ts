@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../../db";
+import type { DrizzleDB } from "../../../db/utils";
 import { MailboxRessource } from "../../../utils/mails/ressources/mailbox";
 import type { IMAPAccount } from "../../../utils/mails/backends/imap";
 
@@ -155,15 +156,15 @@ export namespace SpecialUse {
 export class SpecialUseHandler {
 
     /** The stored mapping for an account, or null if none has been persisted yet. */
-    static async getStored(accountId: number): Promise<SpecialUse.Mapping | null> {
-        const row = await DB.instance().select().from(DB.Tables.mailAccountSpecialUse).where(
+    static async getStored(accountId: number, tx: DrizzleDB = DB.instance()): Promise<SpecialUse.Mapping | null> {
+        const row = await tx.select().from(DB.Tables.mailAccountSpecialUse).where(
             eq(DB.Tables.mailAccountSpecialUse.mail_account_id, accountId)
         ).get();
         return row ? (row.data as SpecialUse.Mapping) : null;
     }
 
-    private static async store(accountId: number, mapping: SpecialUse.Mapping): Promise<void> {
-        await DB.instance().insert(DB.Tables.mailAccountSpecialUse).values({
+    private static async store(accountId: number, mapping: SpecialUse.Mapping, tx: DrizzleDB = DB.instance()): Promise<void> {
+        await tx.insert(DB.Tables.mailAccountSpecialUse).values({
             mail_account_id: accountId,
             data: mapping,
         }).onConflictDoUpdate({
@@ -177,16 +178,16 @@ export class SpecialUseHandler {
      * current folder list while preserving valid user overrides. Single entry
      * point used by mailbox listing and after folder mutations.
      */
-    static async resolve(accountId: number, mailboxes: MailboxRessource[]): Promise<SpecialUse.Mapping> {
-        const existing = await this.getStored(accountId);
+    static async resolve(accountId: number, mailboxes: MailboxRessource[], tx: DrizzleDB = DB.instance()): Promise<SpecialUse.Mapping> {
+        const existing = await this.getStored(accountId, tx);
         const reconciled = SpecialUse.reconcile(existing, mailboxes);
-        await this.store(accountId, reconciled);
+        await this.store(accountId, reconciled, tx);
         return reconciled;
     }
 
     /** Return the mailbox list with `specialUse` normalized against the mapping. */
-    static async applyToMailboxes(accountId: number, mailboxes: MailboxRessource[]): Promise<MailboxRessource[]> {
-        const mapping = await this.resolve(accountId, mailboxes);
+    static async applyToMailboxes(accountId: number, mailboxes: MailboxRessource[], tx: DrizzleDB = DB.instance()): Promise<MailboxRessource[]> {
+        const mapping = await this.resolve(accountId, mailboxes, tx);
         return SpecialUse.apply(mailboxes, mapping);
     }
 
@@ -198,13 +199,13 @@ export class SpecialUseHandler {
      * persisted yet do we detect from the live folder list, persist it, and use
      * that; if even detection finds nothing we fall back to the literal "Trash".
      */
-    static async resolveTrashPath(accountId: number, imap: IMAPAccount): Promise<string> {
-        const stored = await this.getStored(accountId);
+    static async resolveTrashPath(accountId: number, imap: IMAPAccount, tx: DrizzleDB = DB.instance()): Promise<string> {
+        const stored = await this.getStored(accountId, tx);
         if (stored?.trash?.path) return stored.trash.path;
 
         // No usable trash mapping yet (never persisted) — detect from the live
         // folder list and, if even that finds nothing, fall back to "Trash".
-        const mapping = await this.resolve(accountId, await imap.getMailboxes());
+        const mapping = await this.resolve(accountId, await imap.getMailboxes(), tx);
         return mapping.trash?.path ?? 'Trash';
     }
 
@@ -217,9 +218,10 @@ export class SpecialUseHandler {
     static async setOverrides(
         accountId: number,
         mailboxes: MailboxRessource[],
-        overrides: Partial<Record<SpecialUse.EditableType, string | null>>
+        overrides: Partial<Record<SpecialUse.EditableType, string | null>>,
+        tx: DrizzleDB = DB.instance()
     ): Promise<SpecialUse.Mapping> {
-        const current = await this.resolve(accountId, mailboxes);
+        const current = await this.resolve(accountId, mailboxes, tx);
         const paths = new Set(mailboxes.map((mb) => mb.path));
 
         for (const type of SpecialUse.EDITABLE_TYPES) {
@@ -246,12 +248,12 @@ export class SpecialUseHandler {
             // An unknown non-empty path is ignored here (the route validates it too).
         }
 
-        await this.store(accountId, current);
+        await this.store(accountId, current, tx);
         return current;
     }
 
-    static async deleteForAccount(accountId: number): Promise<void> {
-        await DB.instance().delete(DB.Tables.mailAccountSpecialUse).where(
+    static async deleteForAccount(accountId: number, tx: DrizzleDB = DB.instance()): Promise<void> {
+        await tx.delete(DB.Tables.mailAccountSpecialUse).where(
             eq(DB.Tables.mailAccountSpecialUse.mail_account_id, accountId)
         );
     }

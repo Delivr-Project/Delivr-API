@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { AccountAPIKeysModel } from './model'
 import { validator } from "hono-openapi";
 import { DB } from "../../../../../../db";
+import type { DrizzleDB } from "../../../../../../db/utils";
 import { and, eq } from "drizzle-orm";
 import { APIResponse } from "../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers";
@@ -88,7 +89,9 @@ router.post('/',
                 break
         }
 
-        const key = await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationInDays);
+        const key = await DB.instance().transaction(async (tx: DrizzleDB) => {
+            return await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationInDays, tx);
+        });
         const tokenID = AuthUtils.getTokenParts(key.token)?.id;
 
         if (!tokenID) {

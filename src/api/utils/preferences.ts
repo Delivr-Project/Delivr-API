@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { DB } from "../../db";
+import type { DrizzleDB } from "../../db/utils";
 import { z } from "zod";
 
 const RemoteContentDecision = z.enum(["allow", "block"]);
@@ -42,10 +43,11 @@ export class UserPreferencesHandler {
 
     static async get<T extends UserPreferences.Key>(
         userID: number,
-        key: T
+        key: T,
+        tx: DrizzleDB = DB.instance()
     ): Promise<z.infer<(typeof UserPreferences.schemas)[T]>> {
 
-        const record = await DB.instance().select().from(DB.Tables.userPreferences).where(
+        const record = await tx.select().from(DB.Tables.userPreferences).where(
             and(
                 eq(DB.Tables.userPreferences.user_id, userID),
                 eq(DB.Tables.userPreferences.key, key)
@@ -68,12 +70,13 @@ export class UserPreferencesHandler {
     static async set<T extends UserPreferences.Key>(
         userID: number,
         key: T,
-        data: z.infer<(typeof UserPreferences.schemas)[T]>
+        data: z.infer<(typeof UserPreferences.schemas)[T]>,
+        tx: DrizzleDB = DB.instance()
     ): Promise<void> {
 
         const parsed = UserPreferences.schemas[key].parse(data);
 
-        await DB.instance().insert(DB.Tables.userPreferences).values({
+        await tx.insert(DB.Tables.userPreferences).values({
             user_id: userID,
             key,
             data: parsed
@@ -115,8 +118,8 @@ export class UserPreferencesHandler {
         await this.set(userID, "folder-dnd", data);
     }
 
-    static async deleteAllForUser(userID: number): Promise<void> {
-        await DB.instance().delete(DB.Tables.userPreferences).where(
+    static async deleteAllForUser(userID: number, tx: DrizzleDB = DB.instance()): Promise<void> {
+        await tx.delete(DB.Tables.userPreferences).where(
             eq(DB.Tables.userPreferences.user_id, userID)
         );
     }
