@@ -426,12 +426,12 @@ router.put('/:mailAccountID/credentials',
 router.delete('/:mailAccountID',
 
     APIRouteSpec.authenticated({
-        summary: "Delete mail account",
-        description: "Delete a mail account.",
+        summary: "Remove mail account",
+        description: "Remove a mail account from delivr",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.BASE],
 
         responses: APIResponseSpec.describeBasic(
-            APIResponseSpec.successNoData("Mail account deleted successfully"),
+            APIResponseSpec.successNoData("Mail account removed successfully"),
             APIResponseSpec.notFound("Mail account with the specified ID not found")
         )
     }),
@@ -455,7 +455,7 @@ router.delete('/:mailAccountID',
             eq(DB.Tables.mailAccounts.id, mailAccount.id)
         );
 
-        return APIResponse.successNoData(c, "Mail account deleted successfully");
+        return APIResponse.successNoData(c, "Mail account removed successfully");
         
     }
 );
