@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { AccountModel } from './model'
 import { validator } from "hono-openapi";
 import { DB } from "../../../../../db";
-import type { DrizzleDB } from "../../../../../db/utils";
+import { type DrizzleDB } from "../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
@@ -11,6 +11,7 @@ import { UserPreferencesHandler } from "../../../../utils/preferences";
 import { DOCS_TAGS } from "../../docs";
 import { router as apiKeyRouter } from "./apikeys";
 import { router as preferencesRouter } from "./preferences";
+import { Logger } from "../../../../../utils/logger";
 
 export const router = new Hono().basePath('/account');
 
@@ -112,31 +113,39 @@ router.put('/password',
 
         const body = c.req.valid("json")
 
-        const user = DB.instance().select().from(DB.Tables.users).where(
-            eq(DB.Tables.users.id, authContext.user_id)
-        ).get();
-    
-        if (!user) {
-            throw new Error("User not found but session exists");
-        }
+        try {
 
-        if ((await Bun.password.verify(body.current_password, user.password_hash)) === false) {
-            return APIResponse.unauthorized(c, "Current password is incorrect");
-        }
-
-        const newPasswordHash = await Bun.password.hash(body.new_password);
-
-        await DB.instance().transaction(async (tx: DrizzleDB) => {
-            await tx.update(DB.Tables.users).set({
-                password_hash: newPasswordHash
-            }).where(
+            const user = DB.instance().select().from(DB.Tables.users).where(
                 eq(DB.Tables.users.id, authContext.user_id)
-            ).run();
+            ).get();
+        
+            if (!user) {
+                throw new Error("User not found but session exists");
+            }
 
-            await SessionHandler.inValidateAllSessionsForUser(authContext.user_id, tx);
-        });
+            if ((await Bun.password.verify(body.current_password, user.password_hash)) === false) {
+                return APIResponse.unauthorized(c, "Current password is incorrect");
+            }
 
-        return APIResponse.successNoData(c, "Password changed successfully");
+            const newPasswordHash = await Bun.password.hash(body.new_password);
+
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                await tx.update(DB.Tables.users).set({
+                    password_hash: newPasswordHash
+                }).where(
+                    eq(DB.Tables.users.id, authContext.user_id)
+                ).run();
+
+                await SessionHandler.inValidateAllSessionsForUser(authContext.user_id, tx);
+            });
+
+            return APIResponse.successNoData(c, "Password changed successfully");
+
+        } catch (error: any) {
+            Logger.error("change password transaction failed:", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to change password");
+        }
+
     },
 );
 
@@ -159,33 +168,41 @@ router.delete('/',
 
         const authContext = AuthHandler.AuthContext.getAsSession(c);
 
-        const mailAccounts = DB.instance().select().from(DB.Tables.mailAccounts).where(
-            eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id)
-        ).all();
+        try {
 
-        if (mailAccounts.length > 0) {
-            return APIResponse.badRequest(c, "Please delete all mail accounts associated with this account before deleting the account");
+            const mailAccounts = DB.instance().select().from(DB.Tables.mailAccounts).where(
+                eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id)
+            ).all();
+
+            if (mailAccounts.length > 0) {
+                return APIResponse.badRequest(c, "Please delete all mail accounts associated with this account before deleting the account");
+            }
+
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                // invalidate all sessions for the user
+                await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id, tx);
+
+                // delete password resets
+                await tx.delete(DB.Tables.passwordResets).where(
+                    eq(DB.Tables.passwordResets.user_id, authContext.user_id)
+                ).run();
+
+                // delete stored preferences
+                await UserPreferencesHandler.deleteAllForUser(authContext.user_id, tx);
+
+                // finally, delete the user account
+                await tx.delete(DB.Tables.users).where(
+                    eq(DB.Tables.users.id, authContext.user_id)
+                ).run();
+            });
+            
+            return APIResponse.successNoData(c, "Account deleted successfully");
+
+        } catch (error: any) {
+            Logger.error("Failed to delete account", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to delete account");
         }
 
-        await DB.instance().transaction(async (tx: DrizzleDB) => {
-            // invalidate all sessions for the user
-            await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id, tx);
-
-            // delete password resets
-            await tx.delete(DB.Tables.passwordResets).where(
-                eq(DB.Tables.passwordResets.user_id, authContext.user_id)
-            ).run();
-
-            // delete stored preferences
-            await UserPreferencesHandler.deleteAllForUser(authContext.user_id, tx);
-
-            // finally, delete the user account
-            await tx.delete(DB.Tables.users).where(
-                eq(DB.Tables.users.id, authContext.user_id)
-            ).run();
-        });
-
-        return APIResponse.successNoData(c, "Account deleted successfully");
     },
 );
 

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { MailIdentitiesModel } from "./model";
 import { DB } from "../../../../../../db";
-import type { DrizzleDB } from "../../../../../../db/utils";
+import { type DrizzleDB } from "../../../../../../db/utils";
 import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers";
@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AuthHandler } from "../../../../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailAccountsModel } from "../model";
+import { Logger } from "../../../../../../utils/logger";
 
 export const router = new Hono();
 
@@ -57,28 +58,37 @@ router.post('/',
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
-        const result = await DB.instance().transaction(async (tx: DrizzleDB) => {
-            if (body.is_default) {
-                // If setting this mail identity as default, unset all other identities for this mail account
-                await tx.update(DB.Tables.mailIdentities).set({
-                    is_default: false
-                }).where(
-                    and(
-                        eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id),
-                        eq(DB.Tables.mailIdentities.is_default, true),
-                    )
-                );
-            }
+        try {
 
-            const inserted = await tx.insert(DB.Tables.mailIdentities).values({
-                ...body,
-                mail_account_id: mailAccount.id,
-            }).returning().get();
+            const result = await DB.instance().transaction(async (tx: DrizzleDB) => {
+                if (body.is_default) {
+                    // If setting this mail identity as default, unset all other identities for this mail account
+                    await tx.update(DB.Tables.mailIdentities).set({
+                        is_default: false
+                    }).where(
+                        and(
+                            eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id),
+                            eq(DB.Tables.mailIdentities.is_default, true),
+                        )
+                    );
+                }
 
-            return inserted;
-        });
+                const inserted = await tx.insert(DB.Tables.mailIdentities).values({
+                    ...body,
+                    mail_account_id: mailAccount.id,
+                }).returning().get();
 
-        return APIResponse.success(c, "Mail identity created successfully", { id: result.id } satisfies MailIdentitiesModel.CreateMailIdentity.Response);
+                return inserted;
+            });
+
+            return APIResponse.success(c, "Mail identity created successfully", { id: result.id } satisfies MailIdentitiesModel.CreateMailIdentity.Response);
+
+
+        } catch (error: any) {
+            Logger.error("Failed to create mail identity", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to create mail identity");
+        }
+
     }
 );
 
@@ -153,28 +163,35 @@ router.put('/:mailIdentityID',
         // @ts-ignore
         const mailIdentity = c.get("mailIdentity") as MailIdentitiesModel.BASE;
 
-        await DB.instance().transaction(async (tx: DrizzleDB) => {
-            if (body.is_default && !mailIdentity.is_default) {
-                // If setting this mail identity as default, unset all other identities for this mail account
+        try {
+
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                if (body.is_default && !mailIdentity.is_default) {
+                    // If setting this mail identity as default, unset all other identities for this mail account
+                    await tx.update(DB.Tables.mailIdentities).set({
+                        is_default: false
+                    }).where(
+                        and(
+                            eq(DB.Tables.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
+                            eq(DB.Tables.mailIdentities.is_default, true),
+                            ne(DB.Tables.mailIdentities.id, mailIdentity.id)
+                        )
+                    );
+                }
+
                 await tx.update(DB.Tables.mailIdentities).set({
-                    is_default: false
+                    ...body
                 }).where(
-                    and(
-                        eq(DB.Tables.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
-                        eq(DB.Tables.mailIdentities.is_default, true),
-                        ne(DB.Tables.mailIdentities.id, mailIdentity.id)
-                    )
+                    eq(DB.Tables.mailIdentities.id, mailIdentity.id)
                 );
-            }
+            });
 
-            await tx.update(DB.Tables.mailIdentities).set({
-                ...body
-            }).where(
-                eq(DB.Tables.mailIdentities.id, mailIdentity.id)
-            );
-        });
+            return APIResponse.successNoData(c, "Mail identity updated successfully");
 
-        return APIResponse.successNoData(c, "Mail identity updated successfully");
+        } catch (error: any) {
+            Logger.error("Failed to update mail identity", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to update mail identity");
+        }
     }
 );
 

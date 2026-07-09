@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { validator as zValidator } from "hono-openapi";
 import { and, eq, like, or } from "drizzle-orm";
 import { DB } from "../../../../../../db";
-import type { DrizzleDB } from "../../../../../../db/utils";
 import { APIResponse } from "../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers";
 import { AdminUsersModel } from "./model";
@@ -10,8 +9,6 @@ import { AuthHandler, SessionHandler } from "../../../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
 
 const TARGET_USER_KEY = "adminTargetUser";
-
-class UserConflictError extends Error {}
 
 const sanitizeUser = (user: DB.Models.User) => AdminUsersModel.SafeUser.parse(user);
 
@@ -89,36 +86,23 @@ router.post('/',
     async (c) => {
         const body = c.req.valid("json") as AdminUsersModel.Create.Body;
 
-        const createdUser = await DB.instance().transaction(async (tx: DrizzleDB) => {
-            const duplicate = tx.select().from(DB.Tables.users).where(
-                or(
-                    eq(DB.Tables.users.username, body.username),
-                    eq(DB.Tables.users.email, body.email)
-                )
-            ).get();
+        const duplicate = DB.instance().select().from(DB.Tables.users).where(
+            or(
+                eq(DB.Tables.users.username, body.username),
+                eq(DB.Tables.users.email, body.email)
+            )
+        ).get();
 
-            if (duplicate) {
-                // Returning a non-undefined value that signals a conflict is awkward
-                // inside a transaction; throw a typed error and convert it below.
-                throw new UserConflictError();
-            }
-
-            const { password, ...userData } = body;
-
-            return tx.insert(DB.Tables.users).values({
-                ...userData,
-                password_hash: await Bun.password.hash(password)
-            }).returning().get();
-        }).catch((err) => {
-            if (err instanceof UserConflictError) {
-                return null;
-            }
-            throw err;
-        });
-
-        if (!createdUser) {
+        if (duplicate) {
             return APIResponse.conflict(c, "A user with the same username or email already exists");
         }
+
+        const { password, ...userData } = body;
+
+        const createdUser = DB.instance().insert(DB.Tables.users).values({
+            ...userData,
+            password_hash: await Bun.password.hash(password)
+        }).returning().get();
 
         return APIResponse.created(c, "User created successfully", sanitizeUser(createdUser));
     }
@@ -196,49 +180,42 @@ router.put('/:userId',
             return APIResponse.badRequest(c, "Provide at least one field to update");
         }
 
+        if (updates.username && updates.username !== user.username) {
+            const usernameConflict = DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.username, updates.username)
+            ).get();
+
+            if (usernameConflict) {
+                return APIResponse.conflict(c, "Username already in use");
+            }
+        }
+
+        if (updates.email && updates.email !== user.email) {
+            const emailConflict = DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.email, updates.email)
+            ).get();
+
+            if (emailConflict) {
+                return APIResponse.conflict(c, "Email already in use");
+            }
+        }
+
         const roleChanged = updates.role && updates.role !== user.role;
 
-        const refreshed = await DB.instance().transaction(async (tx: DrizzleDB) => {
-            if (updates.username && updates.username !== user.username) {
-                const usernameConflict = tx.select().from(DB.Tables.users).where(
-                    eq(DB.Tables.users.username, updates.username)
-                ).get();
+        await DB.instance().update(DB.Tables.users).set(updates).where(
+            eq(DB.Tables.users.id, user.id)
+        ).run();
 
-                if (usernameConflict) {
-                    throw new UserConflictError();
-                }
-            }
+        if (roleChanged && updates.role) {
+            await AuthHandler.changeUserRoleInAuthContexts(user.id, updates.role);
+        }
 
-            if (updates.email && updates.email !== user.email) {
-                const emailConflict = tx.select().from(DB.Tables.users).where(
-                    eq(DB.Tables.users.email, updates.email)
-                ).get();
-
-                if (emailConflict) {
-                    throw new UserConflictError();
-                }
-            }
-
-            await tx.update(DB.Tables.users).set(updates).where(
-                eq(DB.Tables.users.id, user.id)
-            ).run();
-
-            if (roleChanged && updates.role) {
-                await AuthHandler.changeUserRoleInAuthContexts(user.id, updates.role, tx);
-            }
-
-            return tx.select().from(DB.Tables.users).where(
-                eq(DB.Tables.users.id, user.id)
-            ).get();
-        }).catch((err) => {
-            if (err instanceof UserConflictError) {
-                return null;
-            }
-            throw err;
-        });
+        const refreshed = DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, user.id)
+        ).get();
 
         if (!refreshed) {
-            return APIResponse.conflict(c, "Username or email already in use");
+            throw new Error("User not found after update");
         }
 
         return APIResponse.success(c, "User updated successfully", sanitizeUser(refreshed));
@@ -267,15 +244,13 @@ router.put('/:userId/password',
 
         const passwordHash = await Bun.password.hash(password);
 
-        await DB.instance().transaction(async (tx: DrizzleDB) => {
-            await tx.update(DB.Tables.users).set({
-                password_hash: passwordHash
-            }).where(
-                eq(DB.Tables.users.id, user.id)
-            ).run();
+        await DB.instance().update(DB.Tables.users).set({
+            password_hash: passwordHash
+        }).where(
+            eq(DB.Tables.users.id, user.id)
+        ).run();
 
-            await SessionHandler.inValidateAllSessionsForUser(user.id, tx);
-        });
+        await SessionHandler.inValidateAllSessionsForUser(user.id);
 
         return APIResponse.successNoData(c, "Password reset successfully");
     }
@@ -301,17 +276,15 @@ router.delete('/:userId',
 
         // Check for user data later
 
-        await DB.instance().transaction(async (tx: DrizzleDB) => {
-            await AuthHandler.invalidateAllAuthContextsForUser(user.id, tx);
+        await AuthHandler.invalidateAllAuthContextsForUser(user.id);
 
-            await tx.delete(DB.Tables.passwordResets).where(
-                eq(DB.Tables.passwordResets.user_id, user.id)
-            ).run();
+        await DB.instance().delete(DB.Tables.passwordResets).where(
+            eq(DB.Tables.passwordResets.user_id, user.id)
+        ).run();
 
-            await tx.delete(DB.Tables.users).where(
-                eq(DB.Tables.users.id, user.id)
-            ).run();
-        });
+        await DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, user.id)
+        ).run();
 
         return APIResponse.successNoData(c, "User deleted successfully");
     }

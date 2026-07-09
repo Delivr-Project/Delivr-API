@@ -39,23 +39,29 @@ export class DB {
         const username = "admin";
         const passwordResetToken = crypto_randomBytes(64).toString('hex');
 
-        const admin_user_id = await this.db.transaction(async (tx) => {
-            const admin_user_id = await tx.insert(DB.Tables.users).values({
-                username,
-                email: "admin@delivr.local",
-                password_hash: await Bun.password.hash(crypto_randomBytes(32).toString('hex')),
-                display_name: "Default Administrator",
-                role: "admin"
-            }).returning().get().id;
+        let admin_user_id: number;
+        try {
+            admin_user_id = await this.db.transaction(async (tx) => {
+                const admin_user_id = await tx.insert(DB.Tables.users).values({
+                    username,
+                    email: "admin@delivr.local",
+                    password_hash: await Bun.password.hash(crypto_randomBytes(32).toString('hex')),
+                    display_name: "Default Administrator",
+                    role: "admin"
+                }).returning().get().id;
 
-            await tx.insert(DB.Tables.passwordResets).values({
-                token: crypto_createHash('sha256').update(passwordResetToken).digest('hex'),
-                user_id: admin_user_id,
-                expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 Days
+                await tx.insert(DB.Tables.passwordResets).values({
+                    token: crypto_createHash('sha256').update(passwordResetToken).digest('hex'),
+                    user_id: admin_user_id,
+                    expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 Days
+                });
+
+                return admin_user_id;
             });
-
-            return admin_user_id;
-        });
+        } catch (error) {
+            Logger.critical(`Failed to create initial admin user:`, error);
+            throw error;
+        }
 
         const DASHBOARD_URL = ConfigHandler.getConfig()?.DLA_APP_URL || "https://{DELIVR_APP_URL}";
 
