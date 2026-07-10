@@ -3,12 +3,14 @@ import type { Context } from "hono";
 import { AuthModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../db";
+import { type DrizzleDB } from "../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { AuthHandler, SessionHandler } from "../../../../utils/authHandler";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
 import { router as resetPasswordRouter } from "./reset-password";
 import { DOCS_TAGS } from "../../docs";
+import { Logger } from "../../../../../utils/logger";
 
 // Dummy bcrypt hash for timing-normalized login failures — prevents username enumeration
 // Generated once at module load so it's a valid, cost-equivalent hash
@@ -111,37 +113,46 @@ router.post('/login',
 
         const { username, password } = c.req.valid("json");
 
-        const clientId = getClientId(c);
-        const loginAttemptKey = getLoginAttemptKey(clientId, username);
-        const globalKey = getGlobalLoginAttemptKey(username);
+        try {
 
-        // Increment counters FIRST, then check limits — eliminates TOCTOU race
-        const { perIpCount, globalCount } = registerFailedLoginAttempt(loginAttemptKey, globalKey);
+            const clientId = getClientId(c);
+            const loginAttemptKey = getLoginAttemptKey(clientId, username);
+            const globalKey = getGlobalLoginAttemptKey(username);
 
-        if (perIpCount > LOGIN_MAX_ATTEMPTS || globalCount > LOGIN_MAX_GLOBAL_ATTEMPTS) {
-            const retrySeconds = Math.max(1, Math.ceil(LOGIN_WINDOW_MS / 1000));
-            c.header("Retry-After", retrySeconds.toString());
-            return c.json({ success: false, code: 429, message: `Too many login attempts. Try again in ${retrySeconds}s` }, 429);
+            // Increment counters FIRST, then check limits — eliminates TOCTOU race
+            const { perIpCount, globalCount } = registerFailedLoginAttempt(loginAttemptKey, globalKey);
+
+            if (perIpCount > LOGIN_MAX_ATTEMPTS || globalCount > LOGIN_MAX_GLOBAL_ATTEMPTS) {
+                const retrySeconds = Math.max(1, Math.ceil(LOGIN_WINDOW_MS / 1000));
+                c.header("Retry-After", retrySeconds.toString());
+                return c.json({ success: false, code: 429, message: `Too many login attempts. Try again in ${retrySeconds}s` }, 429);
+            }
+
+            const user = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.username, username)).get();
+            if (!user) {
+                // Timing-normalized: always run a bcrypt call to prevent username enumeration
+                await Bun.password.verify("dummy-timing-constant", DUMMY_PASSWORD_HASH);
+                return APIResponse.unauthorized(c, "Invalid username or password");
+            }
+
+            const passwordMatch = await Bun.password.verify(password, user.password_hash);
+            if (!passwordMatch) {
+                return APIResponse.unauthorized(c, "Invalid username or password");
+            }
+
+            // Successful login — clear all counters for this user
+            clearFailedLoginAttempts(loginAttemptKey, globalKey);
+
+            const session = await DB.instance().transaction(async (tx: DrizzleDB) => {
+                return await SessionHandler.createSession(user.id, tx);
+            });
+
+            return APIResponse.success(c, "Login successful", session satisfies AuthModel.Login.Response);
+    
+        } catch (error: any) {
+            Logger.error("Failed to create session", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to create session");
         }
-
-        const user = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.username, username)).get();
-        if (!user) {
-            // Timing-normalized: always run a bcrypt call to prevent username enumeration
-            await Bun.password.verify("dummy-timing-constant", DUMMY_PASSWORD_HASH);
-            return APIResponse.unauthorized(c, "Invalid username or password");
-        }
-
-        const passwordMatch = await Bun.password.verify(password, user.password_hash);
-        if (!passwordMatch) {
-            return APIResponse.unauthorized(c, "Invalid username or password");
-        }
-
-        // Successful login — clear all counters for this user
-        clearFailedLoginAttempts(loginAttemptKey, globalKey);
-
-        const session = await SessionHandler.createSession(user.id);
-
-        return APIResponse.success(c, "Login successful", session satisfies AuthModel.Login.Response);
     }
 );
 

@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as TableSchema from './schema/sqlite';
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
-import { type DrizzleDB } from './utils';
+import { type DrizzleDB, type DrizzleDatabase } from './utils';
 import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
@@ -37,21 +37,31 @@ export class DB {
         if (!usersTableEmpty) return;
 
         const username = "admin";
-
-        const admin_user_id = await this.db.insert(DB.Tables.users).values({
-            username,
-            email: "admin@delivr.local",
-            password_hash: await Bun.password.hash(crypto_randomBytes(32).toString('hex')),
-            display_name: "Default Administrator",
-            role: "admin"
-        }).returning().get().id;
-
         const passwordResetToken = crypto_randomBytes(64).toString('hex');
-        await this.db.insert(DB.Tables.passwordResets).values({
-            token: crypto_createHash('sha256').update(passwordResetToken).digest('hex'),
-            user_id: admin_user_id,
-            expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 Days
-        });
+
+        let admin_user_id: number;
+        try {
+            admin_user_id = await this.db.transaction(async (tx) => {
+                const admin_user_id = await tx.insert(DB.Tables.users).values({
+                    username,
+                    email: "admin@delivr.local",
+                    password_hash: await Bun.password.hash(crypto_randomBytes(32).toString('hex')),
+                    display_name: "Default Administrator",
+                    role: "admin"
+                }).returning().get().id;
+
+                await tx.insert(DB.Tables.passwordResets).values({
+                    token: crypto_createHash('sha256').update(passwordResetToken).digest('hex'),
+                    user_id: admin_user_id,
+                    expires_at: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 Days
+                });
+
+                return admin_user_id;
+            });
+        } catch (error) {
+            Logger.critical(`Failed to create initial admin user:`, error);
+            throw error;
+        }
 
         const DASHBOARD_URL = ConfigHandler.getConfig()?.DLA_APP_URL || "https://{DELIVR_APP_URL}";
 
@@ -67,18 +77,18 @@ export class DB {
         );
     }
 
-    static instance() {
+    static instance(): DrizzleDatabase {
         if (!this.db) {
             throw new Error('Database not initialized. Call DB.init() first.');
         }
-        return DB.db;
+        return DB.db as DrizzleDatabase;
     }
 
     static async close() {
         if (!this.db) return;
 
         Logger.info("Database connection closed.");
-        this.db.$client.close();
+        (this.db as DrizzleDatabase).$client.close();
 
         // `close()` calls sqlite3_close_v2, which defers releasing the OS file
         // handle until any unfinalized prepared statements are garbage collected.

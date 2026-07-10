@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { MailAccountsModel } from './model';
 import { DB } from "../../../../../db";
+import { type DrizzleDB } from "../../../../../db/utils";
 import { and, eq, ne } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
@@ -126,18 +127,6 @@ router.post('/',
 
         const authContext = AuthHandler.AuthContext.get(c);
 
-        if (body.is_default) {
-            // If setting this mail account as default, unset all other mail accounts for this user
-            await DB.instance().update(DB.Tables.mailAccounts).set({
-                is_default: false
-            }).where(
-                and(
-                    eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id),
-                    eq(DB.Tables.mailAccounts.is_default, true),
-                )
-            );
-        }
-
         const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
             host: body.smtp_host,
             port: body.smtp_port,
@@ -158,13 +147,35 @@ router.post('/',
             return APIResponse.serverError(c, "Failed to encrypt mail account data");
         }
 
-        const result = await DB.instance().insert(DB.Tables.mailAccounts).values({
-            display_name: body.display_name,
-            is_default: body.is_default,
-            smtp_encrypted_connection_data: encryptedSMTPData,
-            imap_encrypted_connection_data: encryptedIMAPData,
-            owner_user_id: authContext.user_id
-        }).returning().get().id;
+        let result: number;
+        try {
+            result = await DB.instance().transaction(async (tx: DrizzleDB) => {
+                if (body.is_default) {
+                    // If setting this mail account as default, unset all other mail accounts for this user
+                    await tx.update(DB.Tables.mailAccounts).set({
+                        is_default: false
+                    }).where(
+                        and(
+                            eq(DB.Tables.mailAccounts.owner_user_id, authContext.user_id),
+                            eq(DB.Tables.mailAccounts.is_default, true),
+                        )
+                    );
+                }
+
+                const inserted = await tx.insert(DB.Tables.mailAccounts).values({
+                    display_name: body.display_name,
+                    is_default: body.is_default,
+                    smtp_encrypted_connection_data: encryptedSMTPData,
+                    imap_encrypted_connection_data: encryptedIMAPData,
+                    owner_user_id: authContext.user_id
+                }).returning().get();
+
+                return inserted.id;
+            });
+        } catch (error: any) {
+            Logger.error("Failed to create mail account", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to create mail account");
+        }
 
         // Detect the special-use folder mapping (drafts/sent/spam/trash/archive)
         // once at creation so it is pre-filled by guessing and the user only has to
@@ -346,22 +357,29 @@ router.put('/:mailAccountID',
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
 
 
-        if (body.is_default && !mailAccount.is_default) {
-            // If setting this mail account as default, unset all other mail accounts for this user
-            await DB.instance().update(DB.Tables.mailAccounts).set({
-                is_default: false
-            }).where(
-                and(
-                    eq(DB.Tables.mailAccounts.owner_user_id, mailAccount.owner_user_id),
-                    eq(DB.Tables.mailAccounts.is_default, true),
-                    ne(DB.Tables.mailAccounts.id, mailAccount.id)
-                )
-            );
-        }
+        try {
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                if (body.is_default && !mailAccount.is_default) {
+                    // If setting this mail account as default, unset all other mail accounts for this user
+                    await tx.update(DB.Tables.mailAccounts).set({
+                        is_default: false
+                    }).where(
+                        and(
+                            eq(DB.Tables.mailAccounts.owner_user_id, mailAccount.owner_user_id),
+                            eq(DB.Tables.mailAccounts.is_default, true),
+                            ne(DB.Tables.mailAccounts.id, mailAccount.id)
+                        )
+                    );
+                }
 
-        await DB.instance().update(DB.Tables.mailAccounts).set(body).where(
-            eq(DB.Tables.mailAccounts.id, mailAccount.id)
-        )
+                await tx.update(DB.Tables.mailAccounts).set(body).where(
+                    eq(DB.Tables.mailAccounts.id, mailAccount.id)
+                );
+            });
+        } catch (error: any) {
+            Logger.error("Failed to update mail account", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to update mail account");
+        }
 
         return APIResponse.successNoData(c, "Mail account updated successfully");
     }
@@ -443,17 +461,24 @@ router.delete('/:mailAccountID',
 
         await MailClientsCache.deleteClient(mailAccount.id);
 
-        // Delete all mail identities linked to this mail account
-        await DB.instance().delete(DB.Tables.mailIdentities).where(
-            eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
-        );
+        try {
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                // Delete all mail identities linked to this mail account
+                await tx.delete(DB.Tables.mailIdentities).where(
+                    eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
+                );
 
-        // Drop the persisted special-use mapping for this account.
-        await SpecialUseHandler.deleteForAccount(mailAccount.id);
+                // Drop the persisted special-use mapping for this account.
+                await SpecialUseHandler.deleteForAccount(mailAccount.id, tx);
 
-        await DB.instance().delete(DB.Tables.mailAccounts).where(
-            eq(DB.Tables.mailAccounts.id, mailAccount.id)
-        );
+                await tx.delete(DB.Tables.mailAccounts).where(
+                    eq(DB.Tables.mailAccounts.id, mailAccount.id)
+                );
+            });
+        } catch (error: any) {
+            Logger.error("Failed to delete mail account", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to delete mail account");
+        }
 
         return APIResponse.successNoData(c, "Mail account removed successfully");
         
