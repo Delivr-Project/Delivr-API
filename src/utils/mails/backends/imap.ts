@@ -7,6 +7,29 @@ import { MailParser } from "../parser";
 import { Logger } from "../../logger";
 import { QuickSort } from "@cleverjs/utils";
 
+/**
+ * Walk an IMAP bodyStructure and report whether the message carries an
+ * attachment (a part explicitly dispositioned as an attachment, or a named
+ * non-inline part). Lets a `has:attachment` filter be evaluated from
+ * lightweight metadata, without downloading each message's full source.
+ */
+function bodyStructureHasAttachment(node: any): boolean {
+    if (!node || typeof node !== 'object') return false;
+
+    const disposition = typeof node.disposition === 'string'
+        ? node.disposition.toLowerCase()
+        : undefined;
+    const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
+
+    if (disposition === 'attachment') return true;
+    if (filename && disposition !== 'inline') return true;
+
+    if (Array.isArray(node.childNodes)) {
+        return node.childNodes.some((child: any) => bodyStructureHasAttachment(child));
+    }
+    return false;
+}
+
 export class IMAPAccount {
 
     protected readonly client: ImapFlow;
@@ -384,8 +407,6 @@ export class IMAPAccount {
             });
         }
 
-        const allResults: IMAPAccount.CrossFolderSearchResult[] = [];
-
         // Build IMAP search criteria
         const buildSearchCriteria = (): SearchObject => {
             const criteria: SearchObject = {};
@@ -456,12 +477,30 @@ export class IMAPAccount {
 
         const searchCriteria = buildSearchCriteria();
 
-        // Search each mailbox
+        // `has:attachment` can't be expressed as IMAP SEARCH criteria, so it is
+        // evaluated from each match's bodyStructure during phase 1.
+        const needsAttachmentInfo = query.hasAttachment !== undefined;
+
+        // ── Phase 1: collect lightweight metadata for every match ──
+        // Only envelope/date (+ bodyStructure when filtering by attachment) is
+        // fetched here — never the full message source — so we can sort and
+        // paginate across folders cheaply, even when a query matches thousands
+        // of messages.
+        interface LightMatch {
+            mailboxPath: string;
+            mailboxName: string;
+            specialUse?: string;
+            uid: number;
+            date: number;
+        }
+
+        const matches: LightMatch[] = [];
+
         for (const mailbox of mailboxesToSearch) {
             let lock;
             try {
                 lock = await this.client.getMailboxLock(mailbox.path);
-                
+
                 const total = this.client.mailbox ? this.client.mailbox.exists : 0;
                 if (total === 0) {
                     lock.release();
@@ -469,7 +508,7 @@ export class IMAPAccount {
                 }
 
                 const searchResults = await this.client.search(searchCriteria, { uid: true });
-                
+
                 // Ensure searchResults is an array (might be empty or non-array in edge cases)
                 const uids: number[] = Array.isArray(searchResults) ? searchResults : [];
 
@@ -478,30 +517,28 @@ export class IMAPAccount {
                     continue;
                 }
 
-                // Fetch mail details for matched UIDs
-                const rawMails = await this.client.fetchAll(uids.join(','), {
+                const metaMails = await this.client.fetchAll(uids.join(','), {
+                    uid: true,
                     envelope: true,
-                    bodyStructure: true,
-                    source: true,
-                    flags: true
+                    internalDate: true,
+                    ...(needsAttachmentInfo ? { bodyStructure: true } : {})
                 }, { uid: true });
 
-                let mails = await MailRessource.fromIMAPMessages(rawMails);
+                for (const meta of metaMails) {
+                    if (needsAttachmentInfo) {
+                        const hasAttachment = bodyStructureHasAttachment(meta.bodyStructure);
+                        if (query.hasAttachment ? !hasAttachment : hasAttachment) {
+                            continue;
+                        }
+                    }
 
-                // Post-fetch filtering for attachment
-                if (query.hasAttachment !== undefined) {
-                    mails = mails.filter(mail => 
-                        query.hasAttachment ? mail.attachments.length > 0 : mail.attachments.length === 0
-                    );
-                }
-
-                // Add mailbox path to results
-                for (const mail of mails) {
-                    allResults.push({
+                    const dateValue = meta.envelope?.date ?? meta.internalDate;
+                    matches.push({
                         mailboxPath: mailbox.path,
                         mailboxName: mailbox.name,
                         specialUse: mailbox.specialUse,
-                        mail
+                        uid: meta.uid,
+                        date: dateValue ? new Date(dateValue).getTime() : 0
                     });
                 }
 
@@ -513,20 +550,66 @@ export class IMAPAccount {
             }
         }
 
-        // Sort all results by date
-        // allResults.sort((a, b) => {
-        //     const dateA = a.mail.date || 0;
-        //     const dateB = b.mail.date || 0;
-        //     return order === 'newest' ? dateB - dateA : dateA - dateB;
-        // });
-        QuickSort.sort(allResults, (a, b) => {
-            const dateA = a.mail.date ? a.mail.date : 0;
-            const dateB = b.mail.date ? b.mail.date : 0;
-            return order === 'newest' ? dateB - dateA : dateA - dateB;
-        });
+        // Sort all matches by date, then take only the requested page.
+        QuickSort.sort(matches, (a, b) => order === 'newest' ? b.date - a.date : a.date - b.date);
 
-        // Apply offset and limit across all results
-        return allResults.slice(offset, offset + limit);
+        const pageMatches = matches.slice(offset, offset + limit);
+        if (pageMatches.length === 0) {
+            return [];
+        }
+
+        // ── Phase 2: fetch full message source only for the page ──
+        // Grouped by folder so each mailbox is locked at most once. This is the
+        // only place the (expensive) source download + MIME parse happens, and
+        // it runs for at most `limit` messages instead of every match.
+        const pageByFolder = new Map<string, LightMatch[]>();
+        for (const match of pageMatches) {
+            const group = pageByFolder.get(match.mailboxPath);
+            if (group) group.push(match);
+            else pageByFolder.set(match.mailboxPath, [match]);
+        }
+
+        const mailByKey = new Map<string, MailRessource>();
+        for (const [mailboxPath, group] of pageByFolder) {
+            let lock;
+            try {
+                lock = await this.client.getMailboxLock(mailboxPath);
+
+                const rawMails = await this.client.fetchAll(group.map(m => m.uid).join(','), {
+                    uid: true,
+                    envelope: true,
+                    bodyStructure: true,
+                    source: true,
+                    flags: true
+                }, { uid: true });
+
+                const mails = await MailRessource.fromIMAPMessages(rawMails);
+                for (const mail of mails) {
+                    mailByKey.set(`${mailboxPath}:${mail.uid}`, mail);
+                }
+
+                lock.release();
+            } catch (e) {
+                if (lock) lock.release();
+                Logger.error(`Failed to fetch mails in mailbox ${mailboxPath}`, e);
+                // Continue with other mailboxes
+            }
+        }
+
+        // Rebuild results in the sorted page order.
+        const results: IMAPAccount.CrossFolderSearchResult[] = [];
+        for (const match of pageMatches) {
+            const mail = mailByKey.get(`${match.mailboxPath}:${match.uid}`);
+            if (!mail) continue;
+            results.push({
+                mailboxPath: match.mailboxPath,
+                mailboxName: match.mailboxName,
+                specialUse: match.specialUse,
+                mail
+            });
+        }
+
+        return results;
     }
 }
 
