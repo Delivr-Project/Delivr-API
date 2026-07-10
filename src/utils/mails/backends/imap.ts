@@ -7,30 +7,6 @@ import { MailParser } from "../parser";
 import { Logger } from "../../logger";
 import { QuickSort } from "@cleverjs/utils";
 
-/**
- * Walk an IMAP bodyStructure and report whether the message carries an
- * attachment (a part explicitly dispositioned as an attachment, or a named
- * non-inline part). Lets a `has:attachment` filter be evaluated from
- * lightweight metadata, without downloading each message's full source.
- */
-function bodyStructureHasAttachment(node: any): boolean {
-    if (!node || typeof node !== 'object') return false;
-
-    const disposition = typeof node.disposition === 'string'
-        ? node.disposition.toLowerCase()
-        : undefined;
-    const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
-    const contentId = typeof node.id === 'string' ? node.id : undefined;
-
-    if (disposition === 'attachment') return true;
-    if (filename) return true;
-    if (disposition === 'inline' && contentId) return true;
-
-    if (Array.isArray(node.childNodes)) {
-        return node.childNodes.some((child: any) => bodyStructureHasAttachment(child));
-    }
-    return false;
-}
 
 export class IMAPAccount {
 
@@ -528,7 +504,7 @@ export class IMAPAccount {
 
                 for (const meta of metaMails) {
                     if (needsAttachmentInfo) {
-                        const hasAttachment = bodyStructureHasAttachment(meta.bodyStructure);
+                        const hasAttachment = IMAPAccount.bodyStructureHasAttachment(meta.bodyStructure);
                         if (query.hasAttachment ? !hasAttachment : hasAttachment) {
                             continue;
                         }
@@ -613,6 +589,34 @@ export class IMAPAccount {
 
         return results;
     }
+
+
+    /**
+     * Walk an IMAP bodyStructure and report whether the message carries an
+     * attachment (a part explicitly dispositioned as an attachment, or a named
+     * non-inline part). Lets a `has:attachment` filter be evaluated from
+     * lightweight metadata, without downloading each message's full source.
+     */
+    private static bodyStructureHasAttachment(node: any): boolean {
+        if (!node || typeof node !== 'object') return false;
+
+        const disposition = typeof node.disposition === 'string'
+            ? node.disposition.toLowerCase()
+            : undefined;
+        const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
+        const contentId = typeof node.id === 'string' ? node.id : undefined;
+
+        if (disposition === 'attachment') return true;
+        if (filename) return true;
+        if (disposition === 'inline' && contentId) return true;
+
+        if (Array.isArray(node.childNodes)) {
+            return node.childNodes.some((child: any) => this.bodyStructureHasAttachment(child));
+        }
+        return false;
+    }
+
+
 }
 
 export namespace IMAPAccount {
