@@ -20,9 +20,11 @@ function bodyStructureHasAttachment(node: any): boolean {
         ? node.disposition.toLowerCase()
         : undefined;
     const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
+    const contentId = typeof node.id === 'string' ? node.id : undefined;
 
     if (disposition === 'attachment') return true;
-    if (filename && disposition !== 'inline') return true;
+    if (filename) return true;
+    if (disposition === 'inline' && contentId) return true;
 
     if (Array.isArray(node.childNodes)) {
         return node.childNodes.some((child: any) => bodyStructureHasAttachment(child));
