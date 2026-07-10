@@ -27,6 +27,12 @@ export namespace UserPreferences {
             // Opt-in, so default off.
             enabled: z.boolean().default(false),
         }),
+        "onboarding": z.object({
+            // Whether the user has completed the one-time, platform-wide welcome
+            // onboarding (preferences setup). Drives the first-login redirect,
+            // so it defaults to false until the user finishes or skips it.
+            completed: z.boolean().default(false),
+        }),
     } as const;
 
     export type Key = keyof typeof schemas;
@@ -113,6 +119,14 @@ export class UserPreferencesHandler {
 
     static async setFolderDnd(userID: number, data: z.infer<(typeof UserPreferences.schemas)["folder-dnd"]>) {
         await this.set(userID, "folder-dnd", data);
+    }
+
+    static async getOnboarding(userID: number) {
+        return this.get(userID, "onboarding");
+    }
+
+    static async setOnboarding(userID: number, data: z.infer<(typeof UserPreferences.schemas)["onboarding"]>) {
+        await this.set(userID, "onboarding", data);
     }
 
     static async deleteAllForUser(userID: number): Promise<void> {
