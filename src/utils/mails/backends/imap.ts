@@ -385,75 +385,7 @@ export class IMAPAccount {
             });
         }
 
-        // Build IMAP search criteria
-        const buildSearchCriteria = (): SearchObject => {
-            const criteria: SearchObject = {};
-
-            if (query.text) {
-                // Full-text search across subject, from, to, and body
-                
-                criteria.or = [
-                    { subject: query.text },
-                    { from: query.text },
-                    { to: query.text },
-                    { body: query.text }
-                ];
-            }
-
-            if (query.subject) {
-                criteria.subject = query.subject;
-            }
-
-            if (query.from) {
-                criteria.from = query.from;
-            }
-
-            if (query.to) {
-                criteria.to = query.to;
-            }
-
-            if (query.body) {
-                criteria.body = query.body;
-            }
-
-            if (query.since) {
-                criteria.since = new Date(query.since);
-            }
-
-            if (query.before) {
-                criteria.before = new Date(query.before);
-            }
-
-            if (query.hasAttachment !== undefined) {
-                // IMAP doesn't have a direct "has attachment" flag, but we can filter later
-                // For now, we'll handle this post-fetch
-            }
-
-            // Flag-based search
-            if (query.seen !== undefined) {
-                criteria.seen = query.seen;
-            }
-
-            if (query.flagged !== undefined) {
-                criteria.flagged = query.flagged;
-            }
-
-            if (query.answered !== undefined) {
-                criteria.answered = query.answered;
-            }
-
-            if (query.draft !== undefined) {
-                criteria.draft = query.draft;
-            }
-
-            if (criteria.or && criteria.or.length === 0) {
-                delete criteria.or;
-            }
-
-            return criteria;
-        };
-
-        const searchCriteria = buildSearchCriteria();
+        const searchCriteria = IMAPAccount.buildSearchCriteria(query);
 
         // `has:attachment` can't be expressed as IMAP SEARCH criteria, so it is
         // evaluated from each match's bodyStructure during phase 1.
@@ -589,6 +521,74 @@ export class IMAPAccount {
 
         return results;
     }
+
+    // Build IMAP search criteria 
+    private static buildSearchCriteria(query: IMAPAccount.SearchQuery): SearchObject {
+        const criteria: SearchObject = {};
+
+        if (query.text) {
+            // Full-text search across subject, from, to, and body
+
+            criteria.or = [
+                { subject: query.text },
+                { from: query.text },
+                { to: query.text },
+                { body: query.text }
+            ];
+        }
+
+        if (query.subject) {
+            criteria.subject = query.subject;
+        }
+
+        if (query.from) {
+            criteria.from = query.from;
+        }
+
+        if (query.to) {
+            criteria.to = query.to;
+        }
+
+        if (query.body) {
+            criteria.body = query.body;
+        }
+
+        if (query.since) {
+            criteria.since = new Date(query.since);
+        }
+
+        if (query.before) {
+            criteria.before = new Date(query.before);
+        }
+
+        if (query.hasAttachment !== undefined) {
+            // IMAP doesn't have a direct "has attachment" flag, but we can filter later
+            // For now, we'll handle this post-fetch
+        }
+
+        // Flag-based search
+        if (query.seen !== undefined) {
+            criteria.seen = query.seen;
+        }
+
+        if (query.flagged !== undefined) {
+            criteria.flagged = query.flagged;
+        }
+
+        if (query.answered !== undefined) {
+            criteria.answered = query.answered;
+        }
+
+        if (query.draft !== undefined) {
+            criteria.draft = query.draft;
+        }
+
+        if (criteria.or && criteria.or.length === 0) {
+            delete criteria.or;
+        }
+
+        return criteria;
+    };
 
 
     /**
