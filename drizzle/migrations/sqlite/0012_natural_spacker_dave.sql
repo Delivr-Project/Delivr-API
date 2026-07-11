@@ -1,0 +1,1 @@
+ALTER TABLE `mail_accounts` ADD `onboarding_finished` integer DEFAULT false NOT NULL;

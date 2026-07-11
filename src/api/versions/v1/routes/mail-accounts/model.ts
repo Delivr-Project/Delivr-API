@@ -30,7 +30,10 @@ export namespace MailAccountsModel {
         is_default: z.boolean(),
     }).omit({
         smtp_encrypted_connection_data: true,
-        imap_encrypted_connection_data: true
+        imap_encrypted_connection_data: true,
+        // Exposed and managed through the dedicated `onboarding` sub-route, not
+        // the general account payload.
+        onboarding_finished: true
     });
 
     export type BASE = z.infer<typeof BASE>;

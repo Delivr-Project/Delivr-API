@@ -93,7 +93,12 @@ export const mailAccounts = sqliteTable('mail_accounts', {
     imap_encrypted_connection_data: text().notNull(),
 
     // is this the default mail account for the user
-    is_default: integer({ mode: "boolean" }).notNull().default(false)
+    is_default: integer({ mode: "boolean" }).notNull().default(false),
+
+    // Whether the user has finished the one-time, per-account folder onboarding
+    // (mirrors the platform-wide `onboarding` user preference, but scoped to this
+    // mail account). Defaults false until the user finishes or skips it.
+    onboarding_finished: integer({ mode: "boolean" }).notNull().default(false)
 });
 
 /**
