@@ -7,28 +7,6 @@ import { MailParser } from "../parser";
 import { Logger } from "../../logger";
 import { QuickSort } from "@cleverjs/utils";
 
-/**
- * Walk an IMAP bodyStructure and report whether the message carries an
- * attachment (a part explicitly dispositioned as an attachment, or a named
- * non-inline part). Lets a `has:attachment` filter be evaluated from
- * lightweight metadata, without downloading each message's full source.
- */
-function bodyStructureHasAttachment(node: any): boolean {
-    if (!node || typeof node !== 'object') return false;
-
-    const disposition = typeof node.disposition === 'string'
-        ? node.disposition.toLowerCase()
-        : undefined;
-    const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
-
-    if (disposition === 'attachment') return true;
-    if (filename && disposition !== 'inline') return true;
-
-    if (Array.isArray(node.childNodes)) {
-        return node.childNodes.some((child: any) => bodyStructureHasAttachment(child));
-    }
-    return false;
-}
 
 export class IMAPAccount {
 
@@ -407,75 +385,7 @@ export class IMAPAccount {
             });
         }
 
-        // Build IMAP search criteria
-        const buildSearchCriteria = (): SearchObject => {
-            const criteria: SearchObject = {};
-
-            if (query.text) {
-                // Full-text search across subject, from, to, and body
-                
-                criteria.or = [
-                    { subject: query.text },
-                    { from: query.text },
-                    { to: query.text },
-                    { body: query.text }
-                ];
-            }
-
-            if (query.subject) {
-                criteria.subject = query.subject;
-            }
-
-            if (query.from) {
-                criteria.from = query.from;
-            }
-
-            if (query.to) {
-                criteria.to = query.to;
-            }
-
-            if (query.body) {
-                criteria.body = query.body;
-            }
-
-            if (query.since) {
-                criteria.since = new Date(query.since);
-            }
-
-            if (query.before) {
-                criteria.before = new Date(query.before);
-            }
-
-            if (query.hasAttachment !== undefined) {
-                // IMAP doesn't have a direct "has attachment" flag, but we can filter later
-                // For now, we'll handle this post-fetch
-            }
-
-            // Flag-based search
-            if (query.seen !== undefined) {
-                criteria.seen = query.seen;
-            }
-
-            if (query.flagged !== undefined) {
-                criteria.flagged = query.flagged;
-            }
-
-            if (query.answered !== undefined) {
-                criteria.answered = query.answered;
-            }
-
-            if (query.draft !== undefined) {
-                criteria.draft = query.draft;
-            }
-
-            if (criteria.or && criteria.or.length === 0) {
-                delete criteria.or;
-            }
-
-            return criteria;
-        };
-
-        const searchCriteria = buildSearchCriteria();
+        const searchCriteria = IMAPAccount.buildSearchCriteria(query);
 
         // `has:attachment` can't be expressed as IMAP SEARCH criteria, so it is
         // evaluated from each match's bodyStructure during phase 1.
@@ -526,7 +436,7 @@ export class IMAPAccount {
 
                 for (const meta of metaMails) {
                     if (needsAttachmentInfo) {
-                        const hasAttachment = bodyStructureHasAttachment(meta.bodyStructure);
+                        const hasAttachment = IMAPAccount.bodyStructureHasAttachment(meta.bodyStructure);
                         if (query.hasAttachment ? !hasAttachment : hasAttachment) {
                             continue;
                         }
@@ -611,6 +521,102 @@ export class IMAPAccount {
 
         return results;
     }
+
+    // Build IMAP search criteria 
+    private static buildSearchCriteria(query: IMAPAccount.SearchQuery): SearchObject {
+        const criteria: SearchObject = {};
+
+        if (query.text) {
+            // Full-text search across subject, from, to, and body
+
+            criteria.or = [
+                { subject: query.text },
+                { from: query.text },
+                { to: query.text },
+                { body: query.text }
+            ];
+        }
+
+        if (query.subject) {
+            criteria.subject = query.subject;
+        }
+
+        if (query.from) {
+            criteria.from = query.from;
+        }
+
+        if (query.to) {
+            criteria.to = query.to;
+        }
+
+        if (query.body) {
+            criteria.body = query.body;
+        }
+
+        if (query.since) {
+            criteria.since = new Date(query.since);
+        }
+
+        if (query.before) {
+            criteria.before = new Date(query.before);
+        }
+
+        if (query.hasAttachment !== undefined) {
+            // IMAP doesn't have a direct "has attachment" flag, but we can filter later
+            // For now, we'll handle this post-fetch
+        }
+
+        // Flag-based search
+        if (query.seen !== undefined) {
+            criteria.seen = query.seen;
+        }
+
+        if (query.flagged !== undefined) {
+            criteria.flagged = query.flagged;
+        }
+
+        if (query.answered !== undefined) {
+            criteria.answered = query.answered;
+        }
+
+        if (query.draft !== undefined) {
+            criteria.draft = query.draft;
+        }
+
+        if (criteria.or && criteria.or.length === 0) {
+            delete criteria.or;
+        }
+
+        return criteria;
+    };
+
+
+    /**
+     * Walk an IMAP bodyStructure and report whether the message carries an
+     * attachment (a part explicitly dispositioned as an attachment, or a named
+     * non-inline part). Lets a `has:attachment` filter be evaluated from
+     * lightweight metadata, without downloading each message's full source.
+     */
+    private static bodyStructureHasAttachment(node: any): boolean {
+        if (!node || typeof node !== 'object') return false;
+
+        const disposition = typeof node.disposition === 'string'
+            ? node.disposition.toLowerCase()
+            : undefined;
+        const filename = node.dispositionParameters?.filename ?? node.parameters?.name;
+        const contentId = typeof node.id === 'string' ? node.id : undefined;
+
+        if (disposition === 'attachment') return true;
+        if (filename) return true;
+        if (disposition === 'inline' && contentId) return true;
+
+        if (Array.isArray(node.childNodes)) {
+            return node.childNodes.some((child: any) => this.bodyStructureHasAttachment(child));
+        }
+        return false;
+    }
+
+
 }
 
 export namespace IMAPAccount {

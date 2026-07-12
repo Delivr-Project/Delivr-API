@@ -2,12 +2,14 @@ import { Hono } from "hono";
 import { ResetPasswordModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../../db";
+import { type DrizzleDB } from "../../../../../../db/utils";
 import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../../utils/api-res";
 import { AuthHandler, SessionHandler } from "../../../../../utils/authHandler";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../docs";
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from "crypto"
+import { Logger } from "../../../../../../utils/logger";
 import { EmailService } from "../../../../../utils/email";
 
 
@@ -76,48 +78,59 @@ router.post('/',
         }
 
         const resetData = c.req.valid("json");
-        const hashedResetToken = hashResetToken(resetData.reset_token);
 
-        // Rate limit: max 3 attempts per token
-        if (!checkRateLimit(resetConsumeAttempts, hashedResetToken, RESET_CONSUME_MAX_PER_TOKEN, RESET_REQUEST_WINDOW_MS)) {
-            return APIResponse.badRequest(c, "Invalid reset token");
+        try {
+
+            const hashedResetToken = hashResetToken(resetData.reset_token);
+
+            // Rate limit: max 3 attempts per token
+            if (!checkRateLimit(resetConsumeAttempts, hashedResetToken, RESET_CONSUME_MAX_PER_TOKEN, RESET_REQUEST_WINDOW_MS)) {
+                return APIResponse.badRequest(c, "Invalid reset token");
+            }
+
+            let checkToken = DB.instance().select().from(DB.Tables.passwordResets).where(
+                eq(DB.Tables.passwordResets.token, hashedResetToken)
+            ).get();
+
+            if (!checkToken) {
+                return APIResponse.badRequest(c, "Invalid reset token");
+            }
+
+            if (checkToken.expires_at < Date.now()) {
+                return APIResponse.badRequest(c, "Invalid reset token");
+            }
+
+            const user = DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.id, checkToken.user_id)
+            ).get();
+
+            if (!user) {
+                throw new Error("User for reset token not found");
+            }
+
+            const newPasswordHash = await Bun.password.hash(resetData.new_password);
+
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+                await tx.update(DB.Tables.users).set({
+                    password_hash: newPasswordHash
+                }).where(
+                    eq(DB.Tables.users.id, user.id)
+                ).run();
+
+                await AuthHandler.invalidateAllAuthContextsForUser(user.id, tx);
+
+                await tx.delete(DB.Tables.passwordResets).where(
+                    eq(DB.Tables.passwordResets.user_id, user.id)
+                ).run();
+            });
+
+            return APIResponse.successNoData(c, "Password has been reset successfully");
+
+        } catch (error: any) {
+            Logger.error("Failed to reset password", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to reset password");
         }
 
-        let checkToken = DB.instance().select().from(DB.Tables.passwordResets).where(
-            eq(DB.Tables.passwordResets.token, hashedResetToken)
-        ).get();
-
-        if (!checkToken) {
-            return APIResponse.badRequest(c, "Invalid reset token");
-        }
-
-        if (checkToken.expires_at < Date.now()) {
-            return APIResponse.badRequest(c, "Invalid reset token");
-        }
-
-        const user = DB.instance().select().from(DB.Tables.users).where(
-            eq(DB.Tables.users.id, checkToken.user_id)
-        ).get();
-
-        if (!user) {
-            throw new Error("User for reset token not found");
-        }
-
-        const newPasswordHash = await Bun.password.hash(resetData.new_password);
-
-        await DB.instance().update(DB.Tables.users).set({
-            password_hash: newPasswordHash
-        }).where(
-            eq(DB.Tables.users.id, user.id)
-        ).run();
-
-        await AuthHandler.invalidateAllAuthContextsForUser(user.id);
-
-        await DB.instance().delete(DB.Tables.passwordResets).where(
-            eq(DB.Tables.passwordResets.user_id, user.id)
-        ).run();
-
-        return APIResponse.successNoData(c, "Password has been reset successfully");
     }
 );
 
@@ -157,17 +170,24 @@ router.post('/request',
         if (user) {
             const resetToken = crypto_randomBytes(64).toString('hex');
 
-            // Delete any existing reset tokens for this user
-            await DB.instance().delete(DB.Tables.passwordResets).where(
-                eq(DB.Tables.passwordResets.user_id, user.id)
-            ).run();
+            try {
+                await DB.instance().transaction(async (tx: DrizzleDB) => {
+                    // Delete any existing reset tokens for this user
+                    await tx.delete(DB.Tables.passwordResets).where(
+                        eq(DB.Tables.passwordResets.user_id, user.id)
+                    ).run();
 
-            // Create new reset token — 1 hour expiry (OWASP recommendation: 15-60 min)
-            await DB.instance().insert(DB.Tables.passwordResets).values({
-                user_id: user.id,
-                token: hashResetToken(resetToken),
-                expires_at: Date.now() + 60 * 60 * 1000 // 1 hour
-            }).run();
+                    // Create new reset token — 1 hour expiry (OWASP recommendation: 15-60 min)
+                    await tx.insert(DB.Tables.passwordResets).values({
+                        user_id: user.id,
+                        token: hashResetToken(resetToken),
+                        expires_at: Date.now() + 60 * 60 * 1000 // 1 hour
+                    }).run();
+                });
+            } catch (error: any) {
+                Logger.error("Failed to request password reset", error.stack || error.message || error);
+                return APIResponse.serverError(c, "Failed to request password reset");
+            }
 
             // send email with reset token (fire-and-forget — errors are logged server-side)
             if (EmailService.isEnabled()) {

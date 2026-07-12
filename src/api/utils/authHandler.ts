@@ -1,13 +1,14 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../db";
+import type { DrizzleDB } from "../../db/utils";
 import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
 import type { Context } from "hono";
 import type { UserAccountSettings } from "./shared-models/accountData";
 
 export class AuthUtils {
 
-    static async getUserRole(userID: number) {
-        const user = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, userID)).get();
+    static async getUserRole(userID: number, tx: DrizzleDB = DB.instance()) {
+        const user = tx.select().from(DB.Tables.users).where(eq(DB.Tables.users.id, userID)).get();
         if (!user) {
             return null;
         }
@@ -62,7 +63,7 @@ export class SessionHandler {
 
     static readonly SESSION_TOKEN_PREFIX = "dla_sess_";
 
-    static async createSession(userID: number) {
+    static async createSession(userID: number, tx: DrizzleDB = DB.instance()) {
 
         const tokenID = AuthUtils.createRandomTokenID();
         const tokenBase = AuthUtils.createBaseToken();
@@ -73,14 +74,14 @@ export class SessionHandler {
             tokenBase
         );
 
-        const result = await DB.instance().insert(DB.Tables.sessions).values({
+        const result = await tx.insert(DB.Tables.sessions).values({
             id: tokenID,
             hashed_token: await AuthUtils.hashTokenBase(tokenBase),
             user_id: userID,
-            user_role: await AuthUtils.getUserRole(userID) || "user",
+            user_role: await AuthUtils.getUserRole(userID, tx) || "user",
             expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).getTime() // 7 days from now
         }).returning().get();
-        
+
         return {
             token: fullToken,
             user_id: result.user_id,
@@ -90,13 +91,13 @@ export class SessionHandler {
         } satisfies Omit<DB.Models.Session, 'id' | 'hashed_token'> & { token: string; };
     }
 
-    static async getSession(tokenParts: AuthHandler.TokenParts) {
+    static async getSession(tokenParts: AuthHandler.TokenParts, tx: DrizzleDB = DB.instance()) {
 
         if (!tokenParts.prefix.startsWith(this.SESSION_TOKEN_PREFIX)) {
             return null;
         }
 
-        const session = DB.instance().select().from(DB.Tables.sessions).where(
+        const session = tx.select().from(DB.Tables.sessions).where(
             eq(DB.Tables.sessions.id, tokenParts.id)
         ).get();
         if (!session) {
@@ -110,31 +111,31 @@ export class SessionHandler {
         return session;
     }
 
-    static async isValidSession(session: DB.Models.Session) {
+    static async isValidSession(session: DB.Models.Session, tx: DrizzleDB = DB.instance()) {
         if (!session) {
             return false;
         }
 
         if (session.expires_at < Date.now()) {
             // Delete expired session
-            await DB.instance().delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.id, session.id));
+            await tx.delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.id, session.id));
 
             return false;
         }
 
         return true;
     }
-        
-    static async inValidateAllSessionsForUser(userID: number) {
-        await DB.instance().delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.user_id, userID));
+
+    static async inValidateAllSessionsForUser(userID: number, tx: DrizzleDB = DB.instance()) {
+        await tx.delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.user_id, userID));
     }
 
-    static async inValidateSession(tokenID: string) {
-        await DB.instance().delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.id, tokenID));
+    static async inValidateSession(tokenID: string, tx: DrizzleDB = DB.instance()) {
+        await tx.delete(DB.Tables.sessions).where(eq(DB.Tables.sessions.id, tokenID));
     }
 
-    static async changeUserRoleInSessions(userID: number, newRole: UserAccountSettings.Role) {
-        await DB.instance().update(DB.Tables.sessions).set({
+    static async changeUserRoleInSessions(userID: number, newRole: UserAccountSettings.Role, tx: DrizzleDB = DB.instance()) {
+        await tx.update(DB.Tables.sessions).set({
             user_role: newRole
         }).where(
             eq(DB.Tables.sessions.user_id, userID)
@@ -147,7 +148,7 @@ export class APIKeyHandler {
 
     static readonly API_KEY_PREFIX = "dla_apikey_";
 
-    static async createApiKey(userID: number, description: string, expiresInDays?: number) {
+    static async createApiKey(userID: number, description: string, expiresInDays?: number, tx: DrizzleDB = DB.instance()) {
         const expiresAt = expiresInDays ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).getTime() : null;
 
         const tokenID = AuthUtils.createRandomTokenID();
@@ -159,11 +160,11 @@ export class APIKeyHandler {
             tokenBase
         );
 
-        const result = await DB.instance().insert(DB.Tables.apiKeys).values({
+        const result = await tx.insert(DB.Tables.apiKeys).values({
             id: tokenID,
             hashed_token: await AuthUtils.hashTokenBase(tokenBase),
             user_id: userID,
-            user_role: await AuthUtils.getUserRole(userID) || "user",
+            user_role: await AuthUtils.getUserRole(userID, tx) || "user",
             description: description,
             expires_at: expiresAt
         }).returning().get();
@@ -178,20 +179,20 @@ export class APIKeyHandler {
         } satisfies Omit<DB.Models.ApiKey, 'id' | 'hashed_token'> & { token: string; };
     }
 
-    static async getApiKey(tokenParts: AuthHandler.TokenParts) {
+    static async getApiKey(tokenParts: AuthHandler.TokenParts, tx: DrizzleDB = DB.instance()) {
 
         if (!tokenParts.prefix.startsWith(this.API_KEY_PREFIX)) {
             return null;
         }
 
-        const key = DB.instance().select().from(DB.Tables.apiKeys).where(
+        const key = tx.select().from(DB.Tables.apiKeys).where(
             eq(DB.Tables.apiKeys.id, tokenParts.id)
         ).get();
 
         if (!key) {
             return null;
         }
-        
+
         if (!(await AuthUtils.verifyHashedTokenBase(tokenParts.base, key.hashed_token))) {
             return null;
         }
@@ -199,7 +200,7 @@ export class APIKeyHandler {
         return key;
     }
 
-    static async isValidApiKey(key: Omit<DB.Models.ApiKey, 'id'>) {
+    static async isValidApiKey(key: Omit<DB.Models.ApiKey, 'id'>, tx: DrizzleDB = DB.instance()) {
         if (!key) {
             return false;
         }
@@ -211,16 +212,16 @@ export class APIKeyHandler {
         return true;
     }
 
-    static async deleteAllApiKeysForUser(userID: number) {
-        await DB.instance().delete(DB.Tables.apiKeys).where(eq(DB.Tables.apiKeys.user_id, userID));
+    static async deleteAllApiKeysForUser(userID: number, tx: DrizzleDB = DB.instance()) {
+        await tx.delete(DB.Tables.apiKeys).where(eq(DB.Tables.apiKeys.user_id, userID));
     }
 
-    static async deleteApiKey(apiKeyID: string) {
-        await DB.instance().delete(DB.Tables.apiKeys).where(eq(DB.Tables.apiKeys.id, apiKeyID));
+    static async deleteApiKey(apiKeyID: string, tx: DrizzleDB = DB.instance()) {
+        await tx.delete(DB.Tables.apiKeys).where(eq(DB.Tables.apiKeys.id, apiKeyID));
     }
 
-    static async changeUserRoleInApiKeys(userID: number, newRole: UserAccountSettings.Role) {
-        await DB.instance().update(DB.Tables.apiKeys).set({
+    static async changeUserRoleInApiKeys(userID: number, newRole: UserAccountSettings.Role, tx: DrizzleDB = DB.instance()) {
+        await tx.update(DB.Tables.apiKeys).set({
             user_role: newRole
         }).where(
             eq(DB.Tables.apiKeys.user_id, userID)
@@ -240,7 +241,7 @@ export class AuthHandler {
         }
     }
 
-    static async getAuthContext(fullToken: string): Promise<AuthHandler.AuthContext | null> {
+    static async getAuthContext(fullToken: string, tx: DrizzleDB = DB.instance()): Promise<AuthHandler.AuthContext | null> {
 
         const tokenParts = AuthUtils.getTokenParts(fullToken);
         if (!tokenParts) {
@@ -250,7 +251,7 @@ export class AuthHandler {
         switch (await this.getTokenType(fullToken)) {
             case 'session':
 
-                const session = await SessionHandler.getSession(tokenParts);
+                const session = await SessionHandler.getSession(tokenParts, tx);
                 if (!session) {
                     return null;
                 }
@@ -259,7 +260,7 @@ export class AuthHandler {
                     ...session
                 }
             case 'apiKey':
-                const apiKey = await APIKeyHandler.getApiKey(tokenParts);
+                const apiKey = await APIKeyHandler.getApiKey(tokenParts, tx);
                 if (!apiKey) {
                     return null;
                 }
@@ -273,39 +274,39 @@ export class AuthHandler {
 
     }
 
-    static async isValidAuthContext(authContext: AuthHandler.AuthContext): Promise<boolean> {
+    static async isValidAuthContext(authContext: AuthHandler.AuthContext, tx: DrizzleDB = DB.instance()): Promise<boolean> {
         switch (authContext.type) {
             case 'session':
-                return await SessionHandler.isValidSession(authContext);
+                return await SessionHandler.isValidSession(authContext, tx);
             case 'apiKey':
-                return await APIKeyHandler.isValidApiKey(authContext);
+                return await APIKeyHandler.isValidApiKey(authContext, tx);
             default:
                 return false;
         }
     }
 
-    static async invalidateAuthContext(authContext: AuthHandler.AuthContext): Promise<void> {
+    static async invalidateAuthContext(authContext: AuthHandler.AuthContext, tx: DrizzleDB = DB.instance()): Promise<void> {
         switch (authContext.type) {
             case 'session':
-                await SessionHandler.inValidateSession(authContext.id);
+                await SessionHandler.inValidateSession(authContext.id, tx);
                 break;
             case 'apiKey':
-                await APIKeyHandler.deleteApiKey(authContext.id);
+                await APIKeyHandler.deleteApiKey(authContext.id, tx);
                 break;
         }
     }
 
-    static async invalidateAllAuthContextsForUser(userID: number): Promise<void> {
+    static async invalidateAllAuthContextsForUser(userID: number, tx: DrizzleDB = DB.instance()): Promise<void> {
         return await Promise.all([
-            SessionHandler.inValidateAllSessionsForUser(userID),
-            APIKeyHandler.deleteAllApiKeysForUser(userID)
+            SessionHandler.inValidateAllSessionsForUser(userID, tx),
+            APIKeyHandler.deleteAllApiKeysForUser(userID, tx)
         ]).then(() => { return; });
     }
 
-    static async changeUserRoleInAuthContexts(userID: number, newRole: UserAccountSettings.Role): Promise<void> {
+    static async changeUserRoleInAuthContexts(userID: number, newRole: UserAccountSettings.Role, tx: DrizzleDB = DB.instance()): Promise<void> {
         return await Promise.all([
-            SessionHandler.changeUserRoleInSessions(userID, newRole),
-            APIKeyHandler.changeUserRoleInApiKeys(userID, newRole)
+            SessionHandler.changeUserRoleInSessions(userID, newRole, tx),
+            APIKeyHandler.changeUserRoleInApiKeys(userID, newRole, tx)
         ]).then(() => { return; });
     }
 

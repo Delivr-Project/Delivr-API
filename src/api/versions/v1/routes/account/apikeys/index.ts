@@ -2,12 +2,14 @@ import { Hono } from "hono";
 import { AccountAPIKeysModel } from './model'
 import { validator } from "hono-openapi";
 import { DB } from "../../../../../../db";
+import { type DrizzleDB } from "../../../../../../db/utils";
 import { and, eq } from "drizzle-orm";
 import { APIResponse } from "../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers";
 import { APIKeyHandler, AuthHandler, AuthUtils, SessionHandler } from "../../../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
 import z from "zod";
+import { Logger } from "../../../../../../utils/logger";
 
 export const router = new Hono().basePath('/apikeys');
 
@@ -88,19 +90,30 @@ router.post('/',
                 break
         }
 
-        const key = await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationInDays);
-        const tokenID = AuthUtils.getTokenParts(key.token)?.id;
+        try {
+            const key = await DB.instance().transaction(async (tx: DrizzleDB) => {
+                return await APIKeyHandler.createApiKey(authContext.user_id, apiKeyData.description, expirationInDays, tx);
+            });
+            
+            const tokenID = AuthUtils.getTokenParts(key.token)?.id;
 
-        if (!tokenID) {
-            throw new Error("Failed to parse token ID from generated API key");
+            if (!tokenID) {
+                throw new Error("Failed to parse token ID from generated API key");
+            }
+
+            const keyWithoutSensitive = {
+                id: tokenID,
+                token: key.token
+            }
+
+            return APIResponse.success(c, "API key created successfully", keyWithoutSensitive satisfies AccountAPIKeysModel.Create.Response);
+
+        
+        } catch (error: any) {
+            Logger.error("Failed to create API key", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to create API key");
         }
 
-        const keyWithoutSensitive = {
-            id: tokenID,
-            token: key.token
-        }
-
-        return APIResponse.success(c, "API key created successfully", keyWithoutSensitive satisfies AccountAPIKeysModel.Create.Response);
     }
 
 );
