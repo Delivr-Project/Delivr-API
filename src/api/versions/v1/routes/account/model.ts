@@ -25,7 +25,9 @@ export namespace AccountModel.UpdateInfo {
     }).partial().refine(
         (data) => Object.values(data).some((value) => value !== undefined),
         { message: "At least one field must be provided" }
-    );
+    ).and(z.object({
+        current_password: z.string().min(1).describe("Current password — required to confirm account changes"),
+    }));
 
     export type Body = z.infer<typeof Body>;
 

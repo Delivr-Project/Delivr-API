@@ -65,24 +65,58 @@ router.put('/',
 
         responses: APIResponseSpec.describeWithWrongInputs(
             APIResponseSpec.successNoData("Account information updated successfully"), 
-            APIResponseSpec.unauthorized("Your Auth Context is not a session")
+            APIResponseSpec.unauthorized("Your Auth Context is not a session"),
+            APIResponseSpec.conflict("Username or email already in use")
         )
     }),
 
     validator("json", AccountModel.UpdateInfo.Body),
 
     async (c) => {
-
+        
         const authContext = AuthHandler.AuthContext.getAsSession(c);
 
         const body = c.req.valid("json") as AccountModel.UpdateInfo.Body;
+        const { current_password, ...updates } = body;
 
-        DB.instance().update(DB.Tables.users).set(body).where(
+        // Verify current password before allowing changes
+        const user = await DB.instance().select().from(DB.Tables.users).where(
+            eq(DB.Tables.users.id, authContext.user_id)
+        ).get();
+
+        if (!user) {
+            throw new Error("User not found but session exists");
+        }
+
+        if (!(await Bun.password.verify(current_password, user.password_hash))) {
+            return APIResponse.unauthorized(c, "Current password is incorrect");
+        }
+
+        // Check for conflicts if changing username or email
+        if (updates.username && updates.username !== user.username) {
+            const usernameConflict = await DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.username, updates.username)
+            ).get();
+            if (usernameConflict) {
+                return APIResponse.conflict(c, "Username already in use");
+            }
+        }
+
+        if (updates.email && updates.email !== user.email) {
+            const emailConflict = await DB.instance().select().from(DB.Tables.users).where(
+                eq(DB.Tables.users.email, updates.email)
+            ).get();
+            if (emailConflict) {
+                return APIResponse.conflict(c, "Email already in use");
+            }
+        }
+
+        await DB.instance().update(DB.Tables.users).set(updates).where(
             eq(DB.Tables.users.id, authContext.user_id)
         ).run();
 
         return APIResponse.successNoData(c, "Account information updated successfully");
-    },
+    }
 );
 
 router.put('/password',
