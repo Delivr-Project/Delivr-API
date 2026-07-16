@@ -282,7 +282,8 @@ describe("Account routes", async () => {
         const newUserData = {
             display_name: "Updated Name",
             username: "updatedusername",
-            email: "updated@example.com"
+            email: "updated@example.com",
+            current_password: testUser.password
         }
 
         await makeAPIRequest("/v1/account", {
