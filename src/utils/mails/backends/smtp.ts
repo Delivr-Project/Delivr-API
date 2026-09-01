@@ -72,6 +72,47 @@ export class SMTPAccount {
         });
     }
 
+    /**
+     * Send a message from its raw RFC822 source.
+     *
+     * Preferred over {@link SMTPAccount.sendMail} when the message already exists
+     * (e.g. a stored draft): the source is relayed byte-for-byte, so attachments,
+     * inline parts and the original MIME structure survive — none of which are
+     * recoverable from the metadata-only parsed representation.
+     *
+     * The envelope is passed explicitly because it cannot be derived from `raw`.
+     *
+     * @param source - The raw message source
+     * @param mail - The parsed message, used only to build the SMTP envelope
+     * @returns The nodemailer result, or `null` if the message has no sender or no recipients
+     */
+    async sendRaw(source: Buffer | string, mail: MailRessource.IMail) {
+        const sender = mail.from;
+        if (!sender) {
+            return null;
+        }
+
+        // Bcc recipients live in the envelope only — the header is intentionally
+        // not relied upon here, as it may legitimately be absent from the source.
+        const recipients = [
+            ...(mail.to ?? []),
+            ...(mail.cc ?? []),
+            ...(mail.bcc ?? [])
+        ].map(addr => addr.address);
+
+        if (recipients.length === 0) {
+            return null;
+        }
+
+        return await this.client.sendMail({
+            envelope: {
+                from: sender.address,
+                to: recipients
+            },
+            raw: source
+        });
+    }
+
     protected static formatAddress(addr: MailRessource.EmailAddress) {
         return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
     }

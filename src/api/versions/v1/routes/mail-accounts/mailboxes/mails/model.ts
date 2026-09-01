@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OpenAPIV3_1 } from "openapi-types";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import type { Utils } from "../../../../../../../utils";
 import { ApiHelperModels } from "../../../../../../utils/shared-models/api-helper-models";
@@ -106,6 +107,27 @@ export namespace MailsModel.Create {
     });
 
     export type Body = z.infer<typeof Body>;
+
+    /**
+     * `multipart/form-data` variant of {@link Body}, used when the mail carries
+     * attachments. The mail itself is sent as a JSON string in the `mail` field;
+     * each file is appended as a separate `attachments` entry.
+     */
+    export const MultipartSchema = {
+        type: "object",
+        properties: {
+            mail: {
+                type: "string",
+                description: "The mail as a JSON string, using the same shape as the `application/json` body."
+            },
+            attachments: {
+                type: "array",
+                items: { type: "string", format: "binary" },
+                description: "Files to attach. Repeat the field once per file."
+            }
+        },
+        required: ["mail"]
+    } satisfies OpenAPIV3_1.SchemaObject;
 
     export const Response = z.object({
         uid: z.number()
