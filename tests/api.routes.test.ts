@@ -1637,6 +1637,35 @@ describe("Mail Mailbox Mails Routes", async () => {
         createdMailUID = data.uid;
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails stores multipart attachments", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { name: "Test Sender", address: "sender@test.com" },
+            to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Draft with attachment",
+            body: { text: "See attachment" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File(["attachment body"], "note.txt", { type: "text/plain" }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(response.status).toBe(200);
+
+        const created = await response.json() as { data: { uid: number } };
+        const attachmentData = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.data.uid}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+
+        expect(attachmentData).toHaveLength(1);
+        expect(attachmentData[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
+    });
+
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
 
         const mailData = {

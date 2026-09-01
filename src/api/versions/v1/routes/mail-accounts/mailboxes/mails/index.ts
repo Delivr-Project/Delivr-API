@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { MailsModel } from "./model";
 import { APIResponse } from "../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../utils/specHelpers";
@@ -16,11 +16,105 @@ import { SMTPAccount } from "../../../../../../../utils/mails/backends/smtp";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { MailParser } from "../../../../../../../utils/mails/parser";
+import { ConfigHandler } from "../../../../../../../utils/config";
+import type { OpenAPIV3_1 } from "openapi-types";
 
 
 
 function formatEmailAddress(addr: { name?: string; address: string }): string {
     return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
+}
+
+/** Attachment handed to `MailComposer`, held in memory only while composing. */
+type ComposerAttachment = {
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+};
+
+const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 25;
+
+/** Combined attachment size allowed on a single mail, in bytes. */
+function maxAttachmentSize(): number {
+    const configured = Number(ConfigHandler.getConfig()?.DLA_MAX_ATTACHMENT_SIZE_MB);
+    const megabytes = Number.isFinite(configured) && configured > 0
+        ? configured
+        : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+
+    return megabytes * 1024 * 1024;
+}
+
+/**
+ * Read the create-mail payload from either a JSON body or a `multipart/form-data`
+ * body carrying attachments.
+ *
+ * In the multipart case the mail itself arrives as a JSON string in the `mail`
+ * field and each file as an `attachments` entry. Files are read into memory only
+ * for as long as it takes to compose the message — nothing is written to disk.
+ *
+ * @returns The validated body plus attachments, or an error message to return as a 400
+ */
+async function readCreatePayload(c: Context): Promise<
+    { ok: true; body: MailsModel.Create.Body; attachments: ComposerAttachment[] } |
+    { ok: false; error: string }
+> {
+    const contentType = c.req.header('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
+
+    let rawBody: unknown;
+    const attachments: ComposerAttachment[] = [];
+
+    if (isMultipart) {
+        let form: FormData;
+        try {
+            form = await c.req.formData();
+        } catch {
+            return { ok: false, error: "Malformed multipart/form-data body" };
+        }
+
+        const mailField = form.get('mail');
+        if (typeof mailField !== 'string') {
+            return { ok: false, error: "Missing 'mail' field in multipart body" };
+        }
+
+        try {
+            rawBody = JSON.parse(mailField);
+        } catch {
+            return { ok: false, error: "The 'mail' field is not valid JSON" };
+        }
+
+        const files = form.getAll('attachments').filter((entry): entry is File => entry instanceof File);
+
+        const limit = maxAttachmentSize();
+        const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+        if (totalSize > limit) {
+            return {
+                ok: false,
+                error: `Attachments exceed the maximum combined size of ${Math.floor(limit / (1024 * 1024))} MB`
+            };
+        }
+
+        for (const file of files) {
+            attachments.push({
+                filename: file.name || 'attachment',
+                content: Buffer.from(await file.arrayBuffer()),
+                contentType: file.type || undefined
+            });
+        }
+    } else {
+        try {
+            rawBody = await c.req.json();
+        } catch {
+            return { ok: false, error: "Malformed JSON body" };
+        }
+    }
+
+    const parsed = MailsModel.Create.Body.safeParse(rawBody);
+    if (!parsed.success) {
+        return { ok: false, error: "Bad Request: Syntax or validation error in request" };
+    }
+
+    return { ok: true, body: parsed.data, attachments };
 }
 
 
@@ -74,8 +168,15 @@ router.post('/',
 
     APIRouteSpec.authenticated({
         summary: "Create Mail",
-        description: "Create a new mail in the current mailbox (e.g., a draft).",
+        description: "Create a new mail in the current mailbox (e.g., a draft). Supports JSON bodies and multipart bodies with attachments.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+        requestBody: {
+            required: true,
+            content: {
+                "application/json": { schema: z.toJSONSchema(MailsModel.Create.Body) as OpenAPIV3_1.SchemaObject },
+                "multipart/form-data": { schema: MailsModel.Create.MultipartSchema }
+            }
+        },
 
         responses: APIResponseSpec.describeWithWrongInputs(
             APIResponseSpec.success("Mail created successfully", MailsModel.Create.Response),
@@ -83,15 +184,16 @@ router.post('/',
         )
     }),
 
-    validator('json', MailsModel.Create.Body),
-
     async (c) => {
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
-        const body = c.req.valid('json');
+        const payload = await readCreatePayload(c);
+        if (!payload.ok) return APIResponse.badRequest(c, payload.error);
+
+        const { body, attachments } = payload;
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
@@ -107,7 +209,8 @@ router.post('/',
                 subject: body.subject,
                 text: body.body?.text,
                 html: body.body?.html,
-                priority: body.priority
+                priority: body.priority,
+                attachments
             });
 
             const message = await composer.compile().build();
@@ -287,10 +390,12 @@ router.post('/:mailUID/send',
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
-            // Send the mail via SMTP
-            const result = await smtp.sendMail(mailData);
-
             await imap.connect();
+
+            // Send the exact stored source so MIME attachments and inline parts survive.
+            const source = await imap.getMailSource(mailbox.path, mailData.uid);
+            if (!source) return APIResponse.notFound(c, "Mail with specified UID not found");
+            const result = await smtp.sendRaw(source, mailData);
 
             // Move original mail to Sent folder (default behavior)
             if (body.moveToSent) {
