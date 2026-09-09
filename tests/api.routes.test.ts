@@ -1666,6 +1666,30 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(attachmentData[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects attachments above the combined size limit", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { name: "Test Sender", address: "sender@test.com" },
+            to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+            subject: "Oversized attachment",
+            body: { text: "This request must be rejected" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File([new Uint8Array(26 * 1024 * 1024)], "too-large.bin", {
+            type: "application/octet-stream"
+        }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Attachments exceed the maximum combined size of 25 MB"
+        });
+    });
+
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
 
         const mailData = {

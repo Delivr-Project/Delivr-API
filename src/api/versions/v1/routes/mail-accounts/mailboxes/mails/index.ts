@@ -3,8 +3,7 @@ import { MailsModel } from "./model";
 import { APIResponse } from "../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../../docs";
-import { z } from "zod";
-import { validator } from "hono-openapi";
+import { resolver, validator } from "hono-openapi";
 import { MailAccountsModel } from "../../model";
 import { router as attachmentsRouter } from "./attachments";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
@@ -173,7 +172,7 @@ router.post('/',
         requestBody: {
             required: true,
             content: {
-                "application/json": { schema: z.toJSONSchema(MailsModel.Create.Body) as OpenAPIV3_1.SchemaObject },
+                "application/json": { schema: resolver(MailsModel.Create.Body).toJSONSchema() as OpenAPIV3_1.SchemaObject },
                 "multipart/form-data": { schema: MailsModel.Create.MultipartSchema }
             }
         },
@@ -396,6 +395,7 @@ router.post('/:mailUID/send',
             const source = await imap.getMailSource(mailbox.path, mailData.uid);
             if (!source) return APIResponse.notFound(c, "Mail with specified UID not found");
             const result = await smtp.sendRaw(source, mailData);
+            if (!result) return APIResponse.badRequest(c, "Mail must include a sender and at least one recipient");
 
             // Move original mail to Sent folder (default behavior)
             if (body.moveToSent) {
