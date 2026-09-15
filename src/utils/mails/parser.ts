@@ -168,26 +168,33 @@ export class MailParser {
         source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream,
         attachmentId: number
     ): Promise<MailParser.AttachmentContent | null> {
+        const attachments = await this.getAttachmentContents(source);
+        return attachments[attachmentId] ?? null;
+    }
+
+    /** Parse all attachment bytes and metadata from one immutable MIME source. */
+    static async getAttachmentContents(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
+    ): Promise<MailParser.AttachmentContent[]> {
         const parsed = await PostalMime.parse(source);
-        const attachment = parsed.attachments[attachmentId];
-        if (!attachment) return null;
+        return parsed.attachments.map(attachment => {
+            // postal-mime may return text or binary representations; normalize
+            // every part without changing its underlying bytes.
+            const raw = attachment.content;
+            const content = typeof raw === 'string'
+                ? new TextEncoder().encode(raw)
+                : raw instanceof Uint8Array
+                    ? raw
+                    : new Uint8Array(raw);
 
-        // postal-mime hands back an ArrayBuffer/Uint8Array for binary parts and a
-        // string for text parts; normalise all cases to a single Uint8Array of bytes.
-        const raw = attachment.content;
-        const content = typeof raw === 'string'
-            ? new TextEncoder().encode(raw)
-            : raw instanceof Uint8Array
-                ? raw
-                : new Uint8Array(raw);
-
-        return {
-            filename: attachment.filename || undefined,
-            contentType: attachment.mimeType || 'application/octet-stream',
-            content,
-            contentId: attachment.contentId || undefined,
-            contentDisposition: attachment.disposition || undefined,
-        };
+            return {
+                filename: attachment.filename || undefined,
+                contentType: attachment.mimeType || 'application/octet-stream',
+                content,
+                contentId: attachment.contentId || undefined,
+                contentDisposition: attachment.disposition || undefined,
+            };
+        });
     }
 
     /**

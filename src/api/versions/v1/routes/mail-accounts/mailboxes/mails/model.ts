@@ -167,7 +167,13 @@ export namespace MailsModel.SetFlags {
 
 export namespace MailsModel.Update {
 
-    export const Body = MailsModel.Create.Body.partial();
+    // `\\Recent` is assigned by the IMAP server and must not be accepted as a
+    // client update. Strictness prevents Zod from silently stripping it and
+    // turning a recent-only request into a successful no-op.
+    export const Body = MailsModel.Create.Body
+        .omit({ flags: true })
+        .partial()
+        .extend({ flags: MailsModel.SetFlags.Body.strict().optional() });
 
     export type Body = z.infer<typeof Body>;
 
@@ -209,4 +215,3 @@ export namespace MailsModel.Delete {
 
     export type Response = z.infer<typeof Response>;
 }
-

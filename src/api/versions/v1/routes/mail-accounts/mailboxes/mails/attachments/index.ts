@@ -4,10 +4,8 @@ import { AttachmentsModel } from "./model";
 import { APIResponse } from "../../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../../../docs";
-import { MailAccountsModel } from "../../../model";
-import { MailboxesModel } from "../../model";
 import { MailRessource } from "../../../../../../../../utils/mails/ressources/mail";
-import { MailClientsCache } from "../../../../../../../../utils/mails/mail-clients-cache";
+import { MailParser } from "../../../../../../../../utils/mails/parser";
 import { Logger } from "../../../../../../../../utils/logger";
 
 /**
@@ -83,21 +81,16 @@ router.get('/:attachmentId',
 
     async (c) => {
         // @ts-ignore
-        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
-        // @ts-ignore
-        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
-        // @ts-ignore
         const mailData = c.get("mailData") as MailRessource.IMail;
+        // @ts-ignore
+        const source = c.get("mailSource") as Buffer;
 
         // @ts-ignore
         const { attachmentId } = c.req.valid('param') as AttachmentsModel.Param;
         const query = c.req.valid('query');
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
-
         try {
-            await imap.connect();
-            const attachment = await imap.getAttachmentContent(mailbox.path, mailData.uid, attachmentId);
+            const attachment = await MailParser.getAttachmentContent(source, attachmentId);
 
             if (!attachment) {
                 return APIResponse.notFound(c, "Attachment with specified ID not found");

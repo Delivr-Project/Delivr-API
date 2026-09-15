@@ -229,8 +229,8 @@ export class IMAPAccount {
         }
     }
 
-    // async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
-    async getMail(mailbox: string, uid: number) {
+    /** Fetch and parse a mail while retaining the exact source from that fetch. */
+    async getMailSnapshot(mailbox: string, uid: number): Promise<{ mail: MailRessource; source: Buffer } | null> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let message = await this.client.fetchOne(uid, {
@@ -240,63 +240,17 @@ export class IMAPAccount {
                 flags: true
             }, { uid: true });
 
-            if (!message) return null;
-            return await MailRessource.fromIMAPMessage(message);
+            if (!message || !message.source) return null;
+            const mail = await MailRessource.fromIMAPMessage(message);
+            if (!mail) return null;
+            return { mail, source: message.source };
         } finally {
             lock.release();
         }
     }
 
-    /**
-     * Fetch the raw RFC822 source of a single message.
-     *
-     * Used to send a stored draft byte-for-byte, which preserves the parts that the
-     * metadata-only parse drops — most importantly attachment content. As with
-     * {@link IMAPAccount.getAttachmentContent}, nothing is written to disk or cached;
-     * the buffer is handed straight back to the caller.
-     *
-     * @param mailbox - Mailbox path
-     * @param uid - Message UID
-     * @returns The raw message source, or `null` if the message does not exist
-     */
-    async getMailSource(mailbox: string, uid: number): Promise<Buffer | null> {
-        let lock = await this.client.getMailboxLock(mailbox);
-        try {
-            const message = await this.client.fetchOne(uid, {
-                source: true
-            }, { uid: true });
-
-            if (!message || !message.source) return null;
-            return message.source;
-        } finally {
-            lock.release();
-        }
-    }
-
-    /**
-     * Fetch a single attachment's decoded content on demand.
-     *
-     * The raw message source is fetched from IMAP and parsed transiently to pull
-     * out one attachment's bytes. Nothing is written to disk or cached — the buffer
-     * is returned for the caller to stream straight to the client.
-     *
-     * @param mailbox - Mailbox path
-     * @param uid - Message UID
-     * @param attachmentId - Index of the attachment within the parsed attachments array
-     * @returns The attachment content, or `null` if the message or attachment does not exist
-     */
-    async getAttachmentContent(mailbox: string, uid: number, attachmentId: number): Promise<MailParser.AttachmentContent | null> {
-        let lock = await this.client.getMailboxLock(mailbox);
-        try {
-            const message = await this.client.fetchOne(uid, {
-                source: true
-            }, { uid: true });
-
-            if (!message || !message.source) return null;
-            return await MailParser.getAttachmentContent(message.source, attachmentId);
-        } finally {
-            lock.release();
-        }
+    async getMail(mailbox: string, uid: number): Promise<MailRessource | null> {
+        return (await this.getMailSnapshot(mailbox, uid))?.mail ?? null;
     }
 
     async markAsRead(mailbox: string, uids: number[]) {

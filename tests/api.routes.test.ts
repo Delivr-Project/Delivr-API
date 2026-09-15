@@ -1613,6 +1613,7 @@ describe("Mail Mailbox Mails Routes", async () => {
     })
 
     let createdMailUID: number;
+    let multipartDraftUID: number;
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails creates new draft mail", async () => {
 
@@ -1657,6 +1658,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(response.status).toBe(200);
 
         const created = await response.json() as { data: { uid: number } };
+        multipartDraftUID = created.data.uid;
         const attachmentData = await makeAPIRequest(
             `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.data.uid}/attachments`,
             { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
@@ -1670,6 +1672,72 @@ describe("Mail Mailbox Mails Routes", async () => {
             { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
         );
         expect(storedDraft.bcc).toEqual([{ name: "Hidden Receiver", address: "hidden@test.com" }]);
+    });
+
+    test("PUT content update preserves multipart draft attachments and Bcc", async () => {
+        const updated = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            {
+                method: "PUT",
+                authToken: session_token,
+                body: { subject: "Updated draft with attachment" },
+                expectedBodySchema: MailsModel.Update.Response
+            }
+        );
+
+        expect(updated.newUid).toBeGreaterThan(0);
+        multipartDraftUID = updated.newUid!;
+
+        const attachments = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
+
+        const attachmentResponse = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}/attachments/0`,
+            { headers: { Authorization: `Bearer ${session_token}` } }
+        );
+        expect(attachmentResponse.status).toBe(200);
+        expect(await attachmentResponse.text()).toContain("attachment body");
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.subject).toBe("Updated draft with attachment");
+        expect(storedDraft.bcc).toEqual([{ name: "Hidden Receiver", address: "hidden@test.com" }]);
+    });
+
+    test("PUT flag-only update keeps multipart draft UID and attachments", async () => {
+        const originalUID = multipartDraftUID;
+        const updated = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}`,
+            {
+                method: "PUT",
+                authToken: session_token,
+                body: { flags: { flagged: true } },
+                expectedBodySchema: MailsModel.Update.Response
+            }
+        );
+
+        expect(updated.success).toBe(true);
+        expect(updated.newUid).toBeUndefined();
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.uid).toBe(originalUID);
+        expect(storedDraft.flags?.flagged).toBe(true);
+
+        const attachments = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0]?.filename).toBe("note.txt");
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects multipart requests without mail data", async () => {
@@ -1727,7 +1795,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             body: { text: "This request must be rejected" },
             flags: { draft: true }
         }));
-        form.append("attachments", new File([new Uint8Array(26 * 1024 * 1024)], "too-large.bin", {
+        form.append("attachments", new File([new Uint8Array(25 * 1024 * 1024 + 1)], "too-large.bin", {
             type: "application/octet-stream"
         }));
 
@@ -1740,6 +1808,29 @@ describe("Mail Mailbox Mails Routes", async () => {
         await expect(response.json()).resolves.toMatchObject({
             message: "Attachments exceed the maximum combined size of 25 MB"
         });
+    });
+
+    test("Multipart total-size protection reports a request error for oversized mail JSON", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({ body: { text: "x".repeat(41 * 1024 * 1024) } }));
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Multipart request exceeds the maximum total size of 41 MB (mail JSON, attachments and framing combined)"
+        });
+    });
+
+    test("PUT rejects the server-managed recent flag for both values", async () => {
+        for (const recent of [true, false]) {
+            await makeAPIRequest(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+                { method: "PUT", authToken: session_token, body: { flags: { recent } } },
+                400
+            );
+        }
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
