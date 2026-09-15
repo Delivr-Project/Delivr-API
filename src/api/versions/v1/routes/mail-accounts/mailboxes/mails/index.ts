@@ -82,7 +82,11 @@ async function readCreatePayload(c: Context): Promise<
             return { ok: false, error: "The 'mail' field is not valid JSON" };
         }
 
-        const files = form.getAll('attachments').filter((entry): entry is File => entry instanceof File);
+        const attachmentEntries = form.getAll('attachments');
+        if (attachmentEntries.some(entry => !(entry instanceof File))) {
+            return { ok: false, error: "Every 'attachments' field must contain a file" };
+        }
+        const files = attachmentEntries as File[];
 
         const limit = maxAttachmentSize();
         const totalSize = files.reduce((sum, file) => sum + file.size, 0);
@@ -197,7 +201,7 @@ router.post('/',
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
-            const composer = new MailComposer({
+            const composerOptions = {
                 from: body.from ? formatEmailAddress(body.from) : undefined,
                 to: body.to?.map(formatEmailAddress),
                 cc: body.cc?.map(formatEmailAddress),
@@ -210,9 +214,15 @@ router.post('/',
                 html: body.body?.html,
                 priority: body.priority,
                 attachments
-            });
+            };
+            const composer = new MailComposer(composerOptions);
 
-            const message = await composer.compile().build();
+            const compiledMail = composer.compile();
+            // Drafts must retain Bcc recipients so the later send request can
+            // build the SMTP envelope. SMTPAccount.sendRaw removes this header
+            // from the transmitted source to keep recipients private.
+            Object.assign(compiledMail, { keepBcc: true });
+            const message = await compiledMail.build();
 
             await imap.connect();
             await imap.createMail(mailbox.path, message, MailParser.getRawFlags(body.flags || {}));
@@ -370,7 +380,8 @@ router.post('/:mailUID/send',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail sent successfully", MailsModel.Send.Response),
-            APIResponseSpec.notFound("Mail with specified UID not found")
+            APIResponseSpec.notFound("Mail with specified UID not found"),
+            APIResponseSpec.badRequest("Mail must include a sender and at least one recipient")
         )
     }),
 

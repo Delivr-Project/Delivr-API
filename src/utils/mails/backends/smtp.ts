@@ -109,8 +109,50 @@ export class SMTPAccount {
                 from: sender.address,
                 to: recipients
             },
-            raw: source
+            raw: SMTPAccount.removeBccHeader(source)
         });
+    }
+
+    /**
+     * Remove Bcc (including folded continuation lines) from an RFC822 source
+     * without decoding or rewriting the MIME body. Drafts retain this header so
+     * their recipients survive IMAP storage, but it must never reach recipients.
+     */
+    private static removeBccHeader(source: Buffer | string): Buffer | string {
+        const sourceBuffer = Buffer.isBuffer(source) ? source : Buffer.from(source);
+        const crlfSeparator = Buffer.from("\r\n\r\n");
+        const lfSeparator = Buffer.from("\n\n");
+        let separatorIndex = sourceBuffer.indexOf(crlfSeparator);
+        let lineEnding = "\r\n";
+
+        if (separatorIndex < 0) {
+            separatorIndex = sourceBuffer.indexOf(lfSeparator);
+            lineEnding = "\n";
+        }
+        if (separatorIndex < 0) return source;
+
+        const headerLines = sourceBuffer.subarray(0, separatorIndex).toString("utf8").split(/\r?\n/);
+        const retainedLines: string[] = [];
+        let removingBcc = false;
+
+        for (const line of headerLines) {
+            if (/^bcc\s*:/i.test(line)) {
+                removingBcc = true;
+                continue;
+            }
+            if (removingBcc && /^[ \t]/.test(line)) continue;
+
+            removingBcc = false;
+            retainedLines.push(line);
+        }
+
+        if (retainedLines.length === headerLines.length) return source;
+
+        const sanitized = Buffer.concat([
+            Buffer.from(retainedLines.join(lineEnding), "utf8"),
+            sourceBuffer.subarray(separatorIndex)
+        ]);
+        return Buffer.isBuffer(source) ? sanitized : sanitized.toString("utf8");
     }
 
     protected static formatAddress(addr: MailRessource.EmailAddress) {

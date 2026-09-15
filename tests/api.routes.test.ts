@@ -1643,7 +1643,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             from: { name: "Test Sender", address: "sender@test.com" },
             to: [{ name: "Test Receiver", address: "receiver@test.com" }],
             cc: [],
-            bcc: [],
+            bcc: [{ name: "Hidden Receiver", address: "hidden@test.com" }],
             subject: "Draft with attachment",
             body: { text: "See attachment" },
             flags: { draft: true }
@@ -1664,6 +1664,58 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         expect(attachmentData).toHaveLength(1);
         expect(attachmentData[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.data.uid}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.bcc).toEqual([{ name: "Hidden Receiver", address: "hidden@test.com" }]);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects multipart requests without mail data", async () => {
+        const form = new FormData();
+        form.append("attachments", new File(["attachment body"], "note.txt", { type: "text/plain" }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Missing 'mail' field in multipart body" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects invalid multipart mail JSON", async () => {
+        const form = new FormData();
+        form.set("mail", "{invalid json");
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "The 'mail' field is not valid JSON" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects non-file attachment fields", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { address: "sender@test.com" },
+            to: [{ address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            body: { text: "Invalid attachment field" }
+        }));
+        form.set("attachments", "not-a-file");
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Every 'attachments' field must contain a file" });
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects attachments above the combined size limit", async () => {
