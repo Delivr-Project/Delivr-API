@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test, beforeAll } from "bun:test";
+import { afterAll, describe, expect, test, beforeAll, spyOn } from "bun:test";
 import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
@@ -21,6 +21,9 @@ import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/
 import { MailBulkActionsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mail-bulk-actions/model";
 import { AttachmentsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/attachments/model";
 import { hashResetToken } from "../src/api/versions/v1/routes/auth/reset-password";
+import { SMTPAccount } from "../src/utils/mails/backends/smtp";
+import { MailParser } from "../src/utils/mails/parser";
+import { ConfigHandler } from "../src/utils/config";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -1904,6 +1907,57 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(updatedMail.body?.text).toContain("Updated body content");
     });
 
+    test("PUT rejects attachment-backed updates above the configured limit before decoding attachments", async () => {
+        const boundary = "UPDATE-LIMIT-BOUNDARY";
+        const rawMessage = [
+            "From: sender@test.com",
+            "To: receiver@test.com",
+            "Subject: Oversized existing attachment",
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            "Content-Type: text/plain",
+            "",
+            "body",
+            `--${boundary}`,
+            "Content-Type: application/octet-stream",
+            "Content-Disposition: attachment; filename=existing.bin",
+            "",
+            "attachment larger than ten bytes",
+            `--${boundary}--`,
+            ""
+        ].join("\r\n");
+        await testIMAPClient.createMail("INBOX", rawMessage, ["\\Draft"]);
+        const newest = (await testIMAPClient.getMails("INBOX", { order: "newest", limit: 1 }))[0];
+        if (!newest) throw new Error("Failed to create update-limit test mail");
+
+        const config = ConfigHandler.getConfig();
+        if (!config) throw new Error("Test config is not loaded");
+        const originalLimit = config.DLA_MAX_ATTACHMENT_SIZE_MB;
+        const extractionSpy = spyOn(MailParser, "getAttachmentContents");
+        config.DLA_MAX_ATTACHMENT_SIZE_MB = "0.00001";
+
+        try {
+            const response = await API.getApp().request(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${newest.uid}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${session_token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ subject: "must not update" })
+                }
+            );
+            expect(response.status).toBe(400);
+            expect(extractionSpy).not.toHaveBeenCalled();
+        } finally {
+            config.DLA_MAX_ATTACHMENT_SIZE_MB = originalLimit;
+            extractionSpy.mockRestore();
+            await testIMAPClient.permanentlyDelete("INBOX", [newest.uid]);
+        }
+    });
+
     test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
@@ -2340,51 +2394,70 @@ describe("Mail Mailbox Mails Routes", async () => {
         }
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
-
-        // Create a draft mail to send
-        const mailData = {
-            from: { name: "Sender", address: "sender@example.com" },
-            to: [{ name: "Receiver", address: "receiver@example.com" }],
-            cc: [],
-            bcc: [],
-            subject: "Test Send Mail",
-            body: { text: "This is a test mail to send", html: "<p>This is a test mail to send</p>" }
-        };
-
-        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
-            method: "POST",
-            authToken: session_token,
-            body: mailData,
-            expectedBodySchema: MailsModel.Create.Response
+    test("POST send relays multipart attachments and keeps Bcc out of the raw message", async () => {
+        const smtp = SMTPAccount.fromConfig({
+            host: "smtp.example.com",
+            port: 587,
+            username: "testuser",
+            password: "testpass",
+            useSSL: connectionSettings.smtp_encryption
         });
+        let sentOptions: any;
+        (smtp as any).client.sendMail = async (options: any) => {
+            sentOptions = options;
+            return { messageId: "route-message-id" };
+        };
+        const fromSettingsSpy = spyOn(SMTPAccount, "fromSettings").mockReturnValue(smtp);
 
-        const mailToSendUID = created.uid;
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { address: "sender@example.com" },
+            to: [{ address: "receiver@example.com" }],
+            cc: [],
+            bcc: [{ address: "hidden@example.com" }],
+            subject: "Multipart route send",
+            body: { text: "route body" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File(["route attachment body"], "route-note.txt", {
+            type: "text/plain"
+        }));
 
-        // Note: This test may fail if SMTP mock server is not running
-        // In that case, we expect a 500 error
+        const createResponse = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(createResponse.status).toBe(200);
+        const created = await createResponse.json() as { data: { uid: number } };
+        const mailToSendUID = created.data.uid;
+
         try {
             const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}/send`, {
                 method: "POST",
                 authToken: session_token,
-                body: { moveToSent: true },
+                body: { moveToSent: false, deleteOriginal: false },
                 expectedBodySchema: MailsModel.Send.Response
             });
 
-            // Mail should have been sent (messageId may be present)
-            expect(data).toBeDefined();
+            expect(data.messageId).toBe("route-message-id");
+            expect(sentOptions.envelope).toEqual({
+                from: "sender@example.com",
+                to: ["receiver@example.com", "hidden@example.com"]
+            });
+            const rawText = Buffer.isBuffer(sentOptions.raw)
+                ? sentOptions.raw.toString("utf8")
+                : String(sentOptions.raw);
+            expect(rawText).not.toMatch(/^Bcc\s*:/mi);
 
-            // Verify the mail is no longer in INBOX (moved to Sent)
-            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
-                authToken: session_token
-            }, 404);
-        } catch (e) {
-            // SMTP server not available - clean up the created mail
-            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
+            const attachment = await MailParser.getAttachmentContent(sentOptions.raw, 0);
+            expect(attachment?.filename).toBe("route-note.txt");
+            expect(new TextDecoder().decode(attachment?.content)).toBe("route attachment body");
+        } finally {
+            fromSettingsSpy.mockRestore();
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}?permanent=true`, {
                 method: "DELETE",
                 authToken: session_token
             });
-            // Test passes - SMTP not available in test environment
         }
     });
 

@@ -342,7 +342,8 @@ router.put('/:mailUID',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail updated successfully", MailsModel.Update.Response),
-            APIResponseSpec.notFound("Mail with specified UID not found")
+            APIResponseSpec.notFound("Mail with specified UID not found"),
+            APIResponseSpec.badRequest("Existing attachments exceed the configured update limit")
         )
     }),
 
@@ -373,9 +374,21 @@ router.put('/:mailUID',
 
             // Handle content update (replaces the mail)
             if (hasContentUpdate) {
+                const existingAttachmentSize = mailData.attachments.reduce(
+                    (total, attachment) => total + attachment.size,
+                    0
+                );
+                if (existingAttachmentSize > maxAttachmentSize()) {
+                    return APIResponse.badRequest(c, attachmentLimitError());
+                }
+
                 const existingAttachments = (await MailParser.getAttachmentContents(source)).map(attachment => ({
                     filename: attachment.filename,
-                    content: Buffer.from(attachment.content),
+                    content: Buffer.from(
+                        attachment.content.buffer,
+                        attachment.content.byteOffset,
+                        attachment.content.byteLength
+                    ),
                     contentType: attachment.contentType,
                     cid: attachment.contentId,
                     contentDisposition: attachment.contentDisposition === 'inline'

@@ -124,4 +124,40 @@ describe("Utility Tests", () => {
         expect(sentOptions.raw.toString("latin1")).not.toMatch(/^Bcc\s*:/mi);
         expect((sentOptions.raw as Buffer).subarray(-binaryBody.length).equals(binaryBody)).toBe(true);
     });
+
+    test("Raw SMTP sending preserves an LF-only body containing a CRLF separator", async () => {
+        const smtp = SMTPAccount.fromConfig({
+            host: "smtp.example.com",
+            port: 587,
+            username: "test@test.com",
+            password: "test-password",
+            useSSL: InetModels.Mail.EncryptionEnum.STARTTLS
+        });
+        let sentOptions: any;
+        (smtp as any).client.sendMail = async (options: any) => {
+            sentOptions = options;
+            return { messageId: "lf-message-id" };
+        };
+
+        const body = "prefix remains\r\n\r\nsuffix remains";
+        const source = [
+            "From: sender@example.com",
+            "To: receiver@example.com",
+            "Bcc: hidden@example.com",
+            "Subject: LF message",
+            "",
+            body
+        ].join("\n");
+        const mail = {
+            from: { address: "sender@example.com" },
+            to: [{ address: "receiver@example.com" }],
+            cc: [],
+            bcc: [{ address: "hidden@example.com" }]
+        } as unknown as MailRessource.IMail;
+
+        await smtp.sendRaw(source, mail);
+
+        expect(sentOptions.raw).not.toMatch(/^Bcc\s*:/mi);
+        expect(sentOptions.raw).toContain(body);
+    });
 });

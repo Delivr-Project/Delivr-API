@@ -168,8 +168,9 @@ export class MailParser {
         source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream,
         attachmentId: number
     ): Promise<MailParser.AttachmentContent | null> {
-        const attachments = await this.getAttachmentContents(source);
-        return attachments[attachmentId] ?? null;
+        const parsed = await PostalMime.parse(source);
+        const attachment = parsed.attachments[attachmentId];
+        return attachment ? this.normalizeAttachment(attachment) : null;
     }
 
     /** Parse all attachment bytes and metadata from one immutable MIME source. */
@@ -177,24 +178,25 @@ export class MailParser {
         source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
     ): Promise<MailParser.AttachmentContent[]> {
         const parsed = await PostalMime.parse(source);
-        return parsed.attachments.map(attachment => {
-            // postal-mime may return text or binary representations; normalize
-            // every part without changing its underlying bytes.
-            const raw = attachment.content;
-            const content = typeof raw === 'string'
-                ? new TextEncoder().encode(raw)
-                : raw instanceof Uint8Array
-                    ? raw
-                    : new Uint8Array(raw);
+        return parsed.attachments.map(attachment => this.normalizeAttachment(attachment));
+    }
 
-            return {
-                filename: attachment.filename || undefined,
-                contentType: attachment.mimeType || 'application/octet-stream',
-                content,
-                contentId: attachment.contentId || undefined,
-                contentDisposition: attachment.disposition || undefined,
-            };
-        });
+    /** Normalize one postal-mime attachment without touching unrelated parts. */
+    private static normalizeAttachment(attachment: Attachment): MailParser.AttachmentContent {
+        const raw = attachment.content;
+        const content = typeof raw === 'string'
+            ? new TextEncoder().encode(raw)
+            : raw instanceof Uint8Array
+                ? raw
+                : new Uint8Array(raw);
+
+        return {
+            filename: attachment.filename || undefined,
+            contentType: attachment.mimeType || 'application/octet-stream',
+            content,
+            contentId: attachment.contentId || undefined,
+            contentDisposition: attachment.disposition || undefined,
+        };
     }
 
     /**

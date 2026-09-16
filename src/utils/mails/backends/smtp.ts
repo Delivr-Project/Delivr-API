@@ -122,13 +122,11 @@ export class SMTPAccount {
         const sourceBuffer = Buffer.isBuffer(source) ? source : Buffer.from(source);
         const crlfSeparator = Buffer.from("\r\n\r\n");
         const lfSeparator = Buffer.from("\n\n");
-        let separatorIndex = sourceBuffer.indexOf(crlfSeparator);
-        let lineEnding = "\r\n";
-
-        if (separatorIndex < 0) {
-            separatorIndex = sourceBuffer.indexOf(lfSeparator);
-            lineEnding = "\n";
-        }
+        const crlfIndex = sourceBuffer.indexOf(crlfSeparator);
+        const lfIndex = sourceBuffer.indexOf(lfSeparator);
+        const usesLfSeparator = lfIndex >= 0 && (crlfIndex < 0 || lfIndex < crlfIndex);
+        const separatorIndex = usesLfSeparator ? lfIndex : crlfIndex;
+        const lineEnding = usesLfSeparator ? "\n" : "\r\n";
         if (separatorIndex < 0) return source;
 
         const headerLines = sourceBuffer.subarray(0, separatorIndex).toString("utf8").split(/\r?\n/);
