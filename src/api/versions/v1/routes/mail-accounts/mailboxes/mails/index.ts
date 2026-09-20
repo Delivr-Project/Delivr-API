@@ -54,19 +54,23 @@ function attachmentLimitError(): string {
 }
 
 /**
- * Bound multipart request bodies while they are read. Attachment sizes are
+ * Bound create-mail request bodies while they are read, regardless of encoding.
+ * This is a memory-safety guard for the whole request; attachment sizes are
  * validated separately after parsing, so large (but valid) mail JSON does not
  * consume the configured attachment allowance.
  */
-const enforceMultipartBodyLimit: MiddlewareHandler = async (c, next) => {
-    const contentType = c.req.header('content-type') ?? '';
-    if (!contentType.toLowerCase().includes('multipart/form-data')) return next();
+const enforceCreateBodyLimit: MiddlewareHandler = async (c, next) => {
+    const maxSize = maxAttachmentSize() + MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES;
+    const maxSizeMb = maxSize / (1024 * 1024);
+    const isMultipart = (c.req.header('content-type') ?? '').toLowerCase().includes('multipart/form-data');
 
     return bodyLimit({
-        maxSize: maxAttachmentSize() + MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES,
+        maxSize,
         onError: context => APIResponse.badRequest(
             context,
-            `Multipart request exceeds the maximum total size of ${(maxAttachmentSize() + MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES) / (1024 * 1024)} MB (mail JSON, attachments and framing combined)`
+            isMultipart
+                ? `Multipart request exceeds the maximum total size of ${maxSizeMb} MB (mail JSON, attachments and framing combined)`
+                : `Request body exceeds the maximum size of ${maxSizeMb} MB`
         )
     })(c, next);
 };
@@ -138,14 +142,19 @@ async function readCreatePayload(c: Context): Promise<
     } else {
         try {
             rawBody = await c.req.json();
-        } catch {
+        } catch (error) {
+            // Let the body-limit middleware observe its sentinel error so it can
+            // replace the response instead of reporting a generic parse failure.
+            if (error instanceof Error && error.name === 'BodyLimitError') throw error;
             return { ok: false, error: "Malformed JSON body" };
         }
     }
 
     const parsed = MailsModel.Create.Body.safeParse(rawBody);
     if (!parsed.success) {
-        return { ok: false, error: "Bad Request: Syntax or validation error in request" };
+        // Match the app-wide validation-error message produced by the global
+        // HTTPException handler; Zod details are intentionally not leaked.
+        return { ok: false, error: "Your input is invalid" };
     }
 
     return { ok: true, body: parsed.data, attachments };
@@ -200,7 +209,7 @@ router.get('/',
 
 router.post('/',
 
-    enforceMultipartBodyLimit,
+    enforceCreateBodyLimit,
 
     APIRouteSpec.authenticated({
         summary: "Create Mail",
@@ -419,8 +428,13 @@ router.put('/:mailUID',
                 Object.assign(compiledMail, { keepBcc: true });
                 const message = await compiledMail.build();
 
-                // Create new mail with updated content and flags
-                const newFlags = body.flags ? MailParser.getRawFlags(body.flags) : mailData.rawFlags;
+                // Create new mail with updated content and flags. A partial flag
+                // update is merged onto the mail's existing flags so unmentioned
+                // flags (e.g. \\Draft) survive the rebuild; `\\Recent` is server-
+                // managed and never re-asserted here.
+                const newFlags = body.flags
+                    ? MailParser.getRawFlags({ ...mailData.flags, ...body.flags, recent: false })
+                    : mailData.rawFlags;
                 await imap.createMail(mailbox.path, message, newFlags);
                 
                 // Get the newly created mail's UID
@@ -434,23 +448,9 @@ router.put('/:mailUID',
             } else if (body.flags) {
                 // Flag-only updates stay on the original IMAP message. Rebuilding the
                 // MIME message here would unnecessarily replace its UID and risk loss.
-                const flagMap: Record<string, string> = {
-                    seen: '\\Seen',
-                    answered: '\\Answered',
-                    flagged: '\\Flagged',
-                    draft: '\\Draft',
-                    deleted: '\\Deleted'
-                };
-                const flagsToAdd: string[] = [];
-                const flagsToRemove: string[] = [];
-                for (const [key, imapFlag] of Object.entries(flagMap)) {
-                    const value = body.flags[key as keyof typeof body.flags];
-                    if (value === true) flagsToAdd.push(imapFlag);
-                    else if (value === false) flagsToRemove.push(imapFlag);
-                }
-
-                if (flagsToAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], flagsToAdd);
-                if (flagsToRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], flagsToRemove);
+                const { toAdd, toRemove } = MailParser.getFlagChanges(body.flags);
+                if (toAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], toAdd);
+                if (toRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], toRemove);
             }
 
             return APIResponse.success(c, "Mail updated successfully", { success: true, newUid } satisfies MailsModel.Update.Response);
@@ -579,30 +579,14 @@ router.post('/:mailUID/flags',
         const mailData = c.get("mailData") as MailRessource.IMail;
         const body = c.req.valid('json');
 
-        // Map user-facing flag names to their IMAP system flags. `\Recent` is
-        // server-managed and cannot be set by clients, so it is intentionally omitted.
-        const FLAG_MAP: Record<string, string> = {
-            seen: '\\Seen',
-            answered: '\\Answered',
-            flagged: '\\Flagged',
-            draft: '\\Draft',
-            deleted: '\\Deleted'
-        };
-
-        const flagsToAdd: string[] = [];
-        const flagsToRemove: string[] = [];
-        for (const [key, imapFlag] of Object.entries(FLAG_MAP)) {
-            const value = body[key as keyof MailsModel.SetFlags.Body];
-            if (value === true) flagsToAdd.push(imapFlag);
-            else if (value === false) flagsToRemove.push(imapFlag);
-        }
+        const { toAdd, toRemove } = MailParser.getFlagChanges(body);
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
             await imap.connect();
-            if (flagsToAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], flagsToAdd);
-            if (flagsToRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], flagsToRemove);
+            if (toAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], toAdd);
+            if (toRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], toRemove);
 
             const flags = { ...(mailData.flags ?? {}), ...body };
 

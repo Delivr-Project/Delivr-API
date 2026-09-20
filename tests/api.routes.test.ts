@@ -1826,6 +1826,59 @@ describe("Mail Mailbox Mails Routes", async () => {
         });
     });
 
+    test("JSON create requests are bounded by the same total-size limit", async () => {
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${session_token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ body: { text: "x".repeat(41 * 1024 * 1024) } })
+            }
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Request body exceeds the maximum size of 41 MB"
+        });
+    });
+
+    test("PUT content update with partial flags preserves the draft's other flags", async () => {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { address: "sender@test.com" },
+                to: [{ address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Draft to keep",
+                body: { text: "keep me a draft" },
+                flags: { draft: true }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const updated = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { subject: "Draft still a draft", flags: { seen: true } },
+            expectedBodySchema: MailsModel.Update.Response
+        });
+        expect(updated.newUid).toBeGreaterThan(0);
+
+        const storedDraft = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${updated.newUid}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+        // The explicitly-set flag is applied and the pre-existing \Draft survives.
+        expect(storedDraft.flags?.seen).toBe(true);
+        expect(storedDraft.flags?.draft).toBe(true);
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${updated.newUid}?permanent=true`, {
+            method: "DELETE",
+            authToken: session_token
+        });
+    });
+
     test("PUT rejects the server-managed recent flag for both values", async () => {
         for (const recent of [true, false]) {
             await makeAPIRequest(

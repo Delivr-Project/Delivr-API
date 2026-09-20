@@ -96,7 +96,7 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_SMTP_FROM` | `From` address for system mail | — |
 | `DLA_SMTP_SECURE` | Use TLS for the SMTP connection | `false` |
 
-Multipart create-mail requests also have a total request limit of `DLA_MAX_ATTACHMENT_SIZE_MB + 16` MB (41 MB by default), including mail JSON, attachments and multipart framing. Exceeding this total returns a request-size error; exceeding the separate combined attachment limit returns an attachment-size error. Large text/HTML bodies count toward the total request limit.
+Create-mail requests have a total request limit of `DLA_MAX_ATTACHMENT_SIZE_MB + 16` MB (41 MB by default), covering both JSON and multipart bodies (mail JSON, attachments and multipart framing). Exceeding this total returns a request-size error; exceeding the separate combined attachment limit returns an attachment-size error. Large text/HTML bodies count toward the total request limit.
 
 ## 🛠️ Commands
 

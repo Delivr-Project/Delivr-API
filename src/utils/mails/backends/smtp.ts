@@ -129,7 +129,11 @@ export class SMTPAccount {
         const lineEnding = usesLfSeparator ? "\n" : "\r\n";
         if (separatorIndex < 0) return source;
 
-        const headerLines = sourceBuffer.subarray(0, separatorIndex).toString("utf8").split(/\r?\n/);
+        // Decode headers as latin1 so the round-trip is a lossless 1:1 byte
+        // mapping — a utf8 round-trip would corrupt any raw 8-bit bytes present
+        // in unrelated headers. The Bcc match only relies on ASCII, so latin1 is
+        // sufficient for line detection.
+        const headerLines = sourceBuffer.subarray(0, separatorIndex).toString("latin1").split(/\r?\n/);
         const retainedLines: string[] = [];
         let removingBcc = false;
 
@@ -147,7 +151,7 @@ export class SMTPAccount {
         if (retainedLines.length === headerLines.length) return source;
 
         const sanitized = Buffer.concat([
-            Buffer.from(retainedLines.join(lineEnding), "utf8"),
+            Buffer.from(retainedLines.join(lineEnding), "latin1"),
             sourceBuffer.subarray(separatorIndex)
         ]);
         return Buffer.isBuffer(source) ? sanitized : sanitized.toString("utf8");
