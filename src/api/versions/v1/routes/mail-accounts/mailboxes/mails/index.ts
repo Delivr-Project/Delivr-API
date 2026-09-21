@@ -1,10 +1,10 @@
-import { Hono } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { MailsModel } from "./model";
 import { APIResponse } from "../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../../docs";
-import { z } from "zod";
-import { validator } from "hono-openapi";
+import { resolver, validator } from "hono-openapi";
 import { MailAccountsModel } from "../../model";
 import { router as attachmentsRouter } from "./attachments";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
@@ -16,11 +16,148 @@ import { SMTPAccount } from "../../../../../../../utils/mails/backends/smtp";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { MailParser } from "../../../../../../../utils/mails/parser";
+import { ConfigHandler } from "../../../../../../../utils/config";
+import type { OpenAPIV3_1 } from "openapi-types";
 
 
 
 function formatEmailAddress(addr: { name?: string; address: string }): string {
     return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
+}
+
+/** Attachment handed to `MailComposer`, held in memory only while composing. */
+type ComposerAttachment = {
+    filename?: string;
+    content: Buffer;
+    contentType?: string;
+    cid?: string;
+    contentDisposition?: 'attachment' | 'inline';
+};
+
+const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 25;
+// This is deliberately independent from the attachment limit. It is a final
+// memory-safety guard for multipart parsing, not part of attachment validation.
+const MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES = 16 * 1024 * 1024;
+
+/** Combined attachment size allowed on a single mail, in bytes. */
+function maxAttachmentSize(): number {
+    const configured = Number(ConfigHandler.getConfig()?.DLA_MAX_ATTACHMENT_SIZE_MB);
+    const megabytes = Number.isFinite(configured) && configured > 0
+        ? configured
+        : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+
+    return megabytes * 1024 * 1024;
+}
+
+function attachmentLimitError(): string {
+    return `Attachments exceed the maximum combined size of ${maxAttachmentSize() / (1024 * 1024)} MB`;
+}
+
+/**
+ * Bound create-mail request bodies while they are read, regardless of encoding.
+ * This is a memory-safety guard for the whole request; attachment sizes are
+ * validated separately after parsing, so large (but valid) mail JSON does not
+ * consume the configured attachment allowance.
+ */
+const enforceCreateBodyLimit: MiddlewareHandler = async (c, next) => {
+    const maxSize = maxAttachmentSize() + MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES;
+    const maxSizeMb = maxSize / (1024 * 1024);
+    const isMultipart = (c.req.header('content-type') ?? '').toLowerCase().includes('multipart/form-data');
+
+    return bodyLimit({
+        maxSize,
+        onError: context => APIResponse.badRequest(
+            context,
+            isMultipart
+                ? `Multipart request exceeds the maximum total size of ${maxSizeMb} MB (mail JSON, attachments and framing combined)`
+                : `Request body exceeds the maximum size of ${maxSizeMb} MB`
+        )
+    })(c, next);
+};
+
+/**
+ * Read the create-mail payload from either a JSON body or a `multipart/form-data`
+ * body carrying attachments.
+ *
+ * In the multipart case the mail itself arrives as a JSON string in the `mail`
+ * field and each file as an `attachments` entry. Files are read into memory only
+ * for as long as it takes to compose the message — nothing is written to disk.
+ *
+ * @returns The validated body plus attachments, or an error message to return as a 400
+ */
+async function readCreatePayload(c: Context): Promise<
+    { ok: true; body: MailsModel.Create.Body; attachments: ComposerAttachment[] } |
+    { ok: false; error: string }
+> {
+    const contentType = c.req.header('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
+
+    let rawBody: unknown;
+    const attachments: ComposerAttachment[] = [];
+
+    if (isMultipart) {
+        let form: FormData;
+        try {
+            form = await c.req.formData();
+        } catch (error) {
+            // Hono's body-limit middleware needs to observe this sentinel error
+            // so it can replace the response without buffering the remaining body.
+            if (error instanceof Error && error.name === 'BodyLimitError') throw error;
+            return { ok: false, error: "Malformed multipart/form-data body" };
+        }
+
+        const mailField = form.get('mail');
+        if (typeof mailField !== 'string') {
+            return { ok: false, error: "Missing 'mail' field in multipart body" };
+        }
+
+        try {
+            rawBody = JSON.parse(mailField);
+        } catch {
+            return { ok: false, error: "The 'mail' field is not valid JSON" };
+        }
+
+        const attachmentEntries = form.getAll('attachments');
+        if (attachmentEntries.some(entry => !(entry instanceof File))) {
+            return { ok: false, error: "Every 'attachments' field must contain a file" };
+        }
+        const files = attachmentEntries as File[];
+
+        const limit = maxAttachmentSize();
+        const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+        if (totalSize > limit) {
+            return {
+                ok: false,
+                error: attachmentLimitError()
+            };
+        }
+
+        for (const file of files) {
+            attachments.push({
+                filename: file.name || 'attachment',
+                content: Buffer.from(await file.arrayBuffer()),
+                contentType: file.type || undefined
+            });
+        }
+    } else {
+        try {
+            rawBody = await c.req.json();
+        } catch (error) {
+            // Let the body-limit middleware observe its sentinel error so it can
+            // replace the response instead of reporting a generic parse failure.
+            if (error instanceof Error && error.name === 'BodyLimitError') throw error;
+            return { ok: false, error: "Malformed JSON body" };
+        }
+    }
+
+    const parsed = MailsModel.Create.Body.safeParse(rawBody);
+    if (!parsed.success) {
+        // Match the app-wide validation-error message produced by the global
+        // HTTPException handler; Zod details are intentionally not leaked.
+        return { ok: false, error: "Your input is invalid" };
+    }
+
+    return { ok: true, body: parsed.data, attachments };
 }
 
 
@@ -72,10 +209,19 @@ router.get('/',
 
 router.post('/',
 
+    enforceCreateBodyLimit,
+
     APIRouteSpec.authenticated({
         summary: "Create Mail",
-        description: "Create a new mail in the current mailbox (e.g., a draft).",
+        description: "Create a new mail in the current mailbox (e.g., a draft). Supports JSON bodies and multipart bodies with attachments. Multipart requests have a total size limit of DLA_MAX_ATTACHMENT_SIZE_MB + 16 MB, including mail JSON, attachments and framing; attachments separately must fit DLA_MAX_ATTACHMENT_SIZE_MB.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
+        requestBody: {
+            required: true,
+            content: {
+                "application/json": { schema: resolver(MailsModel.Create.Body).toJSONSchema() as OpenAPIV3_1.SchemaObject },
+                "multipart/form-data": { schema: MailsModel.Create.MultipartSchema }
+            }
+        },
 
         responses: APIResponseSpec.describeWithWrongInputs(
             APIResponseSpec.success("Mail created successfully", MailsModel.Create.Response),
@@ -83,20 +229,21 @@ router.post('/',
         )
     }),
 
-    validator('json', MailsModel.Create.Body),
-
     async (c) => {
         // @ts-ignore
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
-        const body = c.req.valid('json');
+        const payload = await readCreatePayload(c);
+        if (!payload.ok) return APIResponse.badRequest(c, payload.error);
+
+        const { body, attachments } = payload;
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
-            const composer = new MailComposer({
+            const composerOptions = {
                 from: body.from ? formatEmailAddress(body.from) : undefined,
                 to: body.to?.map(formatEmailAddress),
                 cc: body.cc?.map(formatEmailAddress),
@@ -107,10 +254,20 @@ router.post('/',
                 subject: body.subject,
                 text: body.body?.text,
                 html: body.body?.html,
-                priority: body.priority
-            });
+                priority: body.priority,
+                attachments,
+                keepBcc: true
+            };
+            const composer = new MailComposer(composerOptions);
 
-            const message = await composer.compile().build();
+            const compiledMail = composer.compile();
+            // Drafts must retain Bcc recipients so the later send request can
+            // build the SMTP envelope. SMTPAccount.sendRaw removes this header
+            // from the transmitted source to keep recipients private. Assigning
+            // it to the node also supports MailComposer versions that do not
+            // forward the option to MimeNode.
+            Object.assign(compiledMail, { keepBcc: true });
+            const message = await compiledMail.build();
 
             await imap.connect();
             await imap.createMail(mailbox.path, message, MailParser.getRawFlags(body.flags || {}));
@@ -146,14 +303,16 @@ router.use('/:mailUID/*',
 
         try {
             await imap.connect();
-            const mail = await imap.getMail(mailbox.path, mailUID);
+            const snapshot = await imap.getMailSnapshot(mailbox.path, mailUID);
 
-            if (!mail) {
+            if (!snapshot) {
                 return APIResponse.notFound(c, "Mail with specified UID not found");
             }
 
             // @ts-ignore
-            c.set("mailData", mail);
+            c.set("mailData", snapshot.mail);
+            // @ts-ignore
+            c.set("mailSource", snapshot.source);
 
             await next();
         } catch (e) {
@@ -192,7 +351,8 @@ router.put('/:mailUID',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail updated successfully", MailsModel.Update.Response),
-            APIResponseSpec.notFound("Mail with specified UID not found")
+            APIResponseSpec.notFound("Mail with specified UID not found"),
+            APIResponseSpec.badRequest("Existing attachments exceed the configured update limit")
         )
     }),
 
@@ -205,6 +365,8 @@ router.put('/:mailUID',
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
         // @ts-ignore
         const mailData = c.get("mailData") as MailRessource.IMail;
+        // @ts-ignore
+        const source = c.get("mailSource") as Buffer;
         const body = c.req.valid('json');
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
@@ -217,12 +379,35 @@ router.put('/:mailUID',
             const hasContentUpdate = body.from !== undefined || body.to !== undefined || 
                 body.cc !== undefined || body.bcc !== undefined || body.subject !== undefined || 
                 body.body !== undefined || body.replyTo !== undefined || body.inReplyTo !== undefined ||
-                body.references !== undefined || body.priority !== undefined ||
-                body.flags !== undefined;
+                body.references !== undefined || body.priority !== undefined;
 
             // Handle content update (replaces the mail)
             if (hasContentUpdate) {
-                const composer = new MailComposer({
+                const existingAttachmentSize = mailData.attachments.reduce(
+                    (total, attachment) => total + attachment.size,
+                    0
+                );
+                if (existingAttachmentSize > maxAttachmentSize()) {
+                    return APIResponse.badRequest(c, attachmentLimitError());
+                }
+
+                const existingAttachments = (await MailParser.getAttachmentContents(source)).map(attachment => ({
+                    filename: attachment.filename,
+                    content: Buffer.from(
+                        attachment.content.buffer,
+                        attachment.content.byteOffset,
+                        attachment.content.byteLength
+                    ),
+                    contentType: attachment.contentType,
+                    cid: attachment.contentId,
+                    contentDisposition: attachment.contentDisposition === 'inline'
+                        ? 'inline'
+                        : attachment.contentDisposition === 'attachment'
+                            ? 'attachment'
+                            : undefined
+                } satisfies ComposerAttachment));
+
+                const composerOptions = {
                     from: body.from ? formatEmailAddress(body.from) : (mailData.from ? formatEmailAddress(mailData.from) : undefined),
                     to: body.to?.map(formatEmailAddress) ?? mailData.to?.map(formatEmailAddress),
                     cc: body.cc?.map(formatEmailAddress) ?? mailData.cc?.map(formatEmailAddress),
@@ -233,13 +418,23 @@ router.put('/:mailUID',
                     subject: body.subject ?? mailData.subject,
                     text: body.body?.text ?? mailData.body?.text,
                     html: body.body?.html ?? mailData.body?.html,
-                    priority: body.priority ?? mailData.priority
-                });
+                    priority: body.priority ?? mailData.priority,
+                    attachments: existingAttachments,
+                    keepBcc: true
+                };
+                const composer = new MailComposer(composerOptions);
 
-                const message = await composer.compile().build();
+                const compiledMail = composer.compile();
+                Object.assign(compiledMail, { keepBcc: true });
+                const message = await compiledMail.build();
 
-                // Create new mail with updated content and flags
-                const newFlags = body.flags ? MailParser.getRawFlags(body.flags) : mailData.rawFlags;
+                // Create new mail with updated content and flags. A partial flag
+                // update is merged onto the mail's existing flags so unmentioned
+                // flags (e.g. \\Draft) survive the rebuild; `\\Recent` is server-
+                // managed and never re-asserted here.
+                const newFlags = body.flags
+                    ? MailParser.getRawFlags({ ...mailData.flags, ...body.flags, recent: false })
+                    : mailData.rawFlags;
                 await imap.createMail(mailbox.path, message, newFlags);
                 
                 // Get the newly created mail's UID
@@ -250,6 +445,12 @@ router.put('/:mailUID',
                 // Delete the old mail
                 const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
                 await imap.moveToTrash(mailbox.path, [mailData.uid], trashPath);
+            } else if (body.flags) {
+                // Flag-only updates stay on the original IMAP message. Rebuilding the
+                // MIME message here would unnecessarily replace its UID and risk loss.
+                const { toAdd, toRemove } = MailParser.getFlagChanges(body.flags);
+                if (toAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], toAdd);
+                if (toRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], toRemove);
             }
 
             return APIResponse.success(c, "Mail updated successfully", { success: true, newUid } satisfies MailsModel.Update.Response);
@@ -268,7 +469,8 @@ router.post('/:mailUID/send',
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS],
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.success("Mail sent successfully", MailsModel.Send.Response),
-            APIResponseSpec.notFound("Mail with specified UID not found")
+            APIResponseSpec.notFound("Mail with specified UID not found"),
+            APIResponseSpec.badRequest("Mail must include a sender and at least one recipient")
         )
     }),
 
@@ -281,16 +483,20 @@ router.post('/:mailUID/send',
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
         // @ts-ignore
         const mailData = c.get("mailData") as MailRessource.IMail;
+        // @ts-ignore
+        const source = c.get("mailSource") as Buffer;
         const body = c.req.valid('json');
 
         const smtp = SMTPAccount.fromSettings(mailAccount);
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
-            // Send the mail via SMTP
-            const result = await smtp.sendMail(mailData);
-
             await imap.connect();
+
+            // The middleware fetched metadata and MIME source in one IMAP snapshot,
+            // keeping the SMTP envelope bound to the exact bytes being delivered.
+            const result = await smtp.sendRaw(source, mailData);
+            if (!result) return APIResponse.badRequest(c, "Mail must include a sender and at least one recipient");
 
             // Move original mail to Sent folder (default behavior)
             if (body.moveToSent) {
@@ -373,30 +579,14 @@ router.post('/:mailUID/flags',
         const mailData = c.get("mailData") as MailRessource.IMail;
         const body = c.req.valid('json');
 
-        // Map user-facing flag names to their IMAP system flags. `\Recent` is
-        // server-managed and cannot be set by clients, so it is intentionally omitted.
-        const FLAG_MAP: Record<string, string> = {
-            seen: '\\Seen',
-            answered: '\\Answered',
-            flagged: '\\Flagged',
-            draft: '\\Draft',
-            deleted: '\\Deleted'
-        };
-
-        const flagsToAdd: string[] = [];
-        const flagsToRemove: string[] = [];
-        for (const [key, imapFlag] of Object.entries(FLAG_MAP)) {
-            const value = body[key as keyof MailsModel.SetFlags.Body];
-            if (value === true) flagsToAdd.push(imapFlag);
-            else if (value === false) flagsToRemove.push(imapFlag);
-        }
+        const { toAdd, toRemove } = MailParser.getFlagChanges(body);
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
             await imap.connect();
-            if (flagsToAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], flagsToAdd);
-            if (flagsToRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], flagsToRemove);
+            if (toAdd.length > 0) await imap.addFlags(mailbox.path, [mailData.uid], toAdd);
+            if (toRemove.length > 0) await imap.removeFlags(mailbox.path, [mailData.uid], toRemove);
 
             const flags = { ...(mailData.flags ?? {}), ...body };
 
@@ -453,4 +643,3 @@ router.delete('/:mailUID',
 );
 
 router.route('/:mailUID/attachments', attachmentsRouter);
-

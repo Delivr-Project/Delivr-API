@@ -30,6 +30,7 @@ function setTestEnv(rootDir: string) {
 
         DLA_DB_CONNECTION_URL: path.join(rootDir, "db.sqlite"),
         DLA_DB_AUTO_MIGRATE: true,
+        DLA_MAX_ATTACHMENT_SIZE_MB: "25",
 
         DLA_SMTP_HOST: "127.0.0.1",
         DLA_SMTP_PORT: "12587",

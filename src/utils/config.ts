@@ -120,6 +120,8 @@ export class ConfigHandler {
         .add("DLA_DB_CONNECTION_URL", false)
         .add("DLA_DB_AUTO_MIGRATE", false, [true, false])
 
+        .add("DLA_MAX_ATTACHMENT_SIZE_MB", false)
+
         .add("DLA_SMTP_HOST", false)
         .add("DLA_SMTP_PORT", false)
         .add("DLA_SMTP_USERNAME", false)

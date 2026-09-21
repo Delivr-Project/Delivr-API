@@ -123,6 +123,34 @@ export class MailParser {
         return rawFlags;
     }
 
+    /**
+     * Maps the client-facing flag names to their IMAP system flags. `\Recent` is
+     * server-managed and cannot be set by clients, so it is intentionally omitted.
+     */
+    static readonly SETTABLE_FLAG_MAP: Readonly<Record<Exclude<keyof MailRessource.MailFlags, 'recent'>, string>> = {
+        seen: '\\Seen',
+        answered: '\\Answered',
+        flagged: '\\Flagged',
+        draft: '\\Draft',
+        deleted: '\\Deleted'
+    };
+
+    /**
+     * Split a partial flag update into the IMAP flags to add (`true`) and to
+     * remove (`false`). Flags left `undefined` are untouched. Used for in-place
+     * flag updates that must preserve the message's other flags and its UID.
+     */
+    static getFlagChanges(flags: Partial<MailRessource.MailFlags>): { toAdd: string[]; toRemove: string[] } {
+        const toAdd: string[] = [];
+        const toRemove: string[] = [];
+        for (const [key, imapFlag] of Object.entries(MailParser.SETTABLE_FLAG_MAP)) {
+            const value = flags[key as keyof MailRessource.MailFlags];
+            if (value === true) toAdd.push(imapFlag);
+            else if (value === false) toRemove.push(imapFlag);
+        }
+        return { toAdd, toRemove };
+    }
+
 
     /**
      * Parse attachments from ParsedMail
@@ -170,10 +198,19 @@ export class MailParser {
     ): Promise<MailParser.AttachmentContent | null> {
         const parsed = await PostalMime.parse(source);
         const attachment = parsed.attachments[attachmentId];
-        if (!attachment) return null;
+        return attachment ? this.normalizeAttachment(attachment) : null;
+    }
 
-        // postal-mime hands back an ArrayBuffer/Uint8Array for binary parts and a
-        // string for text parts; normalise all cases to a single Uint8Array of bytes.
+    /** Parse all attachment bytes and metadata from one immutable MIME source. */
+    static async getAttachmentContents(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
+    ): Promise<MailParser.AttachmentContent[]> {
+        const parsed = await PostalMime.parse(source);
+        return parsed.attachments.map(attachment => this.normalizeAttachment(attachment));
+    }
+
+    /** Normalize one postal-mime attachment without touching unrelated parts. */
+    private static normalizeAttachment(attachment: Attachment): MailParser.AttachmentContent {
         const raw = attachment.content;
         const content = typeof raw === 'string'
             ? new TextEncoder().encode(raw)

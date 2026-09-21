@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { OpenAPIV3_1 } from "openapi-types";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import type { Utils } from "../../../../../../../utils";
 import { ApiHelperModels } from "../../../../../../utils/shared-models/api-helper-models";
@@ -107,6 +108,27 @@ export namespace MailsModel.Create {
 
     export type Body = z.infer<typeof Body>;
 
+    /**
+     * `multipart/form-data` variant of {@link Body}, used when the mail carries
+     * attachments. The mail itself is sent as a JSON string in the `mail` field;
+     * each file is appended as a separate `attachments` entry.
+     */
+    export const MultipartSchema = {
+        type: "object",
+        properties: {
+            mail: {
+                type: "string",
+                description: "The mail as a JSON string, using the same shape as the `application/json` body."
+            },
+            attachments: {
+                type: "array",
+                items: { type: "string", format: "binary" },
+                description: "Files to attach. Repeat the field once per file."
+            }
+        },
+        required: ["mail"]
+    } satisfies OpenAPIV3_1.SchemaObject;
+
     export const Response = z.object({
         uid: z.number()
     });
@@ -145,7 +167,13 @@ export namespace MailsModel.SetFlags {
 
 export namespace MailsModel.Update {
 
-    export const Body = MailsModel.Create.Body.partial();
+    // `\\Recent` is assigned by the IMAP server and must not be accepted as a
+    // client update. Strictness prevents Zod from silently stripping it and
+    // turning a recent-only request into a successful no-op.
+    export const Body = MailsModel.Create.Body
+        .omit({ flags: true })
+        .partial()
+        .extend({ flags: MailsModel.SetFlags.Body.strict().optional() });
 
     export type Body = z.infer<typeof Body>;
 
@@ -187,4 +215,3 @@ export namespace MailsModel.Delete {
 
     export type Response = z.infer<typeof Response>;
 }
-

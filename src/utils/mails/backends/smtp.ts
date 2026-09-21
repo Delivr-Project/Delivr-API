@@ -72,6 +72,91 @@ export class SMTPAccount {
         });
     }
 
+    /**
+     * Send a message from its raw RFC822 source.
+     *
+     * Preferred over {@link SMTPAccount.sendMail} when the message already exists
+     * (e.g. a stored draft): the source is relayed byte-for-byte, so attachments,
+     * inline parts and the original MIME structure survive — none of which are
+     * recoverable from the metadata-only parsed representation.
+     *
+     * The envelope is passed explicitly because it cannot be derived from `raw`.
+     *
+     * @param source - The raw message source
+     * @param mail - The parsed message, used only to build the SMTP envelope
+     * @returns The nodemailer result, or `null` if the message has no sender or no recipients
+     */
+    async sendRaw(source: Buffer | string, mail: MailRessource.IMail) {
+        const sender = mail.from;
+        if (!sender) {
+            return null;
+        }
+
+        // Bcc recipients live in the envelope only — the header is intentionally
+        // not relied upon here, as it may legitimately be absent from the source.
+        const recipients = [
+            ...(mail.to ?? []),
+            ...(mail.cc ?? []),
+            ...(mail.bcc ?? [])
+        ].map(addr => addr.address);
+
+        if (recipients.length === 0) {
+            return null;
+        }
+
+        return await this.client.sendMail({
+            envelope: {
+                from: sender.address,
+                to: recipients
+            },
+            raw: SMTPAccount.removeBccHeader(source)
+        });
+    }
+
+    /**
+     * Remove Bcc (including folded continuation lines) from an RFC822 source
+     * without decoding or rewriting the MIME body. Drafts retain this header so
+     * their recipients survive IMAP storage, but it must never reach recipients.
+     */
+    private static removeBccHeader(source: Buffer | string): Buffer | string {
+        const sourceBuffer = Buffer.isBuffer(source) ? source : Buffer.from(source);
+        const crlfSeparator = Buffer.from("\r\n\r\n");
+        const lfSeparator = Buffer.from("\n\n");
+        const crlfIndex = sourceBuffer.indexOf(crlfSeparator);
+        const lfIndex = sourceBuffer.indexOf(lfSeparator);
+        const usesLfSeparator = lfIndex >= 0 && (crlfIndex < 0 || lfIndex < crlfIndex);
+        const separatorIndex = usesLfSeparator ? lfIndex : crlfIndex;
+        const lineEnding = usesLfSeparator ? "\n" : "\r\n";
+        if (separatorIndex < 0) return source;
+
+        // Decode headers as latin1 so the round-trip is a lossless 1:1 byte
+        // mapping — a utf8 round-trip would corrupt any raw 8-bit bytes present
+        // in unrelated headers. The Bcc match only relies on ASCII, so latin1 is
+        // sufficient for line detection.
+        const headerLines = sourceBuffer.subarray(0, separatorIndex).toString("latin1").split(/\r?\n/);
+        const retainedLines: string[] = [];
+        let removingBcc = false;
+
+        for (const line of headerLines) {
+            if (/^bcc\s*:/i.test(line)) {
+                removingBcc = true;
+                continue;
+            }
+            if (removingBcc && /^[ \t]/.test(line)) continue;
+
+            removingBcc = false;
+            retainedLines.push(line);
+        }
+
+        if (retainedLines.length === headerLines.length) return source;
+
+        const sanitized = Buffer.concat([
+            Buffer.from(retainedLines.join(lineEnding), "latin1"),
+            sourceBuffer.subarray(separatorIndex)
+        ]);
+        return Buffer.isBuffer(source) ? sanitized : sanitized.toString("utf8");
+    }
+
     protected static formatAddress(addr: MailRessource.EmailAddress) {
         return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
     }
