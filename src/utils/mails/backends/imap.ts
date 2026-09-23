@@ -343,6 +343,11 @@ export class IMAPAccount {
         }
     }
 
+    /** Whether the server can expunge individual UIDs (RFC 4315 UIDPLUS). */
+    supportsUidExpunge(): boolean {
+        return this.client.capabilities.has('UIDPLUS');
+    }
+
     /**
      * Remove a message that a new version has replaced.
      *
@@ -353,11 +358,6 @@ export class IMAPAccount {
      * folder to move it to, it is only flagged `\Deleted` and left for a later
      * expunge.
      */
-    /** Whether the server can expunge individual UIDs (RFC 4315 UIDPLUS). */
-    supportsUidExpunge(): boolean {
-        return this.client.capabilities.has('UIDPLUS');
-    }
-
     async deleteReplacedMails(mailbox: string, uids: number[], trashPath?: string | null) {
         if (this.supportsUidExpunge()) {
             await this.permanentlyDelete(mailbox, uids);
