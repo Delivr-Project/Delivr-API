@@ -68,17 +68,23 @@ describe("IMAP createMail returns the new UID", () => {
         });
     }
 
-    test("uses the UID from APPENDUID on a UIDPLUS server", async () => {
+    /** A fresh mock server (not shared with other tests) with an empty Drafts folder. */
+    function startMockServer(port: number, extraPlugins: string[] = []) {
         const server = new MockIMAPServer({
-            plugins: ["ID", "STARTTLS", "SASL-IR", "AUTH-PLAIN", "NAMESPACE", "IDLE", "ENABLE", "CONDSTORE", "LITERALPLUS", "UNSELECT", "SPECIAL-USE", "UIDPLUS"],
-            id: { name: "Mock_IMAP UIDPLUS Server", version: "1.0.0" },
+            plugins: ["ID", "STARTTLS", "SASL-IR", "AUTH-PLAIN", "NAMESPACE", "IDLE", "ENABLE", "CONDSTORE", "LITERALPLUS", "UNSELECT", "SPECIAL-USE", ...extraPlugins],
+            id: { name: "Mock_IMAP Server", version: "1.0.0" },
             storage: {
                 "INBOX": { messages: [{ raw: "Subject: existing\r\n\r\nbody" }] },
                 "": { separator: "/", folders: { "Drafts": { "special-use": "\\Drafts" } } }
             },
             debug: false
         });
-        server.listen(11144);
+        server.listen(port);
+        return server;
+    }
+
+    test("uses the UID from APPENDUID on a UIDPLUS server", async () => {
+        const server = startMockServer(11144, ["UIDPLUS"]);
         const account = testAccount(11144);
 
         try {
@@ -112,6 +118,25 @@ describe("IMAP createMail returns the new UID", () => {
         } finally {
             if (uid) await account.permanentlyDelete("Drafts", [uid]);
             await account.disconnect();
+        }
+    });
+
+    test("lists mail appended to a mailbox that was empty when it was selected", async () => {
+        const server = startMockServer(11145);
+        const account = testAccount(11145);
+
+        try {
+            await account.connect();
+            // Selecting the empty mailbox caches `exists = 0`, and this server
+            // doesn't report the session's own append with a new EXISTS.
+            expect(await account.getMails("Drafts")).toEqual([]);
+
+            await account.createMail("Drafts", draft);
+
+            expect((await account.getMails("Drafts")).map(mail => mail.subject)).toEqual(["createMail uid test"]);
+        } finally {
+            await account.disconnect();
+            server.close();
         }
     });
 

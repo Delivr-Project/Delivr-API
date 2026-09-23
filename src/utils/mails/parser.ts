@@ -1,4 +1,4 @@
-import PostalMime, { type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
+import PostalMime, { type Header, type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
 
@@ -34,10 +34,8 @@ export class MailParser {
             messageId: parsed.messageId,
             inReplyTo: parsed.inReplyTo,
             
-            priority: parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'high' ? 'high' :
-                      parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'low' ? 'low' :
-                      'normal',
-            
+            priority: this.parsePriority(parsed.headers),
+
             attachments: this.parseAttachments(parsed.attachments),
             body: this.getBody(parsed.text, parsed.html)
         };
@@ -124,6 +122,28 @@ export class MailParser {
     }
 
     /**
+     * Read a mail's priority from `X-Priority` (1–5, 1 = highest), falling back to
+     * `Importance` / `X-MSMail-Priority`. Nodemailer writes all three for high and
+     * low priority mails; other clients often write only one of them.
+     */
+    static parsePriority(headers: Header[]): NonNullable<MailRessource.IMail['priority']> {
+        const header = (name: string) => headers.find(h => h.key.toLowerCase() === name)?.value?.trim().toLowerCase();
+
+        const xPriority = header('x-priority');
+        if (xPriority) {
+            const level = parseInt(xPriority, 10);
+            if (level === 1 || level === 2 || xPriority === 'high' || xPriority === 'urgent') return 'high';
+            if (level === 4 || level === 5 || xPriority === 'low') return 'low';
+            if (level === 3) return 'normal';
+        }
+
+        const importance = header('importance') ?? header('x-msmail-priority');
+        if (importance === 'high') return 'high';
+        if (importance === 'low') return 'low';
+        return 'normal';
+    }
+
+    /**
      * Maps the client-facing flag names to their IMAP system flags. `\Recent` is
      * server-managed and cannot be set by clients, so it is intentionally omitted.
      */
@@ -199,6 +219,17 @@ export class MailParser {
         const parsed = await PostalMime.parse(source);
         const attachment = parsed.attachments[attachmentId];
         return attachment ? this.normalizeAttachment(attachment) : null;
+    }
+
+    /**
+     * Attachment metadata of a raw message, identical to what {@link parseMail}
+     * reports for the stored mail (so the `id`s match the attachment routes).
+     */
+    static async getAttachmentMetadata(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
+    ): Promise<MailRessource.MailAttachment[]> {
+        const parsed = await PostalMime.parse(source);
+        return this.parseAttachments(parsed.attachments);
     }
 
     /** Parse all attachment bytes and metadata from one immutable MIME source. */

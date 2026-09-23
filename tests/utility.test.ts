@@ -6,6 +6,7 @@ import { LCrypt } from "../src/utils/crypto/lcrypt";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
 import { ConfigHandler } from "../src/utils/config";
 import type { MailRessource } from "../src/utils/mails/ressources/mail";
+import { MailParser } from "../src/utils/mails/parser";
 
 describe("Utility Tests", () => {
 
@@ -218,6 +219,19 @@ describe("Utility Tests", () => {
         await smtp.sendRaw(source, mail);
 
         expect(sent[0].raw).toBe(source);
+    });
+
+    test("Mail priority is read from X-Priority, Importance or X-MSMail-Priority", () => {
+        const header = (key: string, value: string) => ({ key: key.toLowerCase(), originalKey: key, value });
+
+        expect(MailParser.parsePriority([header("X-Priority", "1 (Highest)")])).toBe("high");
+        expect(MailParser.parsePriority([header("X-Priority", "2")])).toBe("high");
+        expect(MailParser.parsePriority([header("X-Priority", "3 (Normal)")])).toBe("normal");
+        expect(MailParser.parsePriority([header("X-Priority", "5 (Lowest)")])).toBe("low");
+        expect(MailParser.parsePriority([header("X-Priority", "High")])).toBe("high");
+        expect(MailParser.parsePriority([header("Importance", "Low")])).toBe("low");
+        expect(MailParser.parsePriority([header("X-MSMail-Priority", "High")])).toBe("high");
+        expect(MailParser.parsePriority([])).toBe("normal");
     });
 
     test("SMTP size rejections are recognised", () => {

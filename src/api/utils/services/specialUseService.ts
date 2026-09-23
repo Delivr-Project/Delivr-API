@@ -210,6 +210,19 @@ export class SpecialUseHandler {
     }
 
     /**
+     * Resolve the account's Sent folder path like {@link resolveTrashPath}, but
+     * without a literal fallback: a guessed "Sent" that doesn't exist would make
+     * the move fail after the mail has already gone out.
+     */
+    static async resolveSentPath(accountId: number, imap: IMAPAccount, tx: DrizzleDB = DB.instance()): Promise<string | null> {
+        const stored = await this.getStored(accountId, tx);
+        if (stored?.sent?.path) return stored.sent.path;
+
+        const mapping = await this.resolve(accountId, await imap.getMailboxes(), tx);
+        return mapping.sent?.path ?? null;
+    }
+
+    /**
      * Apply user overrides. Each editable type's value is:
      *  - a folder path → assign it (and release that folder from any other type,
      *    since a folder can only be one special type);

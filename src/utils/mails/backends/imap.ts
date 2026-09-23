@@ -163,9 +163,9 @@ export class IMAPAccount {
         
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            let total = this.client.mailbox ? this.client.mailbox.exists : 0;
-            if (total === 0) return [];
-
+            // No shortcut on `mailbox.exists`: for an already selected mailbox it's
+            // only as fresh as the server's last EXISTS notification, and servers
+            // may not report a session's own appends — the search below is exact.
             let uids: number[];
 
             // If searchString is provided, use IMAP SEARCH
@@ -401,12 +401,7 @@ export class IMAPAccount {
             try {
                 lock = await this.client.getMailboxLock(mailbox.path);
 
-                const total = this.client.mailbox ? this.client.mailbox.exists : 0;
-                if (total === 0) {
-                    lock.release();
-                    continue;
-                }
-
+                // Searched even when `exists` says 0: that count can be stale (see getMails).
                 const searchResults = await this.client.search(searchCriteria, { uid: true });
 
                 // Ensure searchResults is an array (might be empty or non-array in edge cases)
