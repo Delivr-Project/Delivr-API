@@ -9,6 +9,10 @@
 -- after — correct it under the account's Identities settings where the two
 -- differ.
 --
+-- An account whose owner no longer exists is skipped rather than given an
+-- address out of nowhere: `DELETE /admin/users/:userId` removes the user without
+-- its mail accounts, and such an account is already unreachable through the API.
+--
 -- It is deliberately not the default identity: the composer lists the account's
 -- own (decrypted) SMTP address first, so a backfilled address that turns out to
 -- be wrong is never preselected for sending.
