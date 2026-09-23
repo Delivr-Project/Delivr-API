@@ -715,6 +715,102 @@ describe("Account Preferences Routes", async () => {
         await makeAPIRequest("/v1/account/preferences/folder-dnd", {}, 401);
     });
 
+    test("GET /v1/account/preferences returns every preference with defaults when nothing is saved yet", async () => {
+
+        const allPrefsUser = await seedUser("user", { username: "allprefsdefaultuser" }, "AllP@ss1");
+        const allPrefsSession = await seedSession(allPrefsUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/v1/account/preferences", {
+            authToken: allPrefsSession,
+            expectedBodySchema: AccountPreferencesModel.GetAll.Response
+        });
+
+        expect(Object.keys(data).sort()).toEqual(Object.keys(AccountPreferencesModel.GetAll.Response.shape).sort());
+        expect(data).toMatchObject({
+            "remote-content-policy": { addresses: {}, domains: {} },
+            "auto-mark-seen": { enabled: true },
+            "folder-nesting": { nestUnderInbox: true },
+            "folder-dnd": { enabled: false },
+            "onboarding": { completed: false },
+        });
+
+        // Defaults are computed, not persisted.
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, allPrefsUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+
+        SessionHandler.inValidateAllSessionsForUser(allPrefsUser.id);
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, allPrefsUser.id)).run();
+    });
+
+    test("GET /v1/account/preferences returns saved values matching the per-preference routes", async () => {
+
+        const allPrefsUser = await seedUser("user", { username: "allprefssaveduser" }, "AllP@ss1");
+        const allPrefsSession = await seedSession(allPrefsUser.id).then(s => s.token);
+
+        await makeAPIRequest("/v1/account/preferences/remote-content-policy", {
+            method: "PUT",
+            authToken: allPrefsSession,
+            body: { addresses: { "news@example.com": "block" }, domains: { "example.com": "allow" } }
+        });
+
+        await makeAPIRequest("/v1/account/preferences/folder-dnd", {
+            method: "PUT",
+            authToken: allPrefsSession,
+            body: { enabled: true }
+        });
+
+        const data = await makeAPIRequest("/v1/account/preferences", {
+            authToken: allPrefsSession,
+            expectedBodySchema: AccountPreferencesModel.GetAll.Response
+        });
+
+        expect(data["remote-content-policy"]).toEqual({ addresses: { "news@example.com": "block" }, domains: { "example.com": "allow" } });
+        expect(data["folder-dnd"].enabled).toBe(true);
+        // Unsaved preferences still fall back to their defaults.
+        expect(data["auto-mark-seen"].enabled).toBe(true);
+
+        for (const key of Object.keys(data)) {
+            const single = await makeAPIRequest<unknown>(`/v1/account/preferences/${key}`, {
+                authToken: allPrefsSession
+            });
+            expect(single).toEqual(data[key as keyof typeof data]);
+        }
+
+        SessionHandler.inValidateAllSessionsForUser(allPrefsUser.id);
+        DB.instance().delete(DB.Tables.userPreferences).where(eq(DB.Tables.userPreferences.user_id, allPrefsUser.id)).run();
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, allPrefsUser.id)).run();
+    });
+
+    test("GET /v1/account/preferences ignores stored keys that are no longer known preferences", async () => {
+
+        const allPrefsUser = await seedUser("user", { username: "allprefslegacyuser" }, "AllP@ss1");
+        const allPrefsSession = await seedSession(allPrefsUser.id).then(s => s.token);
+
+        DB.instance().insert(DB.Tables.userPreferences).values({
+            user_id: allPrefsUser.id,
+            key: "legacy-preference",
+            data: { some: "value" }
+        }).run();
+
+        // No expectedBodySchema: parsing would strip unknown keys and hide a leak.
+        const data = await makeAPIRequest<Record<string, unknown>>("/v1/account/preferences", {
+            authToken: allPrefsSession
+        });
+
+        expect(Object.keys(data)).not.toContain("legacy-preference");
+        expect(Object.keys(data).sort()).toEqual(Object.keys(AccountPreferencesModel.GetAll.Response.shape).sort());
+
+        SessionHandler.inValidateAllSessionsForUser(allPrefsUser.id);
+        DB.instance().delete(DB.Tables.userPreferences).where(eq(DB.Tables.userPreferences.user_id, allPrefsUser.id)).run();
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, allPrefsUser.id)).run();
+    });
+
+    test("GET /v1/account/preferences without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences", {}, 401);
+    });
+
 });
 
 describe("Mail Account Routes", async () => {

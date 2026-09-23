@@ -38,6 +38,11 @@ export namespace UserPreferences {
 
     export type Key = keyof typeof schemas;
 
+    // Every preference at once, keyed by preference key. Derived from `schemas`
+    // so newly added preferences are included automatically.
+    export const allSchema = z.object(schemas);
+    export type All = z.infer<typeof allSchema>;
+
 }
 
 /**
@@ -71,6 +76,29 @@ export class UserPreferencesHandler {
         }
 
         return UserPreferences.schemas[key].parse(record.data) as Parsed;
+    }
+
+    /**
+     * Fetch every preference in a single query. Keys without a stored row are
+     * filled with their defaults, and stored keys no longer in `schemas` are dropped.
+     */
+    static async getAll(
+        userID: number,
+        tx: DrizzleDB = DB.instance()
+    ): Promise<UserPreferences.All> {
+
+        const records = await tx.select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, userID)
+        ).all();
+
+        const stored = new Map(records.map(record => [record.key, record.data]));
+
+        // Same `{}` fallback as `get`, since the defaults are per-field.
+        const raw = Object.fromEntries(
+            Object.keys(UserPreferences.schemas).map(key => [key, stored.get(key) ?? {}])
+        );
+
+        return UserPreferences.allSchema.parse(raw);
     }
 
     static async set<T extends UserPreferences.Key>(
