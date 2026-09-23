@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test, beforeAll } from "bun:test";
+import { afterAll, describe, expect, test, beforeAll, spyOn } from "bun:test";
 import { API } from "../src/api";
 import { DB } from "../src/db";
 import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
@@ -12,7 +12,7 @@ import { MailAccountsModel } from "../src/api/versions/v1/routes/mail-accounts/m
 import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts/identities/model";
 import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
 import { SpecialUseModel } from "../src/api/versions/v1/routes/mail-accounts/special-use/model";
-import { SpecialUse } from "../src/api/utils/services/specialUseService";
+import { SpecialUse, SpecialUseHandler } from "../src/api/utils/services/specialUseService";
 import { MailboxRessource } from "../src/utils/mails/ressources/mailbox";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
@@ -21,6 +21,9 @@ import { SearchModel } from "../src/api/versions/v1/routes/mail-accounts/search/
 import { MailBulkActionsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mail-bulk-actions/model";
 import { AttachmentsModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/mails/attachments/model";
 import { hashResetToken } from "../src/api/versions/v1/routes/auth/reset-password";
+import { SMTPAccount } from "../src/utils/mails/backends/smtp";
+import { MailParser } from "../src/utils/mails/parser";
+import { ConfigHandler } from "../src/utils/config";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -1709,6 +1712,7 @@ describe("Mail Mailbox Mails Routes", async () => {
     })
 
     let createdMailUID: number;
+    let multipartDraftUID: number;
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails creates new draft mail", async () => {
 
@@ -1731,6 +1735,744 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         expect(data.uid).toBeGreaterThan(0);
         createdMailUID = data.uid;
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails stores multipart attachments", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { name: "Test Sender", address: "sender@test.com" },
+            to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+            cc: [],
+            bcc: [{ name: "Hidden Receiver", address: "hidden@test.com" }],
+            subject: "Draft with attachment",
+            body: { text: "See attachment" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File(["attachment body"], "note.txt", { type: "text/plain" }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(response.status).toBe(200);
+
+        const created = await response.json() as { data: MailsModel.Create.Response };
+        multipartDraftUID = created.data.uid;
+        const attachmentData = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.data.uid}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+
+        expect(attachmentData).toHaveLength(1);
+        expect(attachmentData[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
+        // The create response already reports what the attachment routes will see.
+        expect(created.data.attachments).toEqual(attachmentData);
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.data.uid}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.bcc).toEqual([{ name: "Hidden Receiver", address: "hidden@test.com" }]);
+    });
+
+    test("PUT content update preserves multipart draft attachments and Bcc", async () => {
+        const updated = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            {
+                method: "PUT",
+                authToken: session_token,
+                body: { subject: "Updated draft with attachment" },
+                expectedBodySchema: MailsModel.Update.Response
+            }
+        );
+
+        expect(updated.newUid).toBeGreaterThan(0);
+        multipartDraftUID = updated.newUid!;
+
+        const attachments = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0]).toMatchObject({ filename: "note.txt", contentType: "text/plain" });
+
+        const attachmentResponse = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}/attachments/0`,
+            { headers: { Authorization: `Bearer ${session_token}` } }
+        );
+        expect(attachmentResponse.status).toBe(200);
+        expect(await attachmentResponse.text()).toContain("attachment body");
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.subject).toBe("Updated draft with attachment");
+        expect(storedDraft.bcc).toEqual([{ name: "Hidden Receiver", address: "hidden@test.com" }]);
+    });
+
+    test("PUT flag-only update keeps multipart draft UID and attachments", async () => {
+        const originalUID = multipartDraftUID;
+        const updated = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}`,
+            {
+                method: "PUT",
+                authToken: session_token,
+                body: { flags: { flagged: true } },
+                expectedBodySchema: MailsModel.Update.Response
+            }
+        );
+
+        expect(updated.success).toBe(true);
+        expect(updated.newUid).toBeUndefined();
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.uid).toBe(originalUID);
+        expect(storedDraft.flags?.flagged).toBe(true);
+
+        const attachments = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${originalUID}/attachments`,
+            { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+        );
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0]?.filename).toBe("note.txt");
+    });
+
+    test("PUT flag-only update clears flags in place", async () => {
+        const updated = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            {
+                method: "PUT",
+                authToken: session_token,
+                body: { flags: { flagged: false } },
+                expectedBodySchema: MailsModel.Update.Response
+            }
+        );
+        expect(updated.newUid).toBeUndefined();
+
+        const storedDraft = await makeAPIRequest(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+        );
+        expect(storedDraft.flags?.flagged).toBe(false);
+        expect(storedDraft.flags?.draft).toBe(true);
+    });
+
+    test("PUT content update keeps inline images and attachments without a disposition", async () => {
+        const mixed = "INLINE-UPDATE-MIXED";
+        const related = "INLINE-UPDATE-RELATED";
+        const rawMessage = [
+            "From: sender@test.com",
+            "To: receiver@test.com",
+            "Subject: Draft with inline image",
+            "Message-ID: <inline-update-mixed@test.com>",
+            `Content-Type: multipart/mixed; boundary="${mixed}"`,
+            "",
+            `--${mixed}`,
+            `Content-Type: multipart/related; boundary="${related}"`,
+            "",
+            `--${related}`,
+            "Content-Type: text/html; charset=utf-8",
+            "",
+            '<p>Logo: <img src="cid:logo@delivr"></p>',
+            `--${related}`,
+            "Content-Type: image/png; name=logo.png",
+            "Content-Transfer-Encoding: base64",
+            "Content-ID: <logo@delivr>",
+            "Content-Disposition: inline; filename=logo.png",
+            "",
+            Buffer.from("fake png bytes").toString("base64"),
+            `--${related}--`,
+            `--${mixed}`,
+            "Content-Type: application/octet-stream; name=nodisposition.bin",
+            "Content-Transfer-Encoding: base64",
+            "",
+            Buffer.from("no disposition bytes").toString("base64"),
+            `--${mixed}--`,
+            ""
+        ].join("\r\n");
+        const uid = await testIMAPClient.createMail("INBOX", rawMessage, ["\\Draft"]);
+        if (!uid) throw new Error("Failed to create inline-image test mail");
+
+        let newUid: number | undefined;
+        try {
+            const updated = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                method: "PUT",
+                authToken: session_token,
+                body: { subject: "Updated draft with inline image" },
+                expectedBodySchema: MailsModel.Update.Response
+            });
+            newUid = updated.newUid;
+            expect(newUid).toBeGreaterThan(0);
+
+            const attachments = await makeAPIRequest(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${newUid}/attachments`,
+                { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+            );
+            expect(attachments).toContainEqual(expect.objectContaining({
+                filename: "logo.png",
+                contentId: "<logo@delivr>",
+                contentDisposition: "inline"
+            }));
+            expect(attachments).toContainEqual(expect.objectContaining({
+                filename: "nodisposition.bin",
+                contentDisposition: "attachment"
+            }));
+
+            const storedDraft = await makeAPIRequest(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${newUid}`,
+                { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response }
+            );
+            expect(storedDraft.body.html).toContain("cid:logo@delivr");
+        } finally {
+            if (newUid) {
+                await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${newUid}?permanent=true`, {
+                    method: "DELETE",
+                    authToken: session_token
+                });
+            }
+        }
+    });
+
+    /** Create an INBOX draft carrying `files` as attachments. */
+    async function createDraftWithAttachments(subject: string, files: File[]) {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { address: "sender@test.com" },
+            to: [{ address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            subject,
+            body: { text: `${subject} body` },
+            flags: { draft: true }
+        }));
+        for (const file of files) form.append("attachments", file);
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(response.status).toBe(200);
+        return (await response.json() as { data: MailsModel.Create.Response }).data;
+    }
+
+    function putInboxMail(uid: number, body: FormData | string) {
+        return API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`,
+            {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${session_token}`,
+                    ...(typeof body === "string" ? { "Content-Type": "application/json" } : {})
+                },
+                body
+            }
+        );
+    }
+
+    async function inboxAttachmentText(uid: number, attachmentId: number) {
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}/attachments/${attachmentId}`,
+            { headers: { Authorization: `Bearer ${session_token}` } }
+        );
+        expect(response.status).toBe(200);
+        return response.text();
+    }
+
+    function deleteInboxMail(uid: number) {
+        return makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}?permanent=true`, {
+            method: "DELETE",
+            authToken: session_token
+        });
+    }
+
+    test("PUT multipart adds attachments, keeps existing ones and removes the replaced version for good", async () => {
+        const draft = await createDraftWithAttachments("Attachment update", [
+            new File(["first body"], "first.txt", { type: "text/plain" })
+        ]);
+
+        const form = new FormData();
+        form.set("mail", JSON.stringify({ subject: "Attachment update v2" }));
+        form.append("attachments", new File(["second body"], "second.txt", { type: "text/plain" }));
+        const response = await putInboxMail(draft.uid, form);
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+        let trashedUid: number | undefined;
+
+        try {
+            expect(data.newUid).toBeGreaterThan(draft.uid);
+            expect(data.attachments?.map(attachment => [attachment.id, attachment.filename])).toEqual([
+                [0, "first.txt"],
+                [1, "second.txt"]
+            ]);
+            expect(await inboxAttachmentText(data.newUid!, 0)).toBe("first body");
+            expect(await inboxAttachmentText(data.newUid!, 1)).toBe("second body");
+
+            // The replaced version is gone from the mailbox. This mock server has
+            // no UIDPLUS, so it lands in Trash rather than being expunged — a
+            // single-UID expunge isn't available there (see the UIDPLUS test in
+            // mail-clients.test.ts).
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${draft.uid}`, { authToken: session_token }, 404);
+            const trash = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mails`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetAll.Response
+            });
+            const replaced = trash.find(mail => mail.subject === "Attachment update");
+            expect(replaced).toBeDefined();
+            trashedUid = replaced!.uid;
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+            if (trashedUid !== undefined) {
+                await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mails/${trashedUid}?permanent=true`, {
+                    method: "DELETE",
+                    authToken: session_token
+                });
+            }
+        }
+    });
+
+    test("PUT with a new body replaces both alternatives instead of keeping the old text part", async () => {
+        const draft = await createDraftWithAttachments("Body alternatives", []);
+
+        const response = await putInboxMail(draft.uid, JSON.stringify({
+            body: { html: "<p>Rewritten in HTML</p>" }
+        }));
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+
+        try {
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.newUid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.body?.html).toContain("Rewritten in HTML");
+            // The superseded plain-text alternative must not survive, or plain-text
+            // readers would still see the previous wording.
+            expect(stored.body?.text ?? "").not.toContain("Body alternatives body");
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+        }
+    });
+
+    test("PUT does not carry \\Deleted onto the rebuilt draft", async () => {
+        const draft = await createDraftWithAttachments("Deleted flag carry over", []);
+
+        const flagged = await putInboxMail(draft.uid, JSON.stringify({ flags: { deleted: true } }));
+        expect(flagged.status).toBe(200);
+
+        const response = await putInboxMail(draft.uid, JSON.stringify({ subject: "Deleted flag carry over v2" }));
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+
+        try {
+            // The replacement is still there: had it inherited \\Deleted, removing
+            // the version it replaced would have taken it along.
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.newUid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.subject).toBe("Deleted flag carry over v2");
+            expect(stored.flags?.deleted).toBe(false);
+            expect(stored.flags?.draft).toBe(true);
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+        }
+    });
+
+    test("PUT removeAttachments drops the given attachments and keeps the rest", async () => {
+        const draft = await createDraftWithAttachments("Attachment removal", [
+            new File(["keep me"], "keep.txt", { type: "text/plain" }),
+            new File(["drop me"], "drop.txt", { type: "text/plain" })
+        ]);
+        expect(draft.attachments.map(attachment => attachment.filename)).toEqual(["keep.txt", "drop.txt"]);
+
+        const response = await putInboxMail(draft.uid, JSON.stringify({ removeAttachments: [1] }));
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+
+        try {
+            expect(data.attachments?.map(attachment => attachment.filename)).toEqual(["keep.txt"]);
+            expect(await inboxAttachmentText(data.newUid!, 0)).toBe("keep me");
+
+            // An attachment-only update leaves the content and flags as they were.
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.newUid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.subject).toBe("Attachment removal");
+            expect(stored.flags?.draft).toBe(true);
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+        }
+    });
+
+    test("PUT rejects unknown attachment ids and attachments over the combined limit", async () => {
+        const draft = await createDraftWithAttachments("Attachment validation", [
+            new File(["existing"], "existing.txt", { type: "text/plain" })
+        ]);
+
+        try {
+            const unknown = await putInboxMail(draft.uid, JSON.stringify({ removeAttachments: [5] }));
+            expect(unknown.status).toBe(400);
+            await expect(unknown.json()).resolves.toMatchObject({ message: "Unknown attachment id(s): 5" });
+
+            // Kept attachments count toward the limit together with the new files.
+            const form = new FormData();
+            form.set("mail", JSON.stringify({}));
+            form.append("attachments", new File([new Uint8Array(25 * 1024 * 1024 - 4)], "big.bin", {
+                type: "application/octet-stream"
+            }));
+            const tooLarge = await putInboxMail(draft.uid, form);
+            expect(tooLarge.status).toBe(400);
+            await expect(tooLarge.json()).resolves.toMatchObject({
+                message: "Attachments exceed the maximum combined size of 25 MB"
+            });
+
+            // Neither request replaced the draft.
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${draft.uid}`, { authToken: session_token });
+        } finally {
+            await deleteInboxMail(draft.uid);
+        }
+    });
+
+    test("PUT requests declaring a Content-Length over the limit are rejected before the body is read", async () => {
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+            {
+                method: "PUT",
+                headers: {
+                    Authorization: `Bearer ${session_token}`,
+                    "Content-Type": "application/json",
+                    "Content-Length": String(41 * 1024 * 1024 + 1)
+                },
+                body: "{}"
+            }
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Request body exceeds the maximum size of 41 MB" });
+    });
+
+    test("POST create writes priority headers that are read back as the priority", async () => {
+        for (const [priority, xPriority] of [["high", "1 (Highest)"], ["low", "5 (Lowest)"]] as const) {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { address: "sender@test.com" },
+                    to: [{ address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject: `Priority ${priority}`,
+                    body: { text: "priority" },
+                    priority
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+
+            try {
+                const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`, {
+                    authToken: session_token,
+                    expectedBodySchema: MailsModel.GetByUID.Response
+                });
+                expect(stored.priority).toBe(priority);
+                expect(stored.rawHeaders["x-priority"]).toBe(`X-Priority: ${xPriority}`);
+            } finally {
+                await deleteInboxMail(created.uid);
+            }
+        }
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects multipart requests without mail data", async () => {
+        const form = new FormData();
+        form.append("attachments", new File(["attachment body"], "note.txt", { type: "text/plain" }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Missing 'mail' field in multipart body" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects invalid multipart mail JSON", async () => {
+        const form = new FormData();
+        form.set("mail", "{invalid json");
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "The 'mail' field is not valid JSON" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects non-file attachment fields", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { address: "sender@test.com" },
+            to: [{ address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            body: { text: "Invalid attachment field" }
+        }));
+        form.set("attachments", "not-a-file");
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Every 'attachments' field must contain a file" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects attachments above the combined size limit", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { name: "Test Sender", address: "sender@test.com" },
+            to: [{ name: "Test Receiver", address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Oversized attachment",
+            body: { text: "This request must be rejected" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File([new Uint8Array(25 * 1024 * 1024 + 1)], "too-large.bin", {
+            type: "application/octet-stream"
+        }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Attachments exceed the maximum combined size of 25 MB"
+        });
+    });
+
+    test("Multipart total-size protection reports a request error for oversized mail JSON", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({ body: { text: "x".repeat(41 * 1024 * 1024) } }));
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Multipart request exceeds the maximum total size of 41 MB (mail JSON, attachments and framing combined)"
+        });
+    });
+
+    test("JSON create requests are bounded by the same total-size limit", async () => {
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${session_token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ body: { text: "x".repeat(41 * 1024 * 1024) } })
+            }
+        );
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "Request body exceeds the maximum size of 41 MB"
+        });
+    });
+
+    test("Create requests declaring a Content-Length over the limit are rejected before the body is read", async () => {
+        const cases = [
+            ["application/json", "Request body exceeds the maximum size of 41 MB"],
+            ["multipart/form-data; boundary=unused", "Multipart request exceeds the maximum total size of 41 MB (mail JSON, attachments and framing combined)"]
+        ] as const;
+
+        for (const [contentType, message] of cases) {
+            const response = await API.getApp().request(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${session_token}`,
+                        "Content-Type": contentType,
+                        "Content-Length": String(41 * 1024 * 1024 + 1)
+                    },
+                    body: "{}"
+                }
+            );
+            expect(response.status).toBe(400);
+            await expect(response.json()).resolves.toMatchObject({ message });
+        }
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects malformed bodies", async () => {
+        const post = (contentType: string, body: string) => API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}`, "Content-Type": contentType }, body }
+        );
+
+        const malformedJSON = await post("application/json", "{not json");
+        expect(malformedJSON.status).toBe(400);
+        await expect(malformedJSON.json()).resolves.toMatchObject({ message: "Malformed JSON body" });
+
+        const malformedMultipart = await post("multipart/form-data; boundary=missing", "not multipart");
+        expect(malformedMultipart.status).toBe(400);
+        await expect(malformedMultipart.json()).resolves.toMatchObject({ message: "Malformed multipart/form-data body" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails rejects multipart mail JSON that fails validation", async () => {
+        const form = new FormData();
+        form.set("mail", JSON.stringify({ to: "not-a-list", body: { text: "invalid" } }));
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ message: "Your input is invalid" });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails reports a failed IMAP append as a server error", async () => {
+        const createMailSpy = spyOn(IMAPAccount.prototype, "createMail").mockRejectedValueOnce(new Error("APPEND rejected"));
+
+        try {
+            const response = await API.getApp().request(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+                {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${session_token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        from: { address: "sender@test.com" },
+                        to: [{ address: "receiver@test.com" }],
+                        cc: [],
+                        bcc: [],
+                        subject: "Append fails",
+                        body: { text: "never stored" }
+                    })
+                }
+            );
+
+            expect(response.status).toBe(500);
+            await expect(response.json()).resolves.toMatchObject({ message: "Failed to create mail" });
+        } finally {
+            createMailSpy.mockRestore();
+        }
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails returns uid 0 when the new UID is unknown", async () => {
+        const createMailSpy = spyOn(IMAPAccount.prototype, "createMail").mockResolvedValueOnce(null);
+
+        try {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: { to: [{ address: "receiver@test.com" }], cc: [], bcc: [], body: { text: "uid unknown" } },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            expect(created.uid).toBe(0);
+        } finally {
+            createMailSpy.mockRestore();
+        }
+    });
+
+    test("POST multipart attachments without a filename or content type get defaults", async () => {
+        const boundary = "ATTACHMENT-DEFAULTS";
+        const mail = JSON.stringify({
+            from: { address: "sender@test.com" },
+            to: [{ address: "receiver@test.com" }],
+            cc: [],
+            bcc: [],
+            subject: "Attachments without name or type",
+            body: { text: "defaults" },
+            flags: { draft: true }
+        });
+        // Hand-written, because FormData always sends a filename and a content type.
+        const body = [
+            `--${boundary}`, 'Content-Disposition: form-data; name="mail"', "", mail,
+            `--${boundary}`, 'Content-Disposition: form-data; name="attachments"; filename=""', "", "unnamed content",
+            `--${boundary}`, 'Content-Disposition: form-data; name="attachments"; filename="untyped"', "", "untyped content",
+            `--${boundary}--`, ""
+        ].join("\r\n");
+
+        const response = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${session_token}`, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+                body
+            }
+        );
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: { uid: number } };
+
+        try {
+            const attachments = await makeAPIRequest(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.uid}/attachments`,
+                { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response }
+            );
+            expect(attachments.map(a => [a.filename, a.contentType])).toEqual([
+                ["attachment", "application/octet-stream"],
+                ["untyped", "application/octet-stream"]
+            ]);
+        } finally {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.uid}?permanent=true`, {
+                method: "DELETE",
+                authToken: session_token
+            });
+        }
+    });
+
+    test("PUT content update with partial flags preserves the draft's other flags", async () => {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { address: "sender@test.com" },
+                to: [{ address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Draft to keep",
+                body: { text: "keep me a draft" },
+                flags: { draft: true }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const updated = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { subject: "Draft still a draft", flags: { seen: true } },
+            expectedBodySchema: MailsModel.Update.Response
+        });
+        expect(updated.newUid).toBeGreaterThan(0);
+
+        const storedDraft = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${updated.newUid}`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetByUID.Response
+        });
+        // The explicitly-set flag is applied and the pre-existing \Draft survives.
+        expect(storedDraft.flags?.seen).toBe(true);
+        expect(storedDraft.flags?.draft).toBe(true);
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${updated.newUid}?permanent=true`, {
+            method: "DELETE",
+            authToken: session_token
+        });
+    });
+
+    test("PUT rejects the server-managed recent flag for both values", async () => {
+        for (const recent of [true, false]) {
+            await makeAPIRequest(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${multipartDraftUID}`,
+                { method: "PUT", authToken: session_token, body: { flags: { recent } } },
+                400
+            );
+        }
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails with invalid mailbox fails", async () => {
@@ -1802,6 +2544,57 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         expect(updatedMail.subject).toBe("Updated Test Draft Mail");
         expect(updatedMail.body?.text).toContain("Updated body content");
+    });
+
+    test("PUT rejects attachment-backed updates above the configured limit before decoding attachments", async () => {
+        const boundary = "UPDATE-LIMIT-BOUNDARY";
+        const rawMessage = [
+            "From: sender@test.com",
+            "To: receiver@test.com",
+            "Subject: Oversized existing attachment",
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            "Content-Type: text/plain",
+            "",
+            "body",
+            `--${boundary}`,
+            "Content-Type: application/octet-stream",
+            "Content-Disposition: attachment; filename=existing.bin",
+            "",
+            "attachment larger than ten bytes",
+            `--${boundary}--`,
+            ""
+        ].join("\r\n");
+        await testIMAPClient.createMail("INBOX", rawMessage, ["\\Draft"]);
+        const newest = (await testIMAPClient.getMails("INBOX", { order: "newest", limit: 1 }))[0];
+        if (!newest) throw new Error("Failed to create update-limit test mail");
+
+        const config = ConfigHandler.getConfig();
+        if (!config) throw new Error("Test config is not loaded");
+        const originalLimit = config.DLA_MAX_ATTACHMENT_SIZE_MB;
+        const extractionSpy = spyOn(MailParser, "getAttachmentContents");
+        config.DLA_MAX_ATTACHMENT_SIZE_MB = "0.00001";
+
+        try {
+            const response = await API.getApp().request(
+                `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${newest.uid}`,
+                {
+                    method: "PUT",
+                    headers: {
+                        Authorization: `Bearer ${session_token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ subject: "must not update" })
+                }
+            );
+            expect(response.status).toBe(400);
+            expect(extractionSpy).not.toHaveBeenCalled();
+        } finally {
+            config.DLA_MAX_ATTACHMENT_SIZE_MB = originalLimit;
+            extractionSpy.mockRestore();
+            await testIMAPClient.permanentlyDelete("INBOX", [newest.uid]);
+        }
     });
 
     test("PUT /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
@@ -2240,51 +3033,282 @@ describe("Mail Mailbox Mails Routes", async () => {
         }
     });
 
-    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID/send sends mail via SMTP", async () => {
-
-        // Create a draft mail to send
-        const mailData = {
-            from: { name: "Sender", address: "sender@example.com" },
-            to: [{ name: "Receiver", address: "receiver@example.com" }],
-            cc: [],
-            bcc: [],
-            subject: "Test Send Mail",
-            body: { text: "This is a test mail to send", html: "<p>This is a test mail to send</p>" }
-        };
-
-        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
-            method: "POST",
-            authToken: session_token,
-            body: mailData,
-            expectedBodySchema: MailsModel.Create.Response
+    test("POST send relays multipart attachments and keeps Bcc out of the raw message", async () => {
+        const smtp = SMTPAccount.fromConfig({
+            host: "smtp.example.com",
+            port: 587,
+            username: "testuser",
+            password: "testpass",
+            useSSL: connectionSettings.smtp_encryption
         });
+        let sentOptions: any;
+        (smtp as any).client.sendMail = async (options: any) => {
+            sentOptions = options;
+            return { messageId: "route-message-id" };
+        };
+        const fromSettingsSpy = spyOn(SMTPAccount, "fromSettings").mockReturnValue(smtp);
 
-        const mailToSendUID = created.uid;
+        const form = new FormData();
+        form.set("mail", JSON.stringify({
+            from: { address: "sender@example.com" },
+            to: [{ address: "receiver@example.com" }],
+            cc: [],
+            bcc: [{ address: "hidden@example.com" }],
+            subject: "Multipart route send",
+            body: { text: "route body" },
+            flags: { draft: true }
+        }));
+        form.append("attachments", new File(["route attachment body"], "route-note.txt", {
+            type: "text/plain"
+        }));
 
-        // Note: This test may fail if SMTP mock server is not running
-        // In that case, we expect a 500 error
+        const createResponse = await API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`,
+            { method: "POST", headers: { Authorization: `Bearer ${session_token}` }, body: form }
+        );
+        expect(createResponse.status).toBe(200);
+        const created = await createResponse.json() as { data: { uid: number } };
+        const mailToSendUID = created.data.uid;
+
         try {
             const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}/send`, {
                 method: "POST",
                 authToken: session_token,
-                body: { moveToSent: true },
+                body: { moveToSent: false, deleteOriginal: false },
                 expectedBodySchema: MailsModel.Send.Response
             });
 
-            // Mail should have been sent (messageId may be present)
-            expect(data).toBeDefined();
+            expect(sentOptions.envelope).toEqual({
+                from: "sender@example.com",
+                to: ["receiver@example.com", "hidden@example.com"]
+            });
+            const rawText = Buffer.isBuffer(sentOptions.raw)
+                ? sentOptions.raw.toString("utf8")
+                : String(sentOptions.raw);
+            expect(rawText).not.toMatch(/^Bcc\s*:/mi);
 
-            // Verify the mail is no longer in INBOX (moved to Sent)
-            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
-                authToken: session_token
-            }, 404);
-        } catch (e) {
-            // SMTP server not available - clean up the created mail
-            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}`, {
+            // The response carries the Message-ID that was delivered, not the one
+            // nodemailer generates for raw input.
+            expect(data.messageId).not.toBe("route-message-id");
+            expect(rawText).toContain(`Message-ID: ${data.messageId}`);
+
+            const attachment = await MailParser.getAttachmentContent(sentOptions.raw, 0);
+            expect(attachment?.filename).toBe("route-note.txt");
+            expect(new TextDecoder().decode(attachment?.content)).toBe("route attachment body");
+        } finally {
+            fromSettingsSpy.mockRestore();
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${mailToSendUID}?permanent=true`, {
                 method: "DELETE",
                 authToken: session_token
             });
-            // Test passes - SMTP not available in test environment
+        }
+    });
+
+    /** Route SMTP sends to a transport that records them, or fails with `sendError`. */
+    function mockSMTPTransport(sendError?: unknown) {
+        const smtp = SMTPAccount.fromConfig({
+            host: "smtp.example.com",
+            port: 587,
+            username: "testuser",
+            password: "testpass",
+            useSSL: connectionSettings.smtp_encryption
+        });
+        const sent: any[] = [];
+        (smtp as any).client.sendMail = async (options: any) => {
+            if (sendError) throw sendError;
+            sent.push(options);
+            return { messageId: "generated-by-transport" };
+        };
+        const fromSettingsSpy = spyOn(SMTPAccount, "fromSettings").mockReturnValue(smtp);
+        return { sent, restore: () => fromSettingsSpy.mockRestore() };
+    }
+
+    async function createInboxDraft(subject: string, recipients: { address: string }[] = [{ address: "receiver@example.com" }]) {
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { address: "sender@example.com" },
+                to: recipients,
+                cc: [],
+                bcc: [],
+                subject,
+                body: { text: `${subject} body` },
+                flags: { draft: true }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+        return created.uid;
+    }
+
+    function sendDraft(uid: number, body: Record<string, boolean>) {
+        return API.getApp().request(
+            `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}/send`,
+            {
+                method: "POST",
+                headers: { Authorization: `Bearer ${session_token}`, "Content-Type": "application/json" },
+                body: JSON.stringify(body)
+            }
+        );
+    }
+
+    async function takeFromMailbox(mailboxPath: string, subject: string) {
+        const mails = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${mailboxPath}/mails`, {
+            authToken: session_token,
+            expectedBodySchema: MailsModel.GetAll.Response
+        });
+        const mail = mails.find(m => m.subject === subject);
+        if (mail) {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${mailboxPath}/mails/${mail.uid}?permanent=true`, {
+                method: "DELETE",
+                authToken: session_token
+            });
+        }
+        return mail;
+    }
+
+    test("POST send with moveToSent files the draft in Sent and returns its Message-ID", async () => {
+        const smtp = mockSMTPTransport();
+        const uid = await createInboxDraft("Moved to Sent after sending");
+
+        try {
+            const draft = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(200);
+            const { data } = await response.json() as { data: MailsModel.Send.Response };
+
+            expect(smtp.sent).toHaveLength(1);
+            expect(data.messageId).toBeDefined();
+            expect(data.messageId).toBe(draft.messageId);
+            expect(data.savedToSent).toBe(true);
+            expect((smtp.sent[0].raw as Buffer).toString()).toContain(`Message-ID: ${data.messageId}`);
+
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, { authToken: session_token }, 404);
+            const moved = await takeFromMailbox("Sent", "Moved to Sent after sending");
+            expect(moved?.messageId).toBe(data.messageId);
+            // The sent copy is a read message, no longer a draft.
+            expect(moved?.flags?.draft).toBe(false);
+            expect(moved?.flags?.seen).toBe(true);
+        } finally {
+            smtp.restore();
+        }
+    });
+
+    test("POST send still succeeds when filing the sent mail fails", async () => {
+        const smtp = mockSMTPTransport();
+        const moveSpy = spyOn(IMAPAccount.prototype, "moveToMailbox").mockRejectedValueOnce(new Error("MOVE failed"));
+        const uid = await createInboxDraft("Filing fails after sending");
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(200);
+            const { data } = await response.json() as { data: MailsModel.Send.Response };
+            expect(data.savedToSent).toBe(false);
+            expect(smtp.sent).toHaveLength(1);
+        } finally {
+            moveSpy.mockRestore();
+            smtp.restore();
+            await takeFromMailbox("INBOX", "Filing fails after sending");
+        }
+    });
+
+    test("POST send keeps the mail in place, no longer a draft, when there is no Sent folder", async () => {
+        const smtp = mockSMTPTransport();
+        const sentPathSpy = spyOn(SpecialUseHandler, "resolveSentPath").mockResolvedValueOnce(null);
+        const uid = await createInboxDraft("Sent without a Sent folder");
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(200);
+            const { data } = await response.json() as { data: MailsModel.Send.Response };
+            expect(data.savedToSent).toBe(false);
+
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.flags?.draft).toBe(false);
+            expect(stored.flags?.seen).toBe(true);
+        } finally {
+            sentPathSpy.mockRestore();
+            smtp.restore();
+            await takeFromMailbox("INBOX", "Sent without a Sent folder");
+        }
+    });
+
+    test("POST send with deleteOriginal moves the draft to Trash", async () => {
+        const smtp = mockSMTPTransport();
+        const uid = await createInboxDraft("Trashed after sending");
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: false, deleteOriginal: true });
+            expect(response.status).toBe(200);
+            expect(smtp.sent).toHaveLength(1);
+
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, { authToken: session_token }, 404);
+            expect(await takeFromMailbox("Trash", "Trashed after sending")).toBeDefined();
+        } finally {
+            smtp.restore();
+        }
+    });
+
+    test("POST send rejects a draft without recipients and leaves it in place", async () => {
+        const smtp = mockSMTPTransport();
+        const uid = await createInboxDraft("Draft without recipients", []);
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(400);
+            await expect(response.json()).resolves.toMatchObject({ message: "Mail must include a sender and at least one recipient" });
+
+            expect(smtp.sent).toHaveLength(0);
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, { authToken: session_token });
+        } finally {
+            smtp.restore();
+            await takeFromMailbox("INBOX", "Draft without recipients");
+        }
+    });
+
+    test("POST send reports a mail server size rejection as a client error and leaves the draft in place", async () => {
+        const sizeRejection = Object.assign(new Error("Message failed: 552 5.3.4 Message size exceeds fixed limit"), {
+            code: "EMESSAGE",
+            responseCode: 552,
+            response: "552 5.3.4 Message size exceeds fixed limit"
+        });
+        const smtp = mockSMTPTransport(sizeRejection);
+        const uid = await createInboxDraft("Too large for the mail server");
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(400);
+            await expect(response.json()).resolves.toMatchObject({
+                message: "The mail server rejected the message because it is too large"
+            });
+
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, { authToken: session_token });
+        } finally {
+            smtp.restore();
+            await takeFromMailbox("INBOX", "Too large for the mail server");
+        }
+    });
+
+    test("POST send reports other SMTP failures as a server error and leaves the draft in place", async () => {
+        const smtp = mockSMTPTransport(Object.assign(new Error("Connection closed unexpectedly"), { code: "ECONNECTION" }));
+        const uid = await createInboxDraft("SMTP connection failure");
+
+        try {
+            const response = await sendDraft(uid, { moveToSent: true });
+            expect(response.status).toBe(500);
+            await expect(response.json()).resolves.toMatchObject({ message: "Failed to send mail" });
+
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}`, { authToken: session_token });
+        } finally {
+            smtp.restore();
+            await takeFromMailbox("INBOX", "SMTP connection failure");
         }
     });
 
@@ -2853,6 +3877,25 @@ describe("Docs Routes", async () => {
         await makeAPIRequest(`/docs/v1/openapi`, {}, 200);
     });
 
+    test("GET /docs/v1/openapi documents the create and update mail request bodies", async () => {
+        const specText = await (await API.getApp().request(`/docs/v1/openapi`)).text();
+        // An unresolved schema promise serializes as {"__quansync":true}.
+        expect(specText).not.toContain("__quansync");
+
+        const spec = JSON.parse(specText);
+        const create = spec.paths["/mail-accounts/{mailAccountID}/mailboxes/{mailboxPath}/mails"].post.requestBody.content;
+        expect(create["application/json"].schema).toMatchObject({
+            type: "object",
+            required: expect.arrayContaining(["to", "cc", "bcc", "body"])
+        });
+        expect(create["application/json"].schema.properties).toHaveProperty("subject");
+        expect(create["multipart/form-data"].schema).toMatchObject({ required: ["mail"] });
+
+        const update = spec.paths["/mail-accounts/{mailAccountID}/mailboxes/{mailboxPath}/mails/{mailUID}"].put.requestBody.content;
+        expect(update["application/json"].schema.properties).toHaveProperty("removeAttachments");
+        expect(update["multipart/form-data"].schema).toMatchObject({ required: ["mail"] });
+    });
+
     test("GET /docs/v1 returns API docs UI if enabled", async () => {
         await makeAPIRequest(`/docs/v1`, {}, 200);
     });
@@ -2861,7 +3904,6 @@ describe("Docs Routes", async () => {
 
         await API.stop();
         await API.init([], true);
-        await API.start(14123, "::");
 
         await makeAPIRequest(`/docs/v1/openapi`, {}, 404);
     });

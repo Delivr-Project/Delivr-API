@@ -1,4 +1,4 @@
-import PostalMime, { type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
+import PostalMime, { type Header, type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
 
@@ -34,10 +34,8 @@ export class MailParser {
             messageId: parsed.messageId,
             inReplyTo: parsed.inReplyTo,
             
-            priority: parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'high' ? 'high' :
-                      parsed.headers.find(h => h.key.toLowerCase() === 'x-priority')?.value?.toLowerCase() === 'low' ? 'low' :
-                      'normal',
-            
+            priority: this.parsePriority(parsed.headers),
+
             attachments: this.parseAttachments(parsed.attachments),
             body: this.getBody(parsed.text, parsed.html)
         };
@@ -123,6 +121,56 @@ export class MailParser {
         return rawFlags;
     }
 
+    /**
+     * Read a mail's priority from `X-Priority` (1–5, 1 = highest), falling back to
+     * `Importance` / `X-MSMail-Priority`. Nodemailer writes all three for high and
+     * low priority mails; other clients often write only one of them.
+     */
+    static parsePriority(headers: Header[]): NonNullable<MailRessource.IMail['priority']> {
+        const header = (name: string) => headers.find(h => h.key.toLowerCase() === name)?.value?.trim().toLowerCase();
+
+        const xPriority = header('x-priority');
+        if (xPriority) {
+            const level = parseInt(xPriority, 10);
+            if (level === 1 || level === 2 || xPriority === 'high' || xPriority === 'urgent') return 'high';
+            if (level === 4 || level === 5 || xPriority === 'low') return 'low';
+            if (level === 3) return 'normal';
+        }
+
+        const importance = header('importance') ?? header('x-msmail-priority');
+        if (importance === 'high') return 'high';
+        if (importance === 'low') return 'low';
+        return 'normal';
+    }
+
+    /**
+     * Maps the client-facing flag names to their IMAP system flags. `\Recent` is
+     * server-managed and cannot be set by clients, so it is intentionally omitted.
+     */
+    static readonly SETTABLE_FLAG_MAP: Readonly<Record<Exclude<keyof MailRessource.MailFlags, 'recent'>, string>> = {
+        seen: '\\Seen',
+        answered: '\\Answered',
+        flagged: '\\Flagged',
+        draft: '\\Draft',
+        deleted: '\\Deleted'
+    };
+
+    /**
+     * Split a partial flag update into the IMAP flags to add (`true`) and to
+     * remove (`false`). Flags left `undefined` are untouched. Used for in-place
+     * flag updates that must preserve the message's other flags and its UID.
+     */
+    static getFlagChanges(flags: Partial<MailRessource.MailFlags>): { toAdd: string[]; toRemove: string[] } {
+        const toAdd: string[] = [];
+        const toRemove: string[] = [];
+        for (const [key, imapFlag] of Object.entries(MailParser.SETTABLE_FLAG_MAP)) {
+            const value = flags[key as keyof MailRessource.MailFlags];
+            if (value === true) toAdd.push(imapFlag);
+            else if (value === false) toRemove.push(imapFlag);
+        }
+        return { toAdd, toRemove };
+    }
+
 
     /**
      * Parse attachments from ParsedMail
@@ -170,10 +218,30 @@ export class MailParser {
     ): Promise<MailParser.AttachmentContent | null> {
         const parsed = await PostalMime.parse(source);
         const attachment = parsed.attachments[attachmentId];
-        if (!attachment) return null;
+        return attachment ? this.normalizeAttachment(attachment) : null;
+    }
 
-        // postal-mime hands back an ArrayBuffer/Uint8Array for binary parts and a
-        // string for text parts; normalise all cases to a single Uint8Array of bytes.
+    /**
+     * Attachment metadata of a raw message, identical to what {@link parseMail}
+     * reports for the stored mail (so the `id`s match the attachment routes).
+     */
+    static async getAttachmentMetadata(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
+    ): Promise<MailRessource.MailAttachment[]> {
+        const parsed = await PostalMime.parse(source);
+        return this.parseAttachments(parsed.attachments);
+    }
+
+    /** Parse all attachment bytes and metadata from one immutable MIME source. */
+    static async getAttachmentContents(
+        source: string | ArrayBuffer | Uint8Array | Blob | Buffer | ReadableStream
+    ): Promise<MailParser.AttachmentContent[]> {
+        const parsed = await PostalMime.parse(source);
+        return parsed.attachments.map(attachment => this.normalizeAttachment(attachment));
+    }
+
+    /** Normalize one postal-mime attachment without touching unrelated parts. */
+    private static normalizeAttachment(attachment: Attachment): MailParser.AttachmentContent {
         const raw = attachment.content;
         const content = typeof raw === 'string'
             ? new TextEncoder().encode(raw)

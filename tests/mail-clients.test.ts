@@ -1,5 +1,6 @@
-import { describe, expect, beforeAll, afterAll, test } from "bun:test";
+import { describe, expect, beforeAll, afterAll, test, spyOn } from "bun:test";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
+import { MockIMAPServer } from "./helpers/mock-mail-servers/imap/server";
 
 
 describe("IMAP Mail Client Tests", () => {
@@ -50,5 +51,217 @@ describe("IMAP Mail Client Tests", () => {
         expect(inbox.unseen).toBe(5);
 
     });    
+
+});
+
+describe("IMAP createMail returns the new UID", () => {
+
+    /** Everything the API appends is composed by nodemailer, so it carries a Message-ID. */
+    function draftWith(subject: string, messageId: string | null = `<${crypto.randomUUID()}@example.com>`) {
+        const id = messageId === null ? "" : `Message-ID: ${messageId}\r\n`;
+        return `From: sender@example.com\r\n${id}Subject: ${subject}\r\n\r\nbody`;
+    }
+
+    const draft = draftWith("createMail uid test");
+
+    function testAccount(port: number) {
+        return IMAPAccount.fromConfig({
+            host: "127.0.0.1",
+            port,
+            username: "testuser",
+            password: "testpass",
+            useSSL: "NONE"
+        });
+    }
+
+    /** A fresh mock server (not shared with other tests) with an empty Drafts folder. */
+    function startMockServer(port: number, extraPlugins: string[] = []) {
+        const server = new MockIMAPServer({
+            plugins: ["ID", "STARTTLS", "SASL-IR", "AUTH-PLAIN", "NAMESPACE", "IDLE", "ENABLE", "CONDSTORE", "LITERALPLUS", "UNSELECT", "SPECIAL-USE", ...extraPlugins],
+            id: { name: "Mock_IMAP Server", version: "1.0.0" },
+            storage: {
+                "INBOX": { messages: [{ raw: "Subject: existing\r\n\r\nbody" }] },
+                "": { separator: "/", folders: { "Drafts": { "special-use": "\\Drafts" } } }
+            },
+            debug: false
+        });
+        server.listen(port);
+        return server;
+    }
+
+    test("uses the UID from APPENDUID on a UIDPLUS server", async () => {
+        const server = startMockServer(11144, ["UIDPLUS"]);
+        const account = testAccount(11144);
+
+        try {
+            await account.connect();
+            const search = spyOn((account as any).client, "search");
+
+            const uid = await account.createMail("Drafts", draft);
+
+            expect(search).not.toHaveBeenCalled();
+            search.mockRestore();
+            expect(uid).toBeGreaterThan(0);
+            const snapshot = await account.getMailSnapshot("Drafts", uid!);
+            expect(snapshot?.mail.subject).toBe("createMail uid test");
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("finds the appended message on a server without UIDPLUS", async () => {
+        const account = testAccount(11143);
+        let uid: number | null = null;
+
+        try {
+            await account.connect();
+            uid = await account.createMail("Drafts", draft);
+
+            expect(uid).toBeGreaterThan(0);
+            const snapshot = await account.getMailSnapshot("Drafts", uid!);
+            expect(snapshot?.mail.subject).toBe("createMail uid test");
+        } finally {
+            if (uid) await account.permanentlyDelete("Drafts", [uid]);
+            await account.disconnect();
+        }
+    });
+
+    test("ignores a concurrent append that takes the highest UID", async () => {
+        const server = startMockServer(11149);
+        const account = testAccount(11149);
+
+        try {
+            await account.connect();
+            const client = (account as any).client;
+            const append = client.append.bind(client);
+            // Another client appends to the same mailbox between our APPEND and the
+            // lookup, so the highest UID in the mailbox is no longer ours.
+            const spy = spyOn(client, "append").mockImplementationOnce(async (...args: any[]) => {
+                const result = await append(...args);
+                await append("Drafts", draftWith("stranger's draft"), []);
+                return result;
+            });
+
+            const uid = await account.createMail("Drafts", draft);
+            spy.mockRestore();
+
+            expect(uid).toBeGreaterThan(0);
+            expect((await account.getMailSnapshot("Drafts", uid!))?.mail.subject).toBe("createMail uid test");
+            // The stranger really did land above us, so a max-UID guess would have missed.
+            expect(Math.max(...(await account.getMails("Drafts")).map(mail => mail.uid))).toBeGreaterThan(uid!);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("reports an undeterminable UID for a message without a Message-ID", async () => {
+        const server = startMockServer(11150);
+        const account = testAccount(11150);
+
+        try {
+            await account.connect();
+
+            expect(await account.createMail("Drafts", draftWith("no message id", null))).toBeNull();
+            // The append itself still happened — only the UID is unknown.
+            expect((await account.getMails("Drafts")).map(mail => mail.subject)).toEqual(["no message id"]);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("expunges only the replaced UID on a UIDPLUS server, and spares other \\Deleted mail", async () => {
+        const server = startMockServer(11146, ["UIDPLUS"]);
+        const account = testAccount(11146);
+
+        try {
+            await account.connect();
+            const keep = await account.createMail("Drafts", draftWith("createMail kept draft"));
+            const replaced = await account.createMail("Drafts", draft);
+            // Another client left this one flagged for deletion but never expunged it.
+            await account.addFlags("Drafts", [keep!], ["\\Deleted"]);
+
+            await account.deleteReplacedMails("Drafts", [replaced!]);
+
+            expect(await account.getMailSnapshot("Drafts", replaced!)).toBeNull();
+            expect((await account.getMailSnapshot("Drafts", keep!))?.mail.subject).toBe("createMail kept draft");
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("moves the replaced mail to Trash when the server can't expunge a single UID", async () => {
+        const server = startMockServer(11147);
+        const account = testAccount(11147);
+
+        try {
+            await account.connect();
+            await account.createMailbox("Trash");
+            const replaced = await account.createMail("Drafts", draft);
+
+            await account.deleteReplacedMails("Drafts", [replaced!], "Trash");
+
+            expect(await account.getMailSnapshot("Drafts", replaced!)).toBeNull();
+            expect((await account.getMails("Trash")).map(mail => mail.subject)).toEqual(["createMail uid test"]);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("only flags the replaced mail when there is neither UIDPLUS nor a Trash folder", async () => {
+        const server = startMockServer(11148);
+        const account = testAccount(11148);
+
+        try {
+            await account.connect();
+            const replaced = await account.createMail("Drafts", draft);
+
+            await account.deleteReplacedMails("Drafts", [replaced!], null);
+
+            // Still there, but marked for the next expunge — a plain EXPUNGE here
+            // would take every other \Deleted message in the mailbox with it.
+            expect((await account.getMailSnapshot("Drafts", replaced!))?.mail.flags?.deleted).toBe(true);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("lists mail appended to a mailbox that was empty when it was selected", async () => {
+        const server = startMockServer(11145);
+        const account = testAccount(11145);
+
+        try {
+            await account.connect();
+            // Selecting the empty mailbox caches `exists = 0`, and this server
+            // doesn't report the session's own append with a new EXISTS.
+            expect(await account.getMails("Drafts")).toEqual([]);
+
+            await account.createMail("Drafts", draft);
+
+            expect((await account.getMails("Drafts")).map(mail => mail.subject)).toEqual(["createMail uid test"]);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("returns null when no UID is reported and the mailbox search finds nothing", async () => {
+        const account = testAccount(11143);
+        const client = (account as any).client;
+        spyOn(client, "getMailboxLock").mockResolvedValue({ release() {} });
+        spyOn(client, "append").mockResolvedValue({ destination: "Drafts" });
+        const search = spyOn(client, "search");
+
+        search.mockResolvedValueOnce(false);
+        expect(await account.createMail("Drafts", draft)).toBeNull();
+
+        search.mockResolvedValueOnce([]);
+        expect(await account.createMail("Drafts", draft)).toBeNull();
+    });
 
 });

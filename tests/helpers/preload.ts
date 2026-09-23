@@ -30,6 +30,7 @@ function setTestEnv(rootDir: string) {
 
         DLA_DB_CONNECTION_URL: path.join(rootDir, "db.sqlite"),
         DLA_DB_AUTO_MIGRATE: true,
+        DLA_MAX_ATTACHMENT_SIZE_MB: "25",
 
         DLA_SMTP_HOST: "127.0.0.1",
         DLA_SMTP_PORT: "12587",
@@ -167,9 +168,10 @@ beforeAll(async () => {
 
     mockIMAPServer.listen(11143);
 
+    // Only the app is built, never a listening server: every test drives the API
+    // through `API.getApp().request()` in-process, so binding a port would just
+    // collide with a dev server running on the same machine.
     await API.init();
-
-    await API.start(14123, "::");
 
 });
 

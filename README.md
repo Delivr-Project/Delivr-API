@@ -83,6 +83,7 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_API_HOST` | Bind address | `::` |
 | `DLA_API_PORT` | Listen port | `14123` |
 | `DLA_DISABLE_DOCS` | Disable the Scalar API reference | `false` |
+| `DLA_MAX_ATTACHMENT_SIZE_MB` | Maximum combined attachment size per composed mail, in MB, measured before encoding | `25` |
 | `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |
 | `DLA_DB_CONNECTION_URL` | Database connection string / path | `./data/db.sqlite` |
 | `DLA_DB_AUTO_MIGRATE` | Run migrations on startup | `true` |
@@ -94,6 +95,10 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_SMTP_PASSWORD` | Outbound SMTP password | — |
 | `DLA_SMTP_FROM` | `From` address for system mail | — |
 | `DLA_SMTP_SECURE` | Use TLS for the SMTP connection | `false` |
+
+Create-mail requests have a total request limit of `DLA_MAX_ATTACHMENT_SIZE_MB + 16` MB (41 MB by default), covering both JSON and multipart bodies (mail JSON, attachments and multipart framing). Exceeding this total returns a request-size error; exceeding the separate combined attachment limit returns an attachment-size error. Large text/HTML bodies count toward the total request limit.
+
+The attachment limit counts the files' raw size. Base64 encoding makes the sent message about 37% larger, so 25 MB of attachments become roughly 34 MB on the wire: keep the limit below your mail provider's message size limit divided by 1.37. If the provider still rejects a message as too large, the send request returns a 400 error. Bun itself rejects request bodies over 128 MB, which caps the attachment limit at 112 MB.
 
 ## 🛠️ Commands
 

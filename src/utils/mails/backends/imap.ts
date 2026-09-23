@@ -163,9 +163,9 @@ export class IMAPAccount {
         
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            let total = this.client.mailbox ? this.client.mailbox.exists : 0;
-            if (total === 0) return [];
-
+            // No shortcut on `mailbox.exists`: for an already selected mailbox it's
+            // only as fresh as the server's last EXISTS notification, and servers
+            // may not report a session's own appends — the search below is exact.
             let uids: number[];
 
             // If searchString is provided, use IMAP SEARCH
@@ -198,7 +198,7 @@ export class IMAPAccount {
             const paginatedUids = uids.slice(offset, offset + limit);
             if (paginatedUids.length === 0) return [];
 
-            const rawMails = await this.client.fetchAll(paginatedUids.join(','), {
+            const rawMails = await this.client.fetchAll(paginatedUids, {
                 envelope: true,
                 bodyStructure: true,
                 source: true,
@@ -220,17 +220,51 @@ export class IMAPAccount {
         }
     }
 
-    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']) {
+    /**
+     * Append a message to a mailbox and return its UID.
+     *
+     * Uses the UID the server reports (UIDPLUS `APPENDUID`). Without UIDPLUS the
+     * message is located by its own `Message-ID`, which identifies the append
+     * itself — the highest UID in the mailbox would not, as a concurrent append
+     * can take that spot and the caller would then address someone else's mail.
+     * (Sequence numbers aren't usable here either: servers may not report the
+     * append to the selecting session yet.)
+     *
+     * The UID therefore stays undeterminable for a message without a `Message-ID`
+     * on a server without UIDPLUS. Everything this API appends is composed with
+     * nodemailer, which always writes the header.
+     *
+     * @returns The new message's UID, or `null` if it could not be determined
+     */
+    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']): Promise<number | null> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.append(mailbox, content, flags);
+            const result = await this.client.append(mailbox, content, flags);
+            if (result && result.uid) return result.uid;
+
+            const messageId = IMAPAccount.extractMessageId(content);
+            if (!messageId) return null;
+
+            // A retry of a failed append can leave an earlier copy behind, so take
+            // the newest match rather than assuming the search returns exactly one.
+            const uids = await this.client.search({ header: { 'message-id': messageId } }, { uid: true });
+            return uids && uids.length > 0 ? uids.reduce((max, uid) => Math.max(max, uid)) : null;
         } finally {
             lock.release();
         }
     }
 
-    // async getMail(mailbox: string, uid: number): Promise<MailRessource.IMail | null> {
-    async getMail(mailbox: string, uid: number) {
+    /** Read the `Message-ID` out of a raw message's header block, if it has one. */
+    private static extractMessageId(content: string | Buffer): string | null {
+        const raw = typeof content === 'string' ? content : content.toString('binary');
+        const headerEnd = raw.search(/\r?\n\r?\n/);
+        // Unfold continuation lines so a wrapped value is matched in one piece.
+        const headers = (headerEnd === -1 ? raw : raw.slice(0, headerEnd)).replace(/\r?\n[ \t]+/g, ' ');
+        return headers.match(/^message-id:[ \t]*(<[^>\r\n]+>)/im)?.[1] ?? null;
+    }
+
+    /** Fetch and parse a mail while retaining the exact source from that fetch. */
+    async getMailSnapshot(mailbox: string, uid: number): Promise<{ mail: MailRessource; source: Buffer } | null> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             let message = await this.client.fetchOne(uid, {
@@ -240,34 +274,10 @@ export class IMAPAccount {
                 flags: true
             }, { uid: true });
 
-            if (!message) return null;
-            return await MailRessource.fromIMAPMessage(message);
-        } finally {
-            lock.release();
-        }
-    }
-
-    /**
-     * Fetch a single attachment's decoded content on demand.
-     *
-     * The raw message source is fetched from IMAP and parsed transiently to pull
-     * out one attachment's bytes. Nothing is written to disk or cached — the buffer
-     * is returned for the caller to stream straight to the client.
-     *
-     * @param mailbox - Mailbox path
-     * @param uid - Message UID
-     * @param attachmentId - Index of the attachment within the parsed attachments array
-     * @returns The attachment content, or `null` if the message or attachment does not exist
-     */
-    async getAttachmentContent(mailbox: string, uid: number, attachmentId: number): Promise<MailParser.AttachmentContent | null> {
-        let lock = await this.client.getMailboxLock(mailbox);
-        try {
-            const message = await this.client.fetchOne(uid, {
-                source: true
-            }, { uid: true });
-
             if (!message || !message.source) return null;
-            return await MailParser.getAttachmentContent(message.source, attachmentId);
+            const mail = await MailRessource.fromIMAPMessage(message);
+            if (!mail) return null;
+            return { mail, source: message.source };
         } finally {
             lock.release();
         }
@@ -353,6 +363,33 @@ export class IMAPAccount {
         }
     }
 
+    /** Whether the server can expunge individual UIDs (RFC 4315 UIDPLUS). */
+    supportsUidExpunge(): boolean {
+        return this.client.capabilities.has('UIDPLUS');
+    }
+
+    /**
+     * Remove a message that a new version has replaced.
+     *
+     * `UID EXPUNGE` only exists with UIDPLUS; without it a plain EXPUNGE would
+     * also drop every *other* `\Deleted` message in the mailbox. So on such
+     * servers the old version is moved to Trash instead — a copy per save, but
+     * it never touches messages this request didn't create. Without a Trash
+     * folder to move it to, it is only flagged `\Deleted` and left for a later
+     * expunge.
+     */
+    async deleteReplacedMails(mailbox: string, uids: number[], trashPath?: string | null) {
+        if (this.supportsUidExpunge()) {
+            await this.permanentlyDelete(mailbox, uids);
+            return;
+        }
+        if (trashPath && trashPath !== mailbox) {
+            await this.moveToMailbox(mailbox, uids, trashPath);
+            return;
+        }
+        await this.addFlags(mailbox, uids, ['\\Deleted']);
+    }
+
     /**
      * Search for mails across all mailboxes or specified mailboxes
      * @param options - Search options including query parameters and folder filters
@@ -411,12 +448,7 @@ export class IMAPAccount {
             try {
                 lock = await this.client.getMailboxLock(mailbox.path);
 
-                const total = this.client.mailbox ? this.client.mailbox.exists : 0;
-                if (total === 0) {
-                    lock.release();
-                    continue;
-                }
-
+                // Searched even when `exists` says 0: that count can be stale (see getMails).
                 const searchResults = await this.client.search(searchCriteria, { uid: true });
 
                 // Ensure searchResults is an array (might be empty or non-array in edge cases)
@@ -427,7 +459,7 @@ export class IMAPAccount {
                     continue;
                 }
 
-                const metaMails = await this.client.fetchAll(uids.join(','), {
+                const metaMails = await this.client.fetchAll(uids, {
                     uid: true,
                     envelope: true,
                     internalDate: true,
@@ -485,7 +517,7 @@ export class IMAPAccount {
             try {
                 lock = await this.client.getMailboxLock(mailboxPath);
 
-                const rawMails = await this.client.fetchAll(group.map(m => m.uid).join(','), {
+                const rawMails = await this.client.fetchAll(group.map(m => m.uid), {
                     uid: true,
                     envelope: true,
                     bodyStructure: true,

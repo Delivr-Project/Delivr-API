@@ -1,7 +1,19 @@
 import { z } from "zod";
+import type { OpenAPIV3_1 } from "openapi-types";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import type { Utils } from "../../../../../../../utils";
 import { ApiHelperModels } from "../../../../../../utils/shared-models/api-helper-models";
+
+/**
+ * OpenAPI schema of a JSON request body, in the format hono-openapi generates for
+ * validated bodies. Routes that also accept multipart can't use a JSON validator,
+ * so they declare their request body by hand with this.
+ */
+function toRequestBodySchema(schema: z.ZodType): OpenAPIV3_1.SchemaObject {
+    const jsonSchema: Record<string, unknown> = z.toJSONSchema(schema, { io: "input" });
+    delete jsonSchema.$schema;
+    return jsonSchema as OpenAPIV3_1.SchemaObject;
+}
 
 export namespace MailsModel {
 
@@ -107,8 +119,33 @@ export namespace MailsModel.Create {
 
     export type Body = z.infer<typeof Body>;
 
+    /** OpenAPI schema of the `application/json` body. */
+    export const JsonSchema = toRequestBodySchema(Body);
+
+    /**
+     * `multipart/form-data` variant of {@link Body}, used when the mail carries
+     * attachments. The mail itself is sent as a JSON string in the `mail` field;
+     * each file is appended as a separate `attachments` entry.
+     */
+    export const MultipartSchema = {
+        type: "object",
+        properties: {
+            mail: {
+                type: "string",
+                description: "The mail as a JSON string, using the same shape as the `application/json` body."
+            },
+            attachments: {
+                type: "array",
+                items: { type: "string", format: "binary" },
+                description: "Files to attach. Repeat the field once per file."
+            }
+        },
+        required: ["mail"]
+    } satisfies OpenAPIV3_1.SchemaObject;
+
     export const Response = z.object({
-        uid: z.number()
+        uid: z.number(),
+        attachments: z.array(MailsModel.MailAttachment).describe("Attachments of the stored mail; their `id`s address the attachment routes")
     });
 
     export type Response = z.infer<typeof Response>;
@@ -145,13 +182,49 @@ export namespace MailsModel.SetFlags {
 
 export namespace MailsModel.Update {
 
-    export const Body = MailsModel.Create.Body.partial();
+    // `\\Recent` is assigned by the IMAP server and must not be accepted as a
+    // client update. Strictness prevents Zod from silently stripping it and
+    // turning a recent-only request into a successful no-op.
+    export const Body = MailsModel.Create.Body
+        .omit({ flags: true })
+        .partial()
+        .extend({
+            flags: MailsModel.SetFlags.Body.strict().optional(),
+            removeAttachments: z.array(z.number().int().min(0)).optional()
+                .describe("IDs of existing attachments to remove from the mail")
+        });
 
     export type Body = z.infer<typeof Body>;
 
+    /** OpenAPI schema of the `application/json` body. */
+    export const JsonSchema = toRequestBodySchema(Body);
+
+    /**
+     * `multipart/form-data` variant of {@link Body}, used to add attachments. The
+     * update itself is sent as a JSON string in the `mail` field; each new file is
+     * appended as a separate `attachments` entry and added to the existing ones.
+     */
+    export const MultipartSchema = {
+        type: "object",
+        properties: {
+            mail: {
+                type: "string",
+                description: "The update as a JSON string, using the same shape as the `application/json` body."
+            },
+            attachments: {
+                type: "array",
+                items: { type: "string", format: "binary" },
+                description: "Files to add to the mail. Repeat the field once per file."
+            }
+        },
+        required: ["mail"]
+    } satisfies OpenAPIV3_1.SchemaObject;
+
     export const Response = z.object({
         success: z.boolean(),
-        newUid: z.number().optional().describe("New UID if the mail was replaced (for content updates)")
+        newUid: z.number().optional().describe("New UID if the mail was replaced (for content updates)"),
+        attachments: z.array(MailsModel.MailAttachment).optional()
+            .describe("Attachments of the replacement mail, when the mail was replaced")
     });
 
     export type Response = z.infer<typeof Response>;
@@ -167,7 +240,8 @@ export namespace MailsModel.Send {
     export type Body = z.infer<typeof Body>;
 
     export const Response = z.object({
-        messageId: z.string().optional().describe("The Message-ID of the sent mail")
+        messageId: z.string().optional().describe("The Message-ID of the sent mail"),
+        savedToSent: z.boolean().describe("Whether the sent mail was filed in the account's Sent folder")
     });
 
     export type Response = z.infer<typeof Response>;
@@ -187,4 +261,3 @@ export namespace MailsModel.Delete {
 
     export type Response = z.infer<typeof Response>;
 }
-
