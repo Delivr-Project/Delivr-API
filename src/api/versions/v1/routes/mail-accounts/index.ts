@@ -17,6 +17,7 @@ import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../../../utils/mails/mail-clients-cache";
 import { MailAccountEncryption } from "../../../../../utils/crypto/mailCrypt";
 import { Logger } from "../../../../../utils/logger";
+import { z } from "zod";
 
 export const router = new Hono().basePath('/mail-accounts');
 
@@ -148,6 +149,18 @@ router.post('/',
             return APIResponse.serverError(c, "Failed to encrypt mail account data");
         }
 
+        // Every account needs a sender identity. Callers that don't pass one get it
+        // derived from the SMTP username, which is the address in all but the odd
+        // setups where the login isn't the mailbox address.
+        const identityEmailAddress = body.identity?.email_address
+            ?? (z.email().safeParse(body.smtp_username).success ? body.smtp_username : null);
+
+        if (!identityEmailAddress) {
+            return APIResponse.badRequest(c, "A sender identity is required: pass `identity` or use an email address as the SMTP username");
+        }
+
+        const identityDisplayName = body.identity?.display_name || body.display_name;
+
         let result: number;
         try {
             result = await DB.instance().transaction(async (tx: DrizzleDB) => {
@@ -170,6 +183,13 @@ router.post('/',
                     imap_encrypted_connection_data: encryptedIMAPData,
                     owner_user_id: authContext.user_id
                 }).returning().get();
+
+                await tx.insert(DB.Tables.mailIdentities).values({
+                    mail_account_id: inserted.id,
+                    display_name: identityDisplayName,
+                    email_address: identityEmailAddress,
+                    is_default: true
+                });
 
                 return inserted.id;
             });

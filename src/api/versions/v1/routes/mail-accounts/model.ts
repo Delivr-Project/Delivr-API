@@ -104,7 +104,15 @@ export namespace MailAccountsModel.CreateMailAccount {
         created_at: true,
         owner_user_id: true
     }).extend({
-        is_default: z.boolean().optional()
+        is_default: z.boolean().optional(),
+
+        // Every mail account needs at least one sender identity, so one is created
+        // together with the account. Omitting this falls back to the SMTP username,
+        // which only works when that username is itself an email address.
+        identity: z.object({
+            display_name: z.string().min(1, "Identity display name must not be empty").max(255, "Identity display name must be at most 255 characters").optional(),
+            email_address: z.email()
+        }).optional()
     });
     
     export type Body = z.infer<typeof Body>;
@@ -118,6 +126,9 @@ export namespace MailAccountsModel.CreateMailAccount {
 export namespace MailAccountsModel.UpdateMailAccountInfo {
 
     export const Body = MailAccountsModel.CreateMailAccount.Body.partial().omit({
+        // Identities are managed through the dedicated `identities` sub-route.
+        identity: true,
+
         smtp_host: true,
         smtp_port: true,
         smtp_username: true,

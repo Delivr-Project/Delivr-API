@@ -112,6 +112,10 @@ export const mailIdentities = sqliteTable('mail_identities', {
     display_name: text().notNull(),
     email_address: text().notNull(),
 
+    // HTML signature appended to mails sent from this identity, as produced by
+    // the compose editor. Null means the identity has none.
+    signature: text(),
+
     // is this the default identity for the mail account
     is_default: integer({ mode: "boolean" }).notNull().default(false)
 });

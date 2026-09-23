@@ -1,0 +1,1 @@
+ALTER TABLE `mail_identities` ADD `signature` text;
