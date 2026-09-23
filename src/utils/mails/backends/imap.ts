@@ -198,7 +198,7 @@ export class IMAPAccount {
             const paginatedUids = uids.slice(offset, offset + limit);
             if (paginatedUids.length === 0) return [];
 
-            const rawMails = await this.client.fetchAll(paginatedUids.join(','), {
+            const rawMails = await this.client.fetchAll(paginatedUids, {
                 envelope: true,
                 bodyStructure: true,
                 source: true,
@@ -439,7 +439,7 @@ export class IMAPAccount {
                     continue;
                 }
 
-                const metaMails = await this.client.fetchAll(uids.join(','), {
+                const metaMails = await this.client.fetchAll(uids, {
                     uid: true,
                     envelope: true,
                     internalDate: true,
@@ -497,7 +497,7 @@ export class IMAPAccount {
             try {
                 lock = await this.client.getMailboxLock(mailboxPath);
 
-                const rawMails = await this.client.fetchAll(group.map(m => m.uid).join(','), {
+                const rawMails = await this.client.fetchAll(group.map(m => m.uid), {
                     uid: true,
                     envelope: true,
                     bodyStructure: true,
