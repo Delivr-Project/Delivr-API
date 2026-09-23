@@ -109,6 +109,17 @@ export namespace MailsModel.Create {
     export type Body = z.infer<typeof Body>;
 
     /**
+     * OpenAPI schema of the `application/json` body, in the format hono-openapi
+     * generates for validated bodies. The route also accepts multipart, so it
+     * can't use a JSON validator and declares its request body by hand.
+     */
+    export const JsonSchema = (() => {
+        const schema: Record<string, unknown> = z.toJSONSchema(Body, { io: "input" });
+        delete schema.$schema;
+        return schema as OpenAPIV3_1.SchemaObject;
+    })();
+
+    /**
      * `multipart/form-data` variant of {@link Body}, used when the mail carries
      * attachments. The mail itself is sent as a JSON string in the `mail` field;
      * each file is appended as a separate `attachments` entry.

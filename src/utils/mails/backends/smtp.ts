@@ -49,36 +49,12 @@ export class SMTPAccount {
         );
     }
 
-    async sendMail(mail: MailRessource.IMail) {
-        const sender = mail.from;
-        if (!sender) {
-            return null;
-        }
-
-        const from = SMTPAccount.formatAddress(sender);
-
-        return await this.client.sendMail({
-            from,
-            to: mail.to?.map(SMTPAccount.formatAddress),
-            cc: mail.cc?.map(SMTPAccount.formatAddress),
-            bcc: mail.bcc?.map(SMTPAccount.formatAddress),
-            replyTo: mail.replyTo ? mail.replyTo.map(SMTPAccount.formatAddress): undefined,
-            inReplyTo: mail.inReplyTo,
-            references: Array.isArray(mail.references) ? mail.references.join(' ') : mail.references,
-            subject: mail.subject,
-            text: mail.body?.text,
-            html: mail.body?.html,
-            date: mail.date ? new Date(mail.date) : undefined
-        });
-    }
-
     /**
-     * Send a message from its raw RFC822 source.
+     * Send a message from its raw RFC822 source (e.g. a stored draft).
      *
-     * Preferred over {@link SMTPAccount.sendMail} when the message already exists
-     * (e.g. a stored draft): the source is relayed byte-for-byte, so attachments,
-     * inline parts and the original MIME structure survive — none of which are
-     * recoverable from the metadata-only parsed representation.
+     * The source is relayed byte-for-byte, so attachments, inline parts and the
+     * original MIME structure survive — none of which are recoverable from the
+     * metadata-only parsed representation.
      *
      * The envelope is passed explicitly because it cannot be derived from `raw`.
      *
@@ -120,14 +96,23 @@ export class SMTPAccount {
      */
     private static removeBccHeader(source: Buffer | string): Buffer | string {
         const sourceBuffer = Buffer.isBuffer(source) ? source : Buffer.from(source);
-        const crlfSeparator = Buffer.from("\r\n\r\n");
-        const lfSeparator = Buffer.from("\n\n");
-        const crlfIndex = sourceBuffer.indexOf(crlfSeparator);
-        const lfIndex = sourceBuffer.indexOf(lfSeparator);
-        const usesLfSeparator = lfIndex >= 0 && (crlfIndex < 0 || lfIndex < crlfIndex);
-        const separatorIndex = usesLfSeparator ? lfIndex : crlfIndex;
-        const lineEnding = usesLfSeparator ? "\n" : "\r\n";
-        if (separatorIndex < 0) return source;
+        const crlfIndex = sourceBuffer.indexOf("\r\n\r\n");
+        const lfIndex = sourceBuffer.indexOf("\n\n");
+
+        let separatorIndex: number;
+        let lineEnding: string;
+        if (lfIndex >= 0 && (crlfIndex < 0 || lfIndex < crlfIndex)) {
+            separatorIndex = lfIndex;
+            lineEnding = "\n";
+        } else if (crlfIndex >= 0) {
+            separatorIndex = crlfIndex;
+            lineEnding = "\r\n";
+        } else {
+            // Without a blank line the whole source is headers. Strip Bcc from all
+            // of it rather than sending the source untouched.
+            separatorIndex = sourceBuffer.length;
+            lineEnding = sourceBuffer.includes("\r\n") ? "\r\n" : "\n";
+        }
 
         // Decode headers as latin1 so the round-trip is a lossless 1:1 byte
         // mapping — a utf8 round-trip would corrupt any raw 8-bit bytes present
@@ -157,8 +142,19 @@ export class SMTPAccount {
         return Buffer.isBuffer(source) ? sanitized : sanitized.toString("utf8");
     }
 
-    protected static formatAddress(addr: MailRessource.EmailAddress) {
-        return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
+    /**
+     * Whether a send failed because the message is larger than the SMTP server
+     * accepts: nodemailer's own check against the server's advertised SIZE, or a
+     * rejection with enhanced status code 5.3.4 / 5.2.3 (RFC 3463).
+     */
+    static isMessageTooLargeError(error: unknown): boolean {
+        if (!error || typeof error !== "object") return false;
+
+        const { code, message, response } = error as { code?: unknown; message?: unknown; response?: unknown };
+        if (code === "EMESSAGE" && typeof message === "string" && message.startsWith("Message size larger than allowed")) {
+            return true;
+        }
+        return typeof response === "string" && /^5\d\d[ -]5\.(?:3\.4|2\.3)\b/.test(response);
     }
 
 }

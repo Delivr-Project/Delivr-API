@@ -4,7 +4,7 @@ import { MailsModel } from "./model";
 import { APIResponse } from "../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../../docs";
-import { resolver, validator } from "hono-openapi";
+import { validator } from "hono-openapi";
 import { MailAccountsModel } from "../../model";
 import { router as attachmentsRouter } from "./attachments";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
@@ -15,9 +15,9 @@ import { SpecialUseHandler } from "../../../../../../utils/services/specialUseSe
 import { SMTPAccount } from "../../../../../../../utils/mails/backends/smtp";
 import { MailRessource } from "../../../../../../../utils/mails/ressources/mail";
 import MailComposer from "nodemailer/lib/mail-composer";
+import type Mail from "nodemailer/lib/mailer";
 import { MailParser } from "../../../../../../../utils/mails/parser";
 import { ConfigHandler } from "../../../../../../../utils/config";
-import type { OpenAPIV3_1 } from "openapi-types";
 
 
 
@@ -35,9 +35,10 @@ type ComposerAttachment = {
 };
 
 const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 25;
-// This is deliberately independent from the attachment limit. It is a final
-// memory-safety guard for multipart parsing, not part of attachment validation.
-const MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES = 16 * 1024 * 1024;
+// Allowance on top of the attachment limit for everything else in a create
+// request (mail JSON, text/HTML bodies, multipart framing). It is a memory-safety
+// guard for reading the body, not part of attachment validation.
+const CREATE_REQUEST_OVERHEAD_BYTES = 16 * 1024 * 1024;
 
 /** Combined attachment size allowed on a single mail, in bytes. */
 function maxAttachmentSize(): number {
@@ -53,27 +54,55 @@ function attachmentLimitError(): string {
     return `Attachments exceed the maximum combined size of ${maxAttachmentSize() / (1024 * 1024)} MB`;
 }
 
+/** Total size allowed for a create-mail request body, in bytes. */
+function maxCreateBodySize(): number {
+    return maxAttachmentSize() + CREATE_REQUEST_OVERHEAD_BYTES;
+}
+
+function createBodyLimitError(isMultipart: boolean): string {
+    const maxSizeMb = maxCreateBodySize() / (1024 * 1024);
+    return isMultipart
+        ? `Multipart request exceeds the maximum total size of ${maxSizeMb} MB (mail JSON, attachments and framing combined)`
+        : `Request body exceeds the maximum size of ${maxSizeMb} MB`;
+}
+
+function isMultipartRequest(c: Context): boolean {
+    return (c.req.header('content-type') ?? '').toLowerCase().includes('multipart/form-data');
+}
+
+/** Hono's body-limit middleware errors the request stream with a `BodyLimitError`. */
+function isBodyLimitError(error: unknown): boolean {
+    return error instanceof Error && error.name === 'BodyLimitError';
+}
+
 /**
  * Bound create-mail request bodies while they are read, regardless of encoding.
  * This is a memory-safety guard for the whole request; attachment sizes are
  * validated separately after parsing, so large (but valid) mail JSON does not
  * consume the configured attachment allowance.
+ *
+ * Requests with a `Content-Length` are rejected here before anything is read.
+ * Chunked bodies are cut off while being read; {@link readCreatePayload} turns
+ * that into the same response.
  */
 const enforceCreateBodyLimit: MiddlewareHandler = async (c, next) => {
-    const maxSize = maxAttachmentSize() + MULTIPART_NON_ATTACHMENT_ALLOWANCE_BYTES;
-    const maxSizeMb = maxSize / (1024 * 1024);
-    const isMultipart = (c.req.header('content-type') ?? '').toLowerCase().includes('multipart/form-data');
-
     return bodyLimit({
-        maxSize,
-        onError: context => APIResponse.badRequest(
-            context,
-            isMultipart
-                ? `Multipart request exceeds the maximum total size of ${maxSizeMb} MB (mail JSON, attachments and framing combined)`
-                : `Request body exceeds the maximum size of ${maxSizeMb} MB`
-        )
+        maxSize: maxCreateBodySize(),
+        onError: context => APIResponse.badRequest(context, createBodyLimitError(isMultipartRequest(context)))
     })(c, next);
 };
+
+/**
+ * Build a draft's MIME source. Bcc stays in the stored draft so the send route
+ * can put those recipients in the SMTP envelope; `SMTPAccount.sendRaw` removes
+ * the header before delivery. MailComposer has no option for this, so the flag
+ * is set on the compiled root node.
+ */
+async function buildDraftMessage(options: Mail.Options): Promise<Buffer> {
+    const root = new MailComposer(options).compile();
+    root.keepBcc = true;
+    return root.build();
+}
 
 /**
  * Read the create-mail payload from either a JSON body or a `multipart/form-data`
@@ -89,8 +118,7 @@ async function readCreatePayload(c: Context): Promise<
     { ok: true; body: MailsModel.Create.Body; attachments: ComposerAttachment[] } |
     { ok: false; error: string }
 > {
-    const contentType = c.req.header('content-type') ?? '';
-    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
+    const isMultipart = isMultipartRequest(c);
 
     let rawBody: unknown;
     const attachments: ComposerAttachment[] = [];
@@ -100,9 +128,10 @@ async function readCreatePayload(c: Context): Promise<
         try {
             form = await c.req.formData();
         } catch (error) {
-            // Hono's body-limit middleware needs to observe this sentinel error
-            // so it can replace the response without buffering the remaining body.
-            if (error instanceof Error && error.name === 'BodyLimitError') throw error;
+            // A chunked body over the size limit fails while it is read. Answer it
+            // here instead of rethrowing, so the global error handler doesn't log
+            // an ordinary client error as a server error.
+            if (isBodyLimitError(error)) return { ok: false, error: createBodyLimitError(true) };
             return { ok: false, error: "Malformed multipart/form-data body" };
         }
 
@@ -143,9 +172,7 @@ async function readCreatePayload(c: Context): Promise<
         try {
             rawBody = await c.req.json();
         } catch (error) {
-            // Let the body-limit middleware observe its sentinel error so it can
-            // replace the response instead of reporting a generic parse failure.
-            if (error instanceof Error && error.name === 'BodyLimitError') throw error;
+            if (isBodyLimitError(error)) return { ok: false, error: createBodyLimitError(false) };
             return { ok: false, error: "Malformed JSON body" };
         }
     }
@@ -218,7 +245,7 @@ router.post('/',
         requestBody: {
             required: true,
             content: {
-                "application/json": { schema: resolver(MailsModel.Create.Body).toJSONSchema() as OpenAPIV3_1.SchemaObject },
+                "application/json": { schema: MailsModel.Create.JsonSchema },
                 "multipart/form-data": { schema: MailsModel.Create.MultipartSchema }
             }
         },
@@ -243,7 +270,7 @@ router.post('/',
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
         try {
-            const composerOptions = {
+            const message = await buildDraftMessage({
                 from: body.from ? formatEmailAddress(body.from) : undefined,
                 to: body.to?.map(formatEmailAddress),
                 cc: body.cc?.map(formatEmailAddress),
@@ -255,29 +282,13 @@ router.post('/',
                 text: body.body?.text,
                 html: body.body?.html,
                 priority: body.priority,
-                attachments,
-                keepBcc: true
-            };
-            const composer = new MailComposer(composerOptions);
-
-            const compiledMail = composer.compile();
-            // Drafts must retain Bcc recipients so the later send request can
-            // build the SMTP envelope. SMTPAccount.sendRaw removes this header
-            // from the transmitted source to keep recipients private. Assigning
-            // it to the node also supports MailComposer versions that do not
-            // forward the option to MimeNode.
-            Object.assign(compiledMail, { keepBcc: true });
-            const message = await compiledMail.build();
+                attachments
+            });
 
             await imap.connect();
-            await imap.createMail(mailbox.path, message, MailParser.getRawFlags(body.flags || {}));
+            const createdUid = await imap.createMail(mailbox.path, message, MailParser.getRawFlags(body.flags || {}));
 
-            // Get the latest mail to find its UID
-            const mails = await imap.getMails(mailbox.path, { order: 'newest', limit: 1 });
-            const latestMail = mails[0];
-            const createdUid = latestMail ? latestMail.uid : 0;
-
-            return APIResponse.success(c, "Mail created successfully", { uid: createdUid } satisfies MailsModel.Create.Response);
+            return APIResponse.success(c, "Mail created successfully", { uid: createdUid ?? 0 } satisfies MailsModel.Create.Response);
         } catch (e) {
             Logger.error("Failed to create mail", e);
             return APIResponse.serverError(c, "Failed to create mail");
@@ -407,7 +418,7 @@ router.put('/:mailUID',
                             : undefined
                 } satisfies ComposerAttachment));
 
-                const composerOptions = {
+                const message = await buildDraftMessage({
                     from: body.from ? formatEmailAddress(body.from) : (mailData.from ? formatEmailAddress(mailData.from) : undefined),
                     to: body.to?.map(formatEmailAddress) ?? mailData.to?.map(formatEmailAddress),
                     cc: body.cc?.map(formatEmailAddress) ?? mailData.cc?.map(formatEmailAddress),
@@ -419,14 +430,8 @@ router.put('/:mailUID',
                     text: body.body?.text ?? mailData.body?.text,
                     html: body.body?.html ?? mailData.body?.html,
                     priority: body.priority ?? mailData.priority,
-                    attachments: existingAttachments,
-                    keepBcc: true
-                };
-                const composer = new MailComposer(composerOptions);
-
-                const compiledMail = composer.compile();
-                Object.assign(compiledMail, { keepBcc: true });
-                const message = await compiledMail.build();
+                    attachments: existingAttachments
+                });
 
                 // Create new mail with updated content and flags. A partial flag
                 // update is merged onto the mail's existing flags so unmentioned
@@ -435,12 +440,7 @@ router.put('/:mailUID',
                 const newFlags = body.flags
                     ? MailParser.getRawFlags({ ...mailData.flags, ...body.flags, recent: false })
                     : mailData.rawFlags;
-                await imap.createMail(mailbox.path, message, newFlags);
-                
-                // Get the newly created mail's UID
-                const mails = await imap.getMails(mailbox.path, { order: 'newest', limit: 1 });
-                const latestMail = mails[0];
-                newUid = latestMail ? latestMail.uid : undefined;
+                newUid = (await imap.createMail(mailbox.path, message, newFlags)) ?? undefined;
 
                 // Delete the old mail
                 const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
@@ -507,10 +507,15 @@ router.post('/:mailUID/send',
                 await imap.moveToTrash(mailbox.path, [mailData.uid], trashPath);
             }
 
-            return APIResponse.success(c, "Mail sent successfully", { 
-                messageId: result?.messageId 
+            return APIResponse.success(c, "Mail sent successfully", {
+                // The raw source goes out with the draft's own Message-ID. For raw
+                // input nodemailer's `result.messageId` is generated and never sent.
+                messageId: mailData.messageId
             } satisfies MailsModel.Send.Response);
         } catch (e) {
+            if (SMTPAccount.isMessageTooLargeError(e)) {
+                return APIResponse.badRequest(c, "The mail server rejected the message because it is too large");
+            }
             Logger.error("Failed to send mail", e);
             return APIResponse.serverError(c, "Failed to send mail");
         }

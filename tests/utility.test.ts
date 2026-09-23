@@ -160,4 +160,75 @@ describe("Utility Tests", () => {
         expect(sentOptions.raw).not.toMatch(/^Bcc\s*:/mi);
         expect(sentOptions.raw).toContain(body);
     });
+
+    /** SMTP account whose transport records each send instead of delivering it. */
+    function createRecordingSMTPAccount() {
+        const smtp = SMTPAccount.fromConfig({
+            host: "smtp.example.com",
+            port: 587,
+            username: "test@test.com",
+            password: "test-password",
+            useSSL: InetModels.Mail.EncryptionEnum.STARTTLS
+        });
+        const sent: any[] = [];
+        (smtp as any).client.sendMail = async (options: any) => {
+            sent.push(options);
+            return { messageId: "generated-by-transport" };
+        };
+        return { smtp, sent };
+    }
+
+    test("Raw SMTP sending removes Bcc from a source without a header/body separator", async () => {
+        const { smtp, sent } = createRecordingSMTPAccount();
+        const mail = {
+            from: { address: "sender@example.com" },
+            to: [{ address: "receiver@example.com" }],
+            cc: [],
+            bcc: [{ address: "hidden@example.com" }, { address: "other@example.com" }]
+        } as unknown as MailRessource.IMail;
+
+        for (const lineEnding of ["\r\n", "\n"]) {
+            // Headers only: no blank line, Bcc last and folded onto a second line.
+            const source = Buffer.from([
+                "From: sender@example.com",
+                "To: receiver@example.com",
+                "Subject: headers only",
+                "Bcc: hidden@example.com,",
+                " other@example.com",
+                ""
+            ].join(lineEnding));
+
+            await smtp.sendRaw(source, mail);
+
+            const raw = (sent.at(-1).raw as Buffer).toString("latin1");
+            expect(raw).toBe(["From: sender@example.com", "To: receiver@example.com", "Subject: headers only", ""].join(lineEnding));
+        }
+    });
+
+    test("Raw SMTP sending relays a source without Bcc unchanged", async () => {
+        const { smtp, sent } = createRecordingSMTPAccount();
+        const source = Buffer.from("From: sender@example.com\r\nTo: receiver@example.com\r\nSubject: plain\r\n\r\nbody");
+        const mail = {
+            from: { address: "sender@example.com" },
+            to: [{ address: "receiver@example.com" }],
+            cc: [],
+            bcc: []
+        } as unknown as MailRessource.IMail;
+
+        await smtp.sendRaw(source, mail);
+
+        expect(sent[0].raw).toBe(source);
+    });
+
+    test("SMTP size rejections are recognised", () => {
+        expect(SMTPAccount.isMessageTooLargeError({ code: "EMESSAGE", message: "Message size larger than allowed 35882577" })).toBe(true);
+        expect(SMTPAccount.isMessageTooLargeError({ code: "EMESSAGE", responseCode: 552, response: "552-5.3.4 Your message exceeded Google's message size limits." })).toBe(true);
+        expect(SMTPAccount.isMessageTooLargeError({ responseCode: 552, response: "552 5.2.3 Message length exceeds administrative limit" })).toBe(true);
+
+        // A full mailbox is also a 552, but not a size problem of the message.
+        expect(SMTPAccount.isMessageTooLargeError({ code: "EENVELOPE", responseCode: 552, response: "552 5.2.2 Mailbox full" })).toBe(false);
+        expect(SMTPAccount.isMessageTooLargeError(new Error("Connection timeout"))).toBe(false);
+        expect(SMTPAccount.isMessageTooLargeError("552 5.3.4 Message too big")).toBe(false);
+        expect(SMTPAccount.isMessageTooLargeError(null)).toBe(false);
+    });
 });

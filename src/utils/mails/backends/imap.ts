@@ -220,10 +220,24 @@ export class IMAPAccount {
         }
     }
 
-    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']) {
+    /**
+     * Append a message to a mailbox and return its UID.
+     *
+     * Uses the UID the server reports (UIDPLUS `APPENDUID`). Without UIDPLUS it
+     * falls back to the highest UID in the mailbox, which can belong to another
+     * message that arrived at the same moment. (Sequence numbers aren't usable
+     * here: servers may not report the append to the selecting session yet.)
+     *
+     * @returns The new message's UID, or `null` if it could not be determined
+     */
+    async createMail(mailbox: string, content: string | Buffer, flags: string[] = ['\\Draft']): Promise<number | null> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.append(mailbox, content, flags);
+            const result = await this.client.append(mailbox, content, flags);
+            if (result && result.uid) return result.uid;
+
+            const uids = await this.client.search({ all: true }, { uid: true });
+            return uids && uids.length > 0 ? uids.reduce((max, uid) => Math.max(max, uid)) : null;
         } finally {
             lock.release();
         }
@@ -247,10 +261,6 @@ export class IMAPAccount {
         } finally {
             lock.release();
         }
-    }
-
-    async getMail(mailbox: string, uid: number): Promise<MailRessource | null> {
-        return (await this.getMailSnapshot(mailbox, uid))?.mail ?? null;
     }
 
     async markAsRead(mailbox: string, uids: number[]) {
