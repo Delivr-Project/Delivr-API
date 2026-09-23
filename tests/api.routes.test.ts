@@ -10,6 +10,7 @@ import { AccountModel } from "../src/api/versions/v1/routes/account/model";
 import { AccountPreferencesModel } from "../src/api/versions/v1/routes/account/preferences/model";
 import { MailAccountsModel } from "../src/api/versions/v1/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts/identities/model";
+import { backfillDefaultMailIdentities } from "../src/db/migrations/backfillDefaultMailIdentities";
 import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
 import { SpecialUseModel } from "../src/api/versions/v1/routes/mail-accounts/special-use/model";
 import { SpecialUse, SpecialUseHandler } from "../src/api/utils/services/specialUseService";
@@ -45,12 +46,12 @@ async function seedSession(user_id: number) {
     return session satisfies SeededSession;
 }
 
-async function seedMailAccount(ownerUserId: number) {
+async function seedMailAccount(ownerUserId: number, smtpUsername = "smtpuser") {
 
     const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
         host: "smtp.example.com",
         port: 587,
-        username: "smtpuser",
+        username: smtpUsername,
         password: "smtppass",
         useSSL: "STARTTLS"
     });
@@ -836,7 +837,7 @@ describe("Mail Account Routes", async () => {
             smtp_host: "127.0.0.1",
             smtp_port: 11125,
             smtp_encryption: "NONE",
-            smtp_username: "testuser",
+            smtp_username: "testuser@example.com",
             smtp_password: "testpass",
 
             imap_host: "127.0.0.1",
@@ -885,7 +886,100 @@ describe("Mail Account Routes", async () => {
         expect(imapData.password).toBe(mailAccountData.imap_password);
         expect(dbresult.is_default).toBe(mailAccountData.is_default);
 
+        // Every mail account must have at least one sender identity; without an
+        // explicit one it is derived from the SMTP username.
+        const identities = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, data.id)
+        ).all();
+
+        expect(identities.length).toBe(1);
+        expect(identities[0]?.email_address).toBe(mailAccountData.smtp_username);
+        expect(identities[0]?.display_name).toBe(mailAccountData.display_name);
+        expect(identities[0]?.is_default).toBe(true);
+
         mailAccountIDs.push(data.id);
+    });
+
+    // These two use their own user so the list assertions above keep seeing
+    // exactly one account for `mailAccountTestUser`.
+    test("POST /v1/mail-accounts creates the mail account with an explicit identity", async () => {
+
+        const user = await seedUser("user", { username: `identityuser_${randomUUID().slice(0, 8)}` });
+        const token = await seedSession(user.id).then(session => session.token);
+
+        const mailAccountData = {
+            display_name: "Explicit Identity Account",
+
+            smtp_host: "127.0.0.1",
+            smtp_port: 11125,
+            smtp_encryption: "NONE",
+            smtp_username: "login-name-only",
+            smtp_password: "testpass",
+
+            imap_host: "127.0.0.1",
+            imap_port: 11143,
+            imap_encryption: "NONE",
+            imap_username: "testuser",
+            imap_password: "testpass",
+
+            is_default: false,
+
+            identity: {
+                display_name: "Explicit Sender",
+                email_address: "explicit@example.com"
+            }
+        } satisfies MailAccountsModel.CreateMailAccount.Body;
+
+        const data = await makeAPIRequest("/v1/mail-accounts", {
+            method: "POST",
+            authToken: token,
+            body: mailAccountData,
+            expectedBodySchema: MailAccountsModel.CreateMailAccount.Response
+        });
+
+        const identities = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, data.id)
+        ).all();
+
+        expect(identities.length).toBe(1);
+        expect(identities[0]?.email_address).toBe(mailAccountData.identity.email_address);
+        expect(identities[0]?.display_name).toBe(mailAccountData.identity.display_name);
+        expect(identities[0]?.is_default).toBe(true);
+    });
+
+    test("POST /v1/mail-accounts without a derivable sender identity fails", async () => {
+
+        const user = await seedUser("user", { username: `noidentityuser_${randomUUID().slice(0, 8)}` });
+        const token = await seedSession(user.id).then(session => session.token);
+
+        const mailAccountData = {
+            display_name: "No Identity Account",
+
+            smtp_host: "127.0.0.1",
+            smtp_port: 11125,
+            smtp_encryption: "NONE",
+            smtp_username: "login-name-only",
+            smtp_password: "testpass",
+
+            imap_host: "127.0.0.1",
+            imap_port: 11143,
+            imap_encryption: "NONE",
+            imap_username: "testuser",
+            imap_password: "testpass",
+
+            is_default: false
+        } satisfies MailAccountsModel.CreateMailAccount.Body;
+
+        const accountsBefore = DB.instance().select().from(DB.Tables.mailAccounts).all().length;
+
+        await makeAPIRequest("/v1/mail-accounts", {
+            method: "POST",
+            authToken: token,
+            body: mailAccountData
+        }, 400);
+
+        // The account must not be created without its identity.
+        expect(DB.instance().select().from(DB.Tables.mailAccounts).all().length).toBe(accountsBefore);
     });
 
     test("GET /v1/mail-accounts retrieves mail accounts", async () => {
@@ -1394,11 +1488,51 @@ describe("Mail Identity Routes", async () => {
         }, 404);
     });
 
-    test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity", async () => {
+    test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID refuses to delete the last identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];
         expect(mailIdentityID).toBeNumber();
         if (!mailIdentityID) return;
+
+        // A mail account must keep at least one address to send from.
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)
+        ).all().length).toBe(1);
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+            method: "DELETE",
+            authToken: session_token,
+        }, 409);
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, mailIdentityID)
+        ).get()).toBeDefined();
+    });
+
+    test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID deletes specific mail identity and hands the default on", async () => {
+
+        const mailIdentityID = mailIdentityIDs[0];
+        expect(mailIdentityID).toBeNumber();
+        if (!mailIdentityID) return;
+
+        // Make the identity under test the default, so its deletion has a default
+        // to pass on, and add a second one so it may be deleted at all.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { is_default: true } satisfies MailIdentitiesModel.UpdateMailIdentity.Body
+        });
+
+        const secondIdentity = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                display_name: "Second Identity",
+                email_address: "second@example.com",
+                is_default: false
+            } satisfies MailIdentitiesModel.CreateMailIdentity.Body,
+            expectedBodySchema: MailIdentitiesModel.CreateMailIdentity.Response
+        });
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${mailIdentityID}`, {
             method: "DELETE",
@@ -1410,6 +1544,14 @@ describe("Mail Identity Routes", async () => {
         ).get();
 
         expect(dbresult).toBeUndefined();
+
+        // The remaining identity takes over as the account's default.
+        const remaining = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, secondIdentity.id)
+        ).get();
+
+        expect(remaining).toBeDefined();
+        expect(remaining?.is_default).toBe(true);
     });
 
     test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID with invalid ID fails", async () => {
@@ -1433,6 +1575,97 @@ describe("Mail Identity Routes", async () => {
 
         DB.instance().delete(DB.Tables.users).where(
             eq(DB.Tables.users.id, mailIdentityTestUser.id)
+        ).run();
+    });
+});
+
+describe("Mail Identity Backfill Migration", async () => {
+
+    let backfillTestUser: SeededUser;
+
+    // Accounts predating mandatory identities, i.e. inserted straight into the DB
+    // without one.
+    let accountWithAddress: number;
+    let accountWithoutAddress: number;
+    let accountWithIdentity: number;
+    let existingIdentityID: number;
+
+    beforeAll(async () => {
+
+        backfillTestUser = await seedUser("user", { username: "identitybackfilluser" }, "BackfillP@ss1");
+
+        accountWithAddress = (await seedMailAccount(backfillTestUser.id, "backfill@example.com")).id;
+        accountWithoutAddress = (await seedMailAccount(backfillTestUser.id, "login-name-only")).id;
+        accountWithIdentity = (await seedMailAccount(backfillTestUser.id, "kept@example.com")).id;
+
+        existingIdentityID = DB.instance().insert(DB.Tables.mailIdentities).values({
+            mail_account_id: accountWithIdentity,
+            display_name: "Already Set Up",
+            email_address: "already@example.com",
+            is_default: true
+        }).returning().get().id;
+    });
+
+    function identitiesOf(mailAccountID: number) {
+        return DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)
+        ).all();
+    }
+
+    test("gives every account without an identity a default one named after its address", async () => {
+
+        const result = await backfillDefaultMailIdentities(DB.instance());
+
+        // Other suites seed accounts too, so only the lower bound is meaningful.
+        expect(result.created).toBeGreaterThanOrEqual(1);
+
+        const created = identitiesOf(accountWithAddress);
+
+        expect(created.length).toBe(1);
+        expect(created[0]?.email_address).toBe("backfill@example.com");
+        expect(created[0]?.display_name).toBe("backfill@example.com");
+        expect(created[0]?.is_default).toBe(true);
+    });
+
+    test("skips accounts whose SMTP username is not an email address", async () => {
+
+        expect(identitiesOf(accountWithoutAddress).length).toBe(0);
+    });
+
+    test("leaves accounts that already have an identity untouched", async () => {
+
+        const identities = identitiesOf(accountWithIdentity);
+
+        expect(identities.length).toBe(1);
+        expect(identities[0]?.id).toBe(existingIdentityID);
+        expect(identities[0]?.display_name).toBe("Already Set Up");
+        expect(identities[0]?.email_address).toBe("already@example.com");
+    });
+
+    test("is idempotent", async () => {
+
+        const result = await backfillDefaultMailIdentities(DB.instance());
+
+        expect(result.created).toBe(0);
+        expect(identitiesOf(accountWithAddress).length).toBe(1);
+        expect(identitiesOf(accountWithIdentity).length).toBe(1);
+    });
+
+    afterAll(async () => {
+
+        SessionHandler.inValidateAllSessionsForUser(backfillTestUser.id);
+
+        for (const mailAccountID of [accountWithAddress, accountWithoutAddress, accountWithIdentity]) {
+            DB.instance().delete(DB.Tables.mailIdentities).where(
+                eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)
+            ).run();
+            DB.instance().delete(DB.Tables.mailAccounts).where(
+                eq(DB.Tables.mailAccounts.id, mailAccountID)
+            ).run();
+        }
+
+        DB.instance().delete(DB.Tables.users).where(
+            eq(DB.Tables.users.id, backfillTestUser.id)
         ).run();
     });
 });

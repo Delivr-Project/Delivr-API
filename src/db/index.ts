@@ -5,6 +5,7 @@ import { type DrizzleDB, type DrizzleDatabase } from './utils';
 import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
+import { backfillDefaultMailIdentities } from './migrations/backfillDefaultMailIdentities';
 import { mkdir as fs_mkdir } from 'fs/promises';
 import { dirname as path_dirname } from 'path';
 
@@ -24,6 +25,12 @@ export class DB {
         if (autoMigrate) {
             Logger.info("Running database migrations...");
             await migrate(this.db, { migrationsFolder: "drizzle/migrations/sqlite" });
+
+            // Data migration that SQL can't express: the sender address lives in
+            // the account's encrypted connection blob, so backfilling the default
+            // identity of pre-existing accounts needs the encryption key.
+            await backfillDefaultMailIdentities(this.instance());
+
             Logger.info("Database migrations completed.");
         }
 

@@ -204,7 +204,8 @@ router.delete('/:mailIdentityID',
 
         responses: APIResponseSpec.describeWithWrongInputs(
             APIResponseSpec.successNoData("Mail identity deleted successfully"),
-            APIResponseSpec.notFound("Mail identity with the specified ID does not exist")
+            APIResponseSpec.notFound("Mail identity with the specified ID does not exist"),
+            APIResponseSpec.conflict("Conflict: A mail account must keep at least one identity")
         )
     }),
 
@@ -212,9 +213,45 @@ router.delete('/:mailIdentityID',
         // @ts-ignore
         const mailIdentity = c.get("mailIdentity") as MailIdentitiesModel.BASE;
 
-        await DB.instance().delete(DB.Tables.mailIdentities).where(
-            eq(DB.Tables.mailIdentities.id, mailIdentity.id)
-        );
+        // A mail account without an identity has no address to send from, so the
+        // last one can't be removed — it has to be replaced (or edited) instead.
+        const remaining = DB.instance().select({
+            id: DB.Tables.mailIdentities.id
+        }).from(DB.Tables.mailIdentities).where(
+            and(
+                eq(DB.Tables.mailIdentities.mail_account_id, mailIdentity.mail_account_id),
+                ne(DB.Tables.mailIdentities.id, mailIdentity.id)
+            )
+        ).orderBy(DB.Tables.mailIdentities.id).all();
+
+        if (remaining.length === 0) {
+            return APIResponse.conflict(c, "A mail account must keep at least one identity");
+        }
+
+        try {
+
+            await DB.instance().transaction(async (tx: DrizzleDB) => {
+
+                await tx.delete(DB.Tables.mailIdentities).where(
+                    eq(DB.Tables.mailIdentities.id, mailIdentity.id)
+                );
+
+                // Deleting the default would leave the account without one, so the
+                // oldest remaining identity takes over.
+                if (mailIdentity.is_default) {
+                    await tx.update(DB.Tables.mailIdentities).set({
+                        is_default: true
+                    }).where(
+                        eq(DB.Tables.mailIdentities.id, remaining[0]!.id)
+                    );
+                }
+
+            });
+
+        } catch (error: any) {
+            Logger.error("Failed to delete mail identity", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to delete mail identity");
+        }
 
         return APIResponse.successNoData(c, "Mail identity deleted successfully");
     }
