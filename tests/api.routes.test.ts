@@ -24,6 +24,7 @@ import { hashResetToken } from "../src/api/versions/v1/routes/auth/reset-passwor
 import { SMTPAccount } from "../src/utils/mails/backends/smtp";
 import { MailParser } from "../src/utils/mails/parser";
 import { ConfigHandler } from "../src/utils/config";
+import { Logger } from "../src/utils/logger";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -804,6 +805,39 @@ describe("Account Preferences Routes", async () => {
 
         expect(Object.keys(data)).not.toContain("legacy-preference");
         expect(Object.keys(data).sort()).toEqual(Object.keys(AccountPreferencesModel.GetAll.Response.shape).sort());
+
+        SessionHandler.inValidateAllSessionsForUser(allPrefsUser.id);
+        DB.instance().delete(DB.Tables.userPreferences).where(eq(DB.Tables.userPreferences.user_id, allPrefsUser.id)).run();
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, allPrefsUser.id)).run();
+    });
+
+    test("GET /v1/account/preferences falls back to the defaults only for a stored preference that is no longer valid", async () => {
+
+        const allPrefsUser = await seedUser("user", { username: "allprefsinvaliduser" }, "AllP@ss1");
+        const allPrefsSession = await seedSession(allPrefsUser.id).then(s => s.token);
+
+        DB.instance().insert(DB.Tables.userPreferences).values([
+            { user_id: allPrefsUser.id, key: "auto-mark-seen", data: { enabled: "yes" } },
+            { user_id: allPrefsUser.id, key: "folder-dnd", data: { enabled: true } },
+        ]).run();
+
+        const warn = spyOn(Logger, "warn").mockImplementation(() => {});
+
+        const data = await makeAPIRequest("/v1/account/preferences", {
+            authToken: allPrefsSession,
+            expectedBodySchema: AccountPreferencesModel.GetAll.Response
+        });
+        expect(data["auto-mark-seen"]).toEqual({ enabled: true });
+        expect(data["folder-dnd"]).toEqual({ enabled: true });
+
+        const single = await makeAPIRequest("/v1/account/preferences/auto-mark-seen", {
+            authToken: allPrefsSession,
+            expectedBodySchema: AccountPreferencesModel.AutoMarkSeen.Response
+        });
+        expect(single).toEqual({ enabled: true });
+
+        expect(warn).toHaveBeenCalledTimes(2);
+        warn.mockRestore();
 
         SessionHandler.inValidateAllSessionsForUser(allPrefsUser.id);
         DB.instance().delete(DB.Tables.userPreferences).where(eq(DB.Tables.userPreferences.user_id, allPrefsUser.id)).run();
