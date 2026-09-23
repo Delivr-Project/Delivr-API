@@ -1488,6 +1488,78 @@ describe("Mail Identity Routes", async () => {
         }, 404);
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/identities stores a signature", async () => {
+
+        const mailIdentityData = {
+            display_name: "Signed Identity",
+            email_address: "signed@example.com",
+            is_default: false,
+            signature: "<p>Jane Doe</p><p><a href=\"https://example.com\">example.com</a></p>"
+        } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
+            method: "POST",
+            authToken: session_token,
+            body: mailIdentityData,
+            expectedBodySchema: MailIdentitiesModel.CreateMailIdentity.Response
+        });
+
+        const dbresult = DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get();
+
+        expect(dbresult?.signature).toBe(mailIdentityData.signature);
+
+        // It comes back out through the read routes as stored.
+        const fetched = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            authToken: session_token,
+            expectedBodySchema: MailIdentitiesModel.GetByID.Response
+        });
+
+        expect(fetched.signature).toBe(mailIdentityData.signature);
+
+        // …and can be cleared again, which an omitted signature must not do.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { display_name: "Signed Identity Renamed" } satisfies MailIdentitiesModel.UpdateMailIdentity.Body
+        });
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get()?.signature).toBe(mailIdentityData.signature);
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { signature: null } satisfies MailIdentitiesModel.UpdateMailIdentity.Body
+        });
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get()?.signature).toBeNull();
+
+        // Leave the account with the single identity the delete tests expect.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "DELETE",
+            authToken: session_token
+        });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/identities rejects an oversized signature", async () => {
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                display_name: "Too Wordy",
+                email_address: "toowordy@example.com",
+                is_default: false,
+                signature: "x".repeat(16385)
+            }
+        }, 400);
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID refuses to delete the last identity", async () => {
 
         const mailIdentityID = mailIdentityIDs[0];

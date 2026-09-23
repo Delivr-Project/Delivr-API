@@ -4,12 +4,21 @@ import { createInsertSchema, createUpdateSchema, createSelectSchema } from "driz
 
 export namespace MailIdentitiesModel {
 
+    /**
+     * HTML signature as produced by the compose editor. Generous enough for a
+     * formatted footer with links, but not for embedded image data — the editor
+     * turns dropped files into attachments rather than inlining them.
+     */
+    export const SIGNATURE = z.string().max(16384, "Signature must be at most 16384 characters").nullable();
+
     export const BASE = createSelectSchema(DB.Tables.mailIdentities, {
         id: z.int().positive(),
         created_at: z.int().positive(),
 
         email_address: z.email(),
         display_name: z.string().min(1).max(255),
+
+        signature: SIGNATURE
     });
 
     export type Base = z.infer<typeof BASE>;
@@ -47,6 +56,9 @@ export namespace MailIdentitiesModel.CreateMailIdentity {
         id: true,
         created_at: true,
         mail_account_id: true
+    }).extend({
+        // An identity without a signature simply omits it.
+        signature: MailIdentitiesModel.SIGNATURE.optional()
     });
 
     export type Body = z.infer<typeof Body>;

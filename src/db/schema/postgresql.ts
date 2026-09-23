@@ -106,6 +106,9 @@
 //     display_name: text().notNull(),
 //     email_address: text().notNull(),
 
+//     // HTML signature appended to mails sent from this identity
+//     signature: text(),
+
 //     // is this the default identity for the mail account
 //     is_default: integer({ mode: "boolean" }).notNull().default(false)
 // });
