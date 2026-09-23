@@ -10,7 +10,6 @@ import { AccountModel } from "../src/api/versions/v1/routes/account/model";
 import { AccountPreferencesModel } from "../src/api/versions/v1/routes/account/preferences/model";
 import { MailAccountsModel } from "../src/api/versions/v1/routes/mail-accounts/model";
 import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts/identities/model";
-import { backfillDefaultMailIdentities } from "../src/db/migrations/backfillDefaultMailIdentities";
 import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
 import { SpecialUseModel } from "../src/api/versions/v1/routes/mail-accounts/special-use/model";
 import { SpecialUse, SpecialUseHandler } from "../src/api/utils/services/specialUseService";
@@ -46,12 +45,12 @@ async function seedSession(user_id: number) {
     return session satisfies SeededSession;
 }
 
-async function seedMailAccount(ownerUserId: number, smtpUsername = "smtpuser") {
+async function seedMailAccount(ownerUserId: number) {
 
     const encryptedSMTPData = MailAccountEncryption.encryptSMTPData({
         host: "smtp.example.com",
         port: 587,
-        username: smtpUsername,
+        username: "smtpuser",
         password: "smtppass",
         useSSL: "STARTTLS"
     });
@@ -1653,22 +1652,32 @@ describe("Mail Identity Routes", async () => {
 
 describe("Mail Identity Backfill Migration", async () => {
 
+    // The shipped migration, run against rows that look like they predate it.
+    // Referenced by name on purpose: renaming the file should fail this loudly
+    // rather than quietly testing nothing.
+    const MIGRATION_FILE = "drizzle/migrations/sqlite/0014_backfill_default_mail_identities.sql";
+
     let backfillTestUser: SeededUser;
 
-    // Accounts predating mandatory identities, i.e. inserted straight into the DB
-    // without one.
-    let accountWithAddress: number;
-    let accountWithoutAddress: number;
+    // Accounts as they existed before identities were mandatory: without one.
+    let accountWithoutIdentity: number;
     let accountWithIdentity: number;
     let existingIdentityID: number;
 
+    async function runMigration() {
+        const sql = await Bun.file(MIGRATION_FILE).text();
+        for (const statement of sql.split("--> statement-breakpoint")) {
+            if (statement.trim() === "") continue;
+            DB.instance().$client.exec(statement);
+        }
+    }
+
     beforeAll(async () => {
 
-        backfillTestUser = await seedUser("user", { username: "identitybackfilluser" }, "BackfillP@ss1");
+        backfillTestUser = await seedUser("user", { username: "identitybackfilluser", email: "owner@example.com" }, "BackfillP@ss1");
 
-        accountWithAddress = (await seedMailAccount(backfillTestUser.id, "backfill@example.com")).id;
-        accountWithoutAddress = (await seedMailAccount(backfillTestUser.id, "login-name-only")).id;
-        accountWithIdentity = (await seedMailAccount(backfillTestUser.id, "kept@example.com")).id;
+        accountWithoutIdentity = (await seedMailAccount(backfillTestUser.id)).id;
+        accountWithIdentity = (await seedMailAccount(backfillTestUser.id)).id;
 
         existingIdentityID = DB.instance().insert(DB.Tables.mailIdentities).values({
             mail_account_id: accountWithIdentity,
@@ -1684,27 +1693,28 @@ describe("Mail Identity Backfill Migration", async () => {
         ).all();
     }
 
-    test("gives every account without an identity a default one named after its address", async () => {
+    test("gives an account without an identity one named after its owner's address", async () => {
 
-        const result = await backfillDefaultMailIdentities(DB.instance());
+        expect(identitiesOf(accountWithoutIdentity).length).toBe(0);
 
-        // Other suites seed accounts too, so only the lower bound is meaningful.
-        expect(result.created).toBeGreaterThanOrEqual(1);
+        await runMigration();
 
-        const created = identitiesOf(accountWithAddress);
+        const created = identitiesOf(accountWithoutIdentity);
 
         expect(created.length).toBe(1);
-        expect(created[0]?.email_address).toBe("backfill@example.com");
-        expect(created[0]?.display_name).toBe("backfill@example.com");
-        expect(created[0]?.is_default).toBe(true);
+        // SQL cannot read the account's own (encrypted) SMTP username, so the
+        // owner's account email is what the identity is built from.
+        expect(created[0]?.email_address).toBe(backfillTestUser.email);
+        expect(created[0]?.display_name).toBe(backfillTestUser.email);
+        expect(created[0]?.created_at).toBeGreaterThan(0);
     });
 
-    test("skips accounts whose SMTP username is not an email address", async () => {
+    test("does not preselect the backfilled address for sending", async () => {
 
-        expect(identitiesOf(accountWithoutAddress).length).toBe(0);
+        expect(identitiesOf(accountWithoutIdentity)[0]?.is_default).toBe(false);
     });
 
-    test("leaves accounts that already have an identity untouched", async () => {
+    test("leaves an account that already has an identity untouched", async () => {
 
         const identities = identitiesOf(accountWithIdentity);
 
@@ -1716,18 +1726,25 @@ describe("Mail Identity Backfill Migration", async () => {
 
     test("is idempotent", async () => {
 
-        const result = await backfillDefaultMailIdentities(DB.instance());
+        await runMigration();
 
-        expect(result.created).toBe(0);
-        expect(identitiesOf(accountWithAddress).length).toBe(1);
+        expect(identitiesOf(accountWithoutIdentity).length).toBe(1);
         expect(identitiesOf(accountWithIdentity).length).toBe(1);
+    });
+
+    test("leaves every account with at least one identity", async () => {
+
+        const accountsWithoutIdentity = DB.instance().select().from(DB.Tables.mailAccounts).all()
+            .filter((account) => identitiesOf(account.id).length === 0);
+
+        expect(accountsWithoutIdentity).toEqual([]);
     });
 
     afterAll(async () => {
 
         SessionHandler.inValidateAllSessionsForUser(backfillTestUser.id);
 
-        for (const mailAccountID of [accountWithAddress, accountWithoutAddress, accountWithIdentity]) {
+        for (const mailAccountID of [accountWithoutIdentity, accountWithIdentity]) {
             DB.instance().delete(DB.Tables.mailIdentities).where(
                 eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)
             ).run();
