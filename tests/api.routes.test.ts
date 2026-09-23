@@ -1772,6 +1772,7 @@ describe("Mail Mailbox Mails Routes", async () => {
             "From: sender@test.com",
             "To: receiver@test.com",
             "Subject: Draft with inline image",
+            "Message-ID: <inline-update-mixed@test.com>",
             `Content-Type: multipart/mixed; boundary="${mixed}"`,
             "",
             `--${mixed}`,

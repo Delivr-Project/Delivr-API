@@ -223,10 +223,16 @@ export class IMAPAccount {
     /**
      * Append a message to a mailbox and return its UID.
      *
-     * Uses the UID the server reports (UIDPLUS `APPENDUID`). Without UIDPLUS it
-     * falls back to the highest UID in the mailbox, which can belong to another
-     * message that arrived at the same moment. (Sequence numbers aren't usable
-     * here: servers may not report the append to the selecting session yet.)
+     * Uses the UID the server reports (UIDPLUS `APPENDUID`). Without UIDPLUS the
+     * message is located by its own `Message-ID`, which identifies the append
+     * itself — the highest UID in the mailbox would not, as a concurrent append
+     * can take that spot and the caller would then address someone else's mail.
+     * (Sequence numbers aren't usable here either: servers may not report the
+     * append to the selecting session yet.)
+     *
+     * The UID therefore stays undeterminable for a message without a `Message-ID`
+     * on a server without UIDPLUS. Everything this API appends is composed with
+     * nodemailer, which always writes the header.
      *
      * @returns The new message's UID, or `null` if it could not be determined
      */
@@ -236,11 +242,25 @@ export class IMAPAccount {
             const result = await this.client.append(mailbox, content, flags);
             if (result && result.uid) return result.uid;
 
-            const uids = await this.client.search({ all: true }, { uid: true });
+            const messageId = IMAPAccount.extractMessageId(content);
+            if (!messageId) return null;
+
+            // A retry of a failed append can leave an earlier copy behind, so take
+            // the newest match rather than assuming the search returns exactly one.
+            const uids = await this.client.search({ header: { 'message-id': messageId } }, { uid: true });
             return uids && uids.length > 0 ? uids.reduce((max, uid) => Math.max(max, uid)) : null;
         } finally {
             lock.release();
         }
+    }
+
+    /** Read the `Message-ID` out of a raw message's header block, if it has one. */
+    private static extractMessageId(content: string | Buffer): string | null {
+        const raw = typeof content === 'string' ? content : content.toString('binary');
+        const headerEnd = raw.search(/\r?\n\r?\n/);
+        // Unfold continuation lines so a wrapped value is matched in one piece.
+        const headers = (headerEnd === -1 ? raw : raw.slice(0, headerEnd)).replace(/\r?\n[ \t]+/g, ' ');
+        return headers.match(/^message-id:[ \t]*(<[^>\r\n]+>)/im)?.[1] ?? null;
     }
 
     /** Fetch and parse a mail while retaining the exact source from that fetch. */

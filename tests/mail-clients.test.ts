@@ -56,7 +56,13 @@ describe("IMAP Mail Client Tests", () => {
 
 describe("IMAP createMail returns the new UID", () => {
 
-    const draft = "From: sender@example.com\r\nSubject: createMail uid test\r\n\r\nbody";
+    /** Everything the API appends is composed by nodemailer, so it carries a Message-ID. */
+    function draftWith(subject: string, messageId: string | null = `<${crypto.randomUUID()}@example.com>`) {
+        const id = messageId === null ? "" : `Message-ID: ${messageId}\r\n`;
+        return `From: sender@example.com\r\n${id}Subject: ${subject}\r\n\r\nbody`;
+    }
+
+    const draft = draftWith("createMail uid test");
 
     function testAccount(port: number) {
         return IMAPAccount.fromConfig({
@@ -121,13 +127,58 @@ describe("IMAP createMail returns the new UID", () => {
         }
     });
 
+    test("ignores a concurrent append that takes the highest UID", async () => {
+        const server = startMockServer(11149);
+        const account = testAccount(11149);
+
+        try {
+            await account.connect();
+            const client = (account as any).client;
+            const append = client.append.bind(client);
+            // Another client appends to the same mailbox between our APPEND and the
+            // lookup, so the highest UID in the mailbox is no longer ours.
+            const spy = spyOn(client, "append").mockImplementationOnce(async (...args: any[]) => {
+                const result = await append(...args);
+                await append("Drafts", draftWith("stranger's draft"), []);
+                return result;
+            });
+
+            const uid = await account.createMail("Drafts", draft);
+            spy.mockRestore();
+
+            expect(uid).toBeGreaterThan(0);
+            expect((await account.getMailSnapshot("Drafts", uid!))?.mail.subject).toBe("createMail uid test");
+            // The stranger really did land above us, so a max-UID guess would have missed.
+            expect(Math.max(...(await account.getMails("Drafts")).map(mail => mail.uid))).toBeGreaterThan(uid!);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("reports an undeterminable UID for a message without a Message-ID", async () => {
+        const server = startMockServer(11150);
+        const account = testAccount(11150);
+
+        try {
+            await account.connect();
+
+            expect(await account.createMail("Drafts", draftWith("no message id", null))).toBeNull();
+            // The append itself still happened — only the UID is unknown.
+            expect((await account.getMails("Drafts")).map(mail => mail.subject)).toEqual(["no message id"]);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
     test("expunges only the replaced UID on a UIDPLUS server, and spares other \\Deleted mail", async () => {
         const server = startMockServer(11146, ["UIDPLUS"]);
         const account = testAccount(11146);
 
         try {
             await account.connect();
-            const keep = await account.createMail("Drafts", draft.replace("uid test", "kept draft"));
+            const keep = await account.createMail("Drafts", draftWith("createMail kept draft"));
             const replaced = await account.createMail("Drafts", draft);
             // Another client left this one flagged for deletion but never expunged it.
             await account.addFlags("Drafts", [keep!], ["\\Deleted"]);

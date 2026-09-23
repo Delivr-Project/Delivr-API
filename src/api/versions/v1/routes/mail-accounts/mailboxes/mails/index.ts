@@ -506,7 +506,12 @@ router.put('/:mailUID',
                 const newFlags = MailParser.getRawFlags({
                     ...mailData.flags, ...body.flags, recent: false, deleted: false
                 });
-                newUid = (await imap.createMail(mailbox.path, message, newFlags)) ?? undefined;
+                const createdUid = await imap.createMail(mailbox.path, message, newFlags);
+                // Without a UID for the replacement the client could not address the
+                // draft any more, so the original has to stay: an unreferenced copy
+                // in the mailbox is recoverable, the deleted original is not.
+                if (createdUid === null) throw new Error("Could not determine the UID of the replacement mail");
+                newUid = createdUid;
 
                 // The new mail replaces the old version, so remove it. Servers
                 // without UIDPLUS can't expunge a single UID, so they fall back
