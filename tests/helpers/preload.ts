@@ -168,9 +168,10 @@ beforeAll(async () => {
 
     mockIMAPServer.listen(11143);
 
+    // Only the app is built, never a listening server: every test drives the API
+    // through `API.getApp().request()` in-process, so binding a port would just
+    // collide with a dev server running on the same machine.
     await API.init();
-
-    await API.start(14123, "::");
 
 });
 

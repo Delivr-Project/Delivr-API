@@ -121,6 +121,65 @@ describe("IMAP createMail returns the new UID", () => {
         }
     });
 
+    test("expunges only the replaced UID on a UIDPLUS server, and spares other \\Deleted mail", async () => {
+        const server = startMockServer(11146, ["UIDPLUS"]);
+        const account = testAccount(11146);
+
+        try {
+            await account.connect();
+            const keep = await account.createMail("Drafts", draft.replace("uid test", "kept draft"));
+            const replaced = await account.createMail("Drafts", draft);
+            // Another client left this one flagged for deletion but never expunged it.
+            await account.addFlags("Drafts", [keep!], ["\\Deleted"]);
+
+            await account.deleteReplacedMails("Drafts", [replaced!]);
+
+            expect(await account.getMailSnapshot("Drafts", replaced!)).toBeNull();
+            expect((await account.getMailSnapshot("Drafts", keep!))?.mail.subject).toBe("createMail kept draft");
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("moves the replaced mail to Trash when the server can't expunge a single UID", async () => {
+        const server = startMockServer(11147);
+        const account = testAccount(11147);
+
+        try {
+            await account.connect();
+            await account.createMailbox("Trash");
+            const replaced = await account.createMail("Drafts", draft);
+
+            await account.deleteReplacedMails("Drafts", [replaced!], "Trash");
+
+            expect(await account.getMailSnapshot("Drafts", replaced!)).toBeNull();
+            expect((await account.getMails("Trash")).map(mail => mail.subject)).toEqual(["createMail uid test"]);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
+    test("only flags the replaced mail when there is neither UIDPLUS nor a Trash folder", async () => {
+        const server = startMockServer(11148);
+        const account = testAccount(11148);
+
+        try {
+            await account.connect();
+            const replaced = await account.createMail("Drafts", draft);
+
+            await account.deleteReplacedMails("Drafts", [replaced!], null);
+
+            // Still there, but marked for the next expunge — a plain EXPUNGE here
+            // would take every other \Deleted message in the mailbox with it.
+            expect((await account.getMailSnapshot("Drafts", replaced!))?.mail.flags?.deleted).toBe(true);
+        } finally {
+            await account.disconnect();
+            server.close();
+        }
+    });
+
     test("lists mail appended to a mailbox that was empty when it was selected", async () => {
         const server = startMockServer(11145);
         const account = testAccount(11145);

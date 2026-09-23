@@ -202,6 +202,10 @@ async function toComposerAttachments(files: File[]): Promise<ComposerAttachment[
  * File a sent draft in the account's Sent folder: clear `\Draft` so the copy
  * isn't listed as a draft, mark it read and move it. Returns `false` when the
  * account has no Sent folder, leaving the mail where it is.
+ *
+ * The flags are cleared first, on purpose: filing is best effort, but a mail
+ * that has already gone out must never look like an unsent draft again, or the
+ * user sends it a second time from their drafts list.
  */
 async function fileSentMail(imap: IMAPAccount, accountId: number, mailboxPath: string, uid: number): Promise<boolean> {
     await imap.removeFlags(mailboxPath, [uid], ['\\Draft']);
@@ -483,25 +487,34 @@ router.put('/:mailUID',
                     inReplyTo: body.inReplyTo ?? mailData.inReplyTo,
                     references: body.references ?? mailData.references,
                     subject: body.subject ?? mailData.subject,
-                    text: body.body?.text ?? mailData.body?.text,
-                    html: body.body?.html ?? mailData.body?.html,
+                    text: body.body ? body.body.text : mailData.body?.text,
+                    html: body.body ? body.body.html : mailData.body?.html,
                     priority: body.priority ?? mailData.priority,
                     attachments: [...keptAttachments, ...await toComposerAttachments(files)]
                 });
 
-                // Create new mail with updated content and flags. A partial flag
-                // update is merged onto the mail's existing flags so unmentioned
-                // flags (e.g. \\Draft) survive the rebuild; `\\Recent` is server-
-                // managed and never re-asserted here.
-                const newFlags = body.flags
-                    ? MailParser.getRawFlags({ ...mailData.flags, ...body.flags, recent: false })
-                    : mailData.rawFlags;
-                newUid = (await imap.createMail(mailbox.path, message, newFlags)) ?? undefined;
+                // Parse the built message before it is appended: a failure here
+                // would otherwise leave the replacement in place next to the
+                // original, and every retry would add another copy.
                 attachments = await MailParser.getAttachmentMetadata(message);
 
-                // The new mail replaces the old version, so remove it for good.
-                // Moving it to Trash would leave a copy there on every draft save.
-                await imap.permanentlyDelete(mailbox.path, [mailData.uid]);
+                // Create new mail with updated content and flags. A partial flag
+                // update is merged onto the mail's existing flags so unmentioned
+                // flags (e.g. \\Draft) survive the rebuild. `\\Recent` is server-
+                // managed, and `\\Deleted` is never re-asserted: the replacement
+                // would be expunged along with the version it replaces.
+                const newFlags = MailParser.getRawFlags({
+                    ...mailData.flags, ...body.flags, recent: false, deleted: false
+                });
+                newUid = (await imap.createMail(mailbox.path, message, newFlags)) ?? undefined;
+
+                // The new mail replaces the old version, so remove it. Servers
+                // without UIDPLUS can't expunge a single UID, so they fall back
+                // to the Trash folder instead of expunging the whole mailbox.
+                const trashPath = imap.supportsUidExpunge()
+                    ? null
+                    : await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.deleteReplacedMails(mailbox.path, [mailData.uid], trashPath);
             } else if (body.flags) {
                 // Flag-only updates stay on the original IMAP message. Rebuilding the
                 // MIME message here would unnecessarily replace its UID and risk loss.

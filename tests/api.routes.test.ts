@@ -1903,6 +1903,7 @@ describe("Mail Mailbox Mails Routes", async () => {
         const response = await putInboxMail(draft.uid, form);
         expect(response.status).toBe(200);
         const { data } = await response.json() as { data: MailsModel.Update.Response };
+        let trashedUid: number | undefined;
 
         try {
             expect(data.newUid).toBeGreaterThan(draft.uid);
@@ -1913,13 +1914,72 @@ describe("Mail Mailbox Mails Routes", async () => {
             expect(await inboxAttachmentText(data.newUid!, 0)).toBe("first body");
             expect(await inboxAttachmentText(data.newUid!, 1)).toBe("second body");
 
-            // The replaced version is deleted, not moved to Trash.
+            // The replaced version is gone from the mailbox. This mock server has
+            // no UIDPLUS, so it lands in Trash rather than being expunged — a
+            // single-UID expunge isn't available there (see the UIDPLUS test in
+            // mail-clients.test.ts).
             await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${draft.uid}`, { authToken: session_token }, 404);
             const trash = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mails`, {
                 authToken: session_token,
                 expectedBodySchema: MailsModel.GetAll.Response
             });
-            expect(trash.some(mail => mail.subject === "Attachment update")).toBe(false);
+            const replaced = trash.find(mail => mail.subject === "Attachment update");
+            expect(replaced).toBeDefined();
+            trashedUid = replaced!.uid;
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+            if (trashedUid !== undefined) {
+                await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mails/${trashedUid}?permanent=true`, {
+                    method: "DELETE",
+                    authToken: session_token
+                });
+            }
+        }
+    });
+
+    test("PUT with a new body replaces both alternatives instead of keeping the old text part", async () => {
+        const draft = await createDraftWithAttachments("Body alternatives", []);
+
+        const response = await putInboxMail(draft.uid, JSON.stringify({
+            body: { html: "<p>Rewritten in HTML</p>" }
+        }));
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+
+        try {
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.newUid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.body?.html).toContain("Rewritten in HTML");
+            // The superseded plain-text alternative must not survive, or plain-text
+            // readers would still see the previous wording.
+            expect(stored.body?.text ?? "").not.toContain("Body alternatives body");
+        } finally {
+            if (data.newUid) await deleteInboxMail(data.newUid);
+        }
+    });
+
+    test("PUT does not carry \\Deleted onto the rebuilt draft", async () => {
+        const draft = await createDraftWithAttachments("Deleted flag carry over", []);
+
+        const flagged = await putInboxMail(draft.uid, JSON.stringify({ flags: { deleted: true } }));
+        expect(flagged.status).toBe(200);
+
+        const response = await putInboxMail(draft.uid, JSON.stringify({ subject: "Deleted flag carry over v2" }));
+        expect(response.status).toBe(200);
+        const { data } = await response.json() as { data: MailsModel.Update.Response };
+
+        try {
+            // The replacement is still there: had it inherited \\Deleted, removing
+            // the version it replaced would have taken it along.
+            const stored = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${data.newUid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+            expect(stored.subject).toBe("Deleted flag carry over v2");
+            expect(stored.flags?.deleted).toBe(false);
+            expect(stored.flags?.draft).toBe(true);
         } finally {
             if (data.newUid) await deleteInboxMail(data.newUid);
         }

@@ -344,6 +344,33 @@ export class IMAPAccount {
     }
 
     /**
+     * Remove a message that a new version has replaced.
+     *
+     * `UID EXPUNGE` only exists with UIDPLUS; without it a plain EXPUNGE would
+     * also drop every *other* `\Deleted` message in the mailbox. So on such
+     * servers the old version is moved to Trash instead — a copy per save, but
+     * it never touches messages this request didn't create. Without a Trash
+     * folder to move it to, it is only flagged `\Deleted` and left for a later
+     * expunge.
+     */
+    /** Whether the server can expunge individual UIDs (RFC 4315 UIDPLUS). */
+    supportsUidExpunge(): boolean {
+        return this.client.capabilities.has('UIDPLUS');
+    }
+
+    async deleteReplacedMails(mailbox: string, uids: number[], trashPath?: string | null) {
+        if (this.supportsUidExpunge()) {
+            await this.permanentlyDelete(mailbox, uids);
+            return;
+        }
+        if (trashPath && trashPath !== mailbox) {
+            await this.moveToMailbox(mailbox, uids, trashPath);
+            return;
+        }
+        await this.addFlags(mailbox, uids, ['\\Deleted']);
+    }
+
+    /**
      * Search for mails across all mailboxes or specified mailboxes
      * @param options - Search options including query parameters and folder filters
      * @returns Array of search results with mailbox path information
