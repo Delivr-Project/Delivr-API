@@ -719,6 +719,56 @@ describe("Account Preferences Routes", async () => {
         await makeAPIRequest("/v1/account/preferences/folder-dnd", {}, 401);
     });
 
+    test("GET /v1/account/preferences/split-view-hover-actions defaults to enabled=false with no stored row", async () => {
+
+        const hoverUser = await seedUser("user", { username: "splithoveruser" }, "HoverP@ss1");
+        const hoverSession = await seedSession(hoverUser.id).then(s => s.token);
+
+        const data = await makeAPIRequest("/v1/account/preferences/split-view-hover-actions", {
+            authToken: hoverSession,
+            expectedBodySchema: AccountPreferencesModel.SplitViewHoverActions.Response
+        });
+
+        expect(data.enabled).toBe(false);
+
+        // Default is computed, not persisted.
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            eq(DB.Tables.userPreferences.user_id, hoverUser.id)
+        ).all();
+        expect(dbresult.length).toBe(0);
+
+        SessionHandler.inValidateAllSessionsForUser(hoverUser.id);
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, hoverUser.id)).run();
+    });
+
+    test("PUT /v1/account/preferences/split-view-hover-actions persists enabled=true and reads it back", async () => {
+
+        await makeAPIRequest("/v1/account/preferences/split-view-hover-actions", {
+            method: "PUT",
+            authToken: session_token,
+            body: { enabled: true }
+        });
+
+        const data = await makeAPIRequest("/v1/account/preferences/split-view-hover-actions", {
+            authToken: session_token,
+            expectedBodySchema: AccountPreferencesModel.SplitViewHoverActions.Response
+        });
+
+        expect(data.enabled).toBe(true);
+
+        const dbresult = DB.instance().select().from(DB.Tables.userPreferences).where(
+            and(
+                eq(DB.Tables.userPreferences.user_id, preferencesTestUser.id),
+                eq(DB.Tables.userPreferences.key, "split-view-hover-actions")
+            )
+        ).all();
+        expect(dbresult.length).toBe(1);
+    });
+
+    test("GET /v1/account/preferences/split-view-hover-actions without auth fails", async () => {
+        await makeAPIRequest("/v1/account/preferences/split-view-hover-actions", {}, 401);
+    });
+
     test("GET /v1/account/preferences returns every preference with defaults when nothing is saved yet", async () => {
 
         const allPrefsUser = await seedUser("user", { username: "allprefsdefaultuser" }, "AllP@ss1");
@@ -735,6 +785,7 @@ describe("Account Preferences Routes", async () => {
             "auto-mark-seen": { enabled: true },
             "folder-nesting": { nestUnderInbox: true },
             "folder-dnd": { enabled: false },
+            "split-view-hover-actions": { enabled: false },
             "onboarding": { completed: false },
         });
 

@@ -29,6 +29,11 @@ export namespace UserPreferences {
             // Opt-in, so default off.
             enabled: z.boolean().default(false),
         }),
+        "split-view-hover-actions": z.object({
+            // Whether mail rows in the split view show archive / delete / read
+            // quick actions on hover. Opt-in, so default off.
+            enabled: z.boolean().default(false),
+        }),
         "onboarding": z.object({
             // Whether the user has completed the one-time, platform-wide welcome
             // onboarding (preferences setup). Drives the first-login redirect,
@@ -167,6 +172,14 @@ export class UserPreferencesHandler {
 
     static async setFolderDnd(userID: number, data: z.infer<(typeof UserPreferences.schemas)["folder-dnd"]>) {
         await this.set(userID, "folder-dnd", data);
+    }
+
+    static async getSplitViewHoverActions(userID: number) {
+        return this.get(userID, "split-view-hover-actions");
+    }
+
+    static async setSplitViewHoverActions(userID: number, data: z.infer<(typeof UserPreferences.schemas)["split-view-hover-actions"]>) {
+        await this.set(userID, "split-view-hover-actions", data);
     }
 
     static async getOnboarding(userID: number) {
