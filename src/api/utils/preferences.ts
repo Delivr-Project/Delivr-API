@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { DB } from "../../db";
 import type { DrizzleDB } from "../../db/utils";
+import { Logger } from "../../utils/logger";
 import { z } from "zod";
 
 const RemoteContentDecision = z.enum(["allow", "block"]);
@@ -65,17 +66,7 @@ export class UserPreferencesHandler {
             )
         ).get();
 
-        // Indexing the heterogeneous `schemas` record by the generic key widens the
-        // parse result to a union, so narrow it back to this key's inferred type.
-        type Parsed = z.infer<(typeof UserPreferences.schemas)[T]>;
-
-        if (!record) {
-            // schemas[key] has per-field (not top-level) defaults, so it must be
-            // parsed against `{}` rather than `undefined` to fill them in.
-            return UserPreferences.schemas[key].parse({}) as Parsed;
-        }
-
-        return UserPreferences.schemas[key].parse(record.data) as Parsed;
+        return this.parseStored(userID, key, record?.data);
     }
 
     /**
@@ -93,12 +84,38 @@ export class UserPreferencesHandler {
 
         const stored = new Map(records.map(record => [record.key, record.data]));
 
-        // Same `{}` fallback as `get`, since the defaults are per-field.
-        const raw = Object.fromEntries(
-            Object.keys(UserPreferences.schemas).map(key => [key, stored.get(key) ?? {}])
-        );
+        // Parsed key by key, so one invalid row only resets that preference.
+        return Object.fromEntries(
+            (Object.keys(UserPreferences.schemas) as UserPreferences.Key[]).map(key => [key, this.parseStored(userID, key, stored.get(key))])
+        ) as UserPreferences.All;
+    }
 
-        return UserPreferences.allSchema.parse(raw);
+    /**
+     * Parses a stored row against its key's schema. A missing row gives the
+     * defaults, and so does one that no longer fits the schema (e.g. after it was
+     * tightened) — logged, rather than failing every read of the preference.
+     */
+    private static parseStored<T extends UserPreferences.Key>(
+        userID: number,
+        key: T,
+        data: unknown
+    ): z.infer<(typeof UserPreferences.schemas)[T]> {
+
+        // Indexing the heterogeneous `schemas` record by the generic key widens the
+        // parse result to a union, so narrow it back to this key's inferred type.
+        type Parsed = z.infer<(typeof UserPreferences.schemas)[T]>;
+
+        const schema = UserPreferences.schemas[key];
+
+        // schemas[key] has per-field (not top-level) defaults, so it must be
+        // parsed against `{}` rather than `undefined` to fill them in.
+        const result = schema.safeParse(data ?? {});
+        if (result.success) {
+            return result.data as Parsed;
+        }
+
+        Logger.warn(`Stored preference "${key}" of user ${userID} is invalid, using its defaults:`, result.error.message);
+        return schema.parse({}) as Parsed;
     }
 
     static async set<T extends UserPreferences.Key>(
