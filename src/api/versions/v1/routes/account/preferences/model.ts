@@ -48,6 +48,16 @@ export namespace AccountPreferencesModel.FolderDnd {
 
 }
 
+export namespace AccountPreferencesModel.SplitViewHoverActions {
+
+    export const Response = UserPreferences.schemas["split-view-hover-actions"];
+    export type Response = z.infer<typeof Response>;
+
+    export const Body = Response;
+    export type Body = z.infer<typeof Body>;
+
+}
+
 export namespace AccountPreferencesModel.Onboarding {
 
     export const Response = UserPreferences.schemas["onboarding"];

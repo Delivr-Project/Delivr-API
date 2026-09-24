@@ -223,6 +223,54 @@ router.put('/folder-dnd',
 
 );
 
+router.get('/split-view-hover-actions',
+
+    APIRouteSpec.authenticated({
+        summary: "Get split-view hover actions preference",
+        description: "Retrieve whether mail rows in the split view show archive / delete / read quick actions on hover for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeBasic(
+            APIResponseSpec.success("Split-view hover actions preference retrieved successfully", AccountPreferencesModel.SplitViewHoverActions.Response),
+        )
+    }),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const preference = await UserPreferencesHandler.getSplitViewHoverActions(authContext.user_id);
+
+        return APIResponse.success(c, "Split-view hover actions preference retrieved successfully", preference);
+    }
+
+);
+
+router.put('/split-view-hover-actions',
+
+    APIRouteSpec.authenticated({
+        summary: "Update split-view hover actions preference",
+        description: "Set whether mail rows in the split view show archive / delete / read quick actions on hover for the authenticated user.",
+        tags: [DOCS_TAGS.ACCOUNT_PREFERENCES],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.successNoData("Split-view hover actions preference updated successfully"),
+        )
+    }),
+
+    validator("json", AccountPreferencesModel.SplitViewHoverActions.Body),
+
+    async (c) => {
+        const authContext = AuthHandler.AuthContext.getAsSession(c);
+
+        const body = c.req.valid("json");
+
+        await UserPreferencesHandler.setSplitViewHoverActions(authContext.user_id, body);
+
+        return APIResponse.successNoData(c, "Split-view hover actions preference updated successfully");
+    }
+
+);
+
 router.get('/onboarding',
 
     APIRouteSpec.authenticated({
