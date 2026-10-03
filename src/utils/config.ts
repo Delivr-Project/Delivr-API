@@ -114,11 +114,12 @@ export class ConfigHandler {
         .add("DLA_DISABLE_DOCS", false, [true, false])
         .add("DLA_ENCRYPTION_KEY", true)
 
-        .add("DLA_LOG_DIR", false)
-        .add("DLA_CONFIG_BASE_DIR", false)
-
         .add("DLA_DB_CONNECTION_URL", false)
         .add("DLA_DB_AUTO_MIGRATE", false, [true, false])
+        .add("DLA_DB_MIGRATION_DIR", true)
+
+        .add("DLA_LOG_DIR", false)
+        .add("DLA_CONFIG_BASE_DIR", false)
 
         .add("DLA_MAX_ATTACHMENT_SIZE_MB", false)
 

@@ -27,7 +27,8 @@ export class Main {
         await DB.init(
             config.DLA_DB_CONNECTION_URL ?? "./data/db.sqlite",
             config.DLA_DB_AUTO_MIGRATE,
-            config.DLA_CONFIG_BASE_DIR ?? "./config"
+            config.DLA_CONFIG_BASE_DIR ?? "./config",
+            config.DLA_DB_MIGRATION_DIR
         );
 
 

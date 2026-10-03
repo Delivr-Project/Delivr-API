@@ -83,6 +83,7 @@ src/
 - **Tests**: Integration-heavy. `bunfig.toml` preloads `tests/helpers/preload.ts`, which builds the app with `API.init()` but never binds a port — requests go through `API.getApp().request()` in-process, so the suite runs while a dev server is up. Mock IMAP servers do listen: `11143` for the shared one, `11144`–`11148` for per-test servers.
 - **Config**: Environment-based config in `src/utils/config.ts`. See `example.env` for required vars.
 - **Crypto**: ECC-based encryption/signing utilities in `src/utils/crypto/`.
+- **Docker**: `docker/Dockerfile` packages a binary compiled beforehand (`bun run compile linux-x64-baseline --no-version-tag`, as CI does) together with `drizzle/migrations`, which the binary reads from disk. A relative `DLA_DB_MIGRATION_DIR` therefore has to be resolved next to the executable (`process.execPath`), not against `import.meta.dir`, which is Bun's virtual `/$bunfs/root` in a compiled binary. `docker/docker-compose.yml` runs the full stack (API + Delivr-Web) from the ghcr.io images; it requires *public* URLs, since the web client's SSR server calls the API through the same `DELIVR_API_URL` as the browser.
 
 ## Architecture Notes
 
