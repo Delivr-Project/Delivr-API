@@ -8,7 +8,7 @@
 - **ORM**: Drizzle ORM 0.45.x with Drizzle Kit 0.31.x
 - **Validation**: Zod 4.x + `@hono/standard-validator`
 - **OpenAPI**: `hono-openapi` + `@scalar/hono-api-reference`
-- **Database**: SQLite (default, via `@libsql/client`), PostgreSQL, MySQL
+- **Database**: SQLite at runtime (`drizzle-orm/bun-sqlite`); PostgreSQL and MySQL schemas are kept in sync, but runtime support isn't wired up yet (#10)
 - **Mail**: IMAP (`imapflow`) + SMTP (`nodemailer`) + `postal-mime` parsing
 - **Crypto**: `elliptic` (ECC), custom encryption utilities
 - **Scheduling**: `cron` package

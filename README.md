@@ -33,7 +33,7 @@ speaking IMAP and SMTP so your inbox stays yours.
 - 🔐 **JWT auth + API keys** — token-based sessions plus scoped API keys for programmatic access.
 - 🔒 **ECC crypto** — mail-backend credentials protected with elliptic-curve encryption and signing.
 - 📖 **First-class OpenAPI** — every route is documented via `hono-openapi` and browsable through an embedded [Scalar](https://scalar.com) reference.
-- 🗄️ **Bring your own database** — SQLite out of the box, with PostgreSQL and MySQL fully supported through Drizzle.
+- 🗄️ **Zero-setup database** — SQLite out of the box, with no separate database server to run. PostgreSQL and MySQL schemas exist and runtime support is planned ([#10](https://github.com/Delivr-Project/Delivr-API/issues/10)).
 - ⏰ **Scheduled tasks** — background jobs via the `cron` package.
 - ✅ **Integration-tested** — a mock IMAP/SMTP harness exercises the real request paths.
 
@@ -47,7 +47,7 @@ speaking IMAP and SMTP so your inbox stays yours.
 | ORM | **Drizzle ORM** + Drizzle Kit |
 | Validation | **Zod 4.x** + `@hono/standard-validator` |
 | API Docs | `hono-openapi` + `@scalar/hono-api-reference` |
-| Database | SQLite · PostgreSQL · MySQL |
+| Database | SQLite (PostgreSQL · MySQL planned) |
 | Mail | `imapflow` (IMAP) · `nodemailer` (SMTP) · `postal-mime` |
 | Crypto | `elliptic` (ECC) |
 
@@ -113,8 +113,8 @@ The attachment limit counts the files' raw size. Base64 encoding makes the sent 
 | `bun run start` | Production entry point |
 | `bun run db:sqlite:generate` | Generate SQLite migrations |
 | `bun run db:sqlite:migrate` | Run SQLite migrations |
-| `bun run db:postgresql:generate` · `:migrate` | PostgreSQL migrations |
-| `bun run db:mysql:generate` · `:migrate` | MySQL migrations |
+| `bun run db:postgresql:generate` · `:migrate` | PostgreSQL migrations (schema only, runtime support planned) |
+| `bun run db:mysql:generate` · `:migrate` | MySQL migrations (schema only, runtime support planned) |
 
 ## 🗺️ Project Structure
 
