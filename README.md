@@ -72,6 +72,48 @@ bun run dev
 
 The API is now live at **http://localhost:14123**, with the interactive [Scalar](https://scalar.com) reference at **`/docs/v1`** and the raw OpenAPI spec at **`/docs/v1/openapi`** (unless `DLA_DISABLE_DOCS=true`). The root path `/` redirects to the latest version's docs.
 
+## 🐳 Docker
+
+The easiest way to get Delivr running is Docker Compose. It starts the API and the web client together, using the ready-made images from GitHub, so you don't have to install Bun or build anything yourself.
+
+All you need is this repository (or just the `docker-compose.yml` and `example.docker.env` from it):
+
+```bash
+cp example.docker.env .env
+docker compose up -d
+```
+
+Before you start, open `.env` and set `DLA_ENCRYPTION_KEY`. It needs to be exactly 32 characters; `openssl rand -hex 16` gives you one. Keep it safe: it encrypts the stored mail account passwords, and if you lose it, those accounts have to be added again.
+
+Once it's up, open **http://localhost:14128**. On first start the API creates an `admin` account for you. Run `docker compose logs api` to find the link where you set its password.
+
+To update later, run `docker compose pull && docker compose up -d`. Your data stays where it is.
+
+Prefer to build the images yourself? Clone [Delivr-Web](https://github.com/Delivr-Project/Delivr-Web) into a folder next to this one and use `docker compose up -d --build`.
+
+If you want to run Delivr on a server, set `DELIVR_API_PUBLIC_URL` and `DELIVR_APP_PUBLIC_URL` in `.env` to the addresses your browser will actually use, e.g. `https://api.example.com` and `https://mail.example.com`.
+
+### Running just the API
+
+```bash
+docker run -d -p 14123:14123 \
+  -e DLA_APP_URL=http://localhost:14128 \
+  -e DLA_ENCRYPTION_KEY=your-32-character-encryption-key \
+  -v delivr-api-data:/opt/delivr-api/data \
+  -v delivr-api-config:/opt/delivr-api/config \
+  ghcr.io/delivr-project/delivr-api:latest
+```
+
+Images are tagged with the version (e.g. `:0.8.0`) and `:latest`. If you'd rather build it yourself, `docker build -f docker/Dockerfile.build -t delivr-api .` does the job.
+
+Your data lives in two volumes: `data` holds the SQLite database and logs, `config` holds generated files like the initial admin link. As long as you keep those volumes, you can update or recreate the container without losing anything. Database migrations run automatically on startup.
+
+A few things worth knowing:
+
+- The container runs as a regular user (`delivr`, UID 1000), not as root. If you mount folders from your host instead of using volumes, make sure that user can write to them.
+- There's a health check at `/health`, so `docker ps` shows whether the API is actually up.
+- `docker/Dockerfile.build` builds everything from source and works on both x86 and ARM. `docker/Dockerfile` only packages a binary you've already built with `bun run compile linux-x64-baseline --no-version-tag`.
+
 ## ⚙️ Configuration
 
 All configuration is environment-based (see [`example.env`](./example.env)):

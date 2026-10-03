@@ -83,6 +83,7 @@ src/
 - **Tests**: Integration-heavy. `bunfig.toml` preloads `tests/helpers/preload.ts`. Uses fixed ports `12150`/`12151`.
 - **Config**: Environment-based config in `src/utils/config.ts`. See `example.env` for required vars.
 - **Crypto**: ECC-based encryption/signing utilities in `src/utils/crypto/`.
+- **Docker**: `docker/Dockerfile.build` builds from source; `docker/Dockerfile` packages a binary prebuilt by CI. The compiled binary reads migrations from `drizzle/migrations` relative to the working dir, so images must copy that folder. Root `docker-compose.yml` runs API + Delivr-Web (env from `example.docker.env`).
 
 ## Architecture Notes
 

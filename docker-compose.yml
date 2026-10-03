@@ -1,0 +1,54 @@
+# Full Delivr stack: API + web client.
+#
+#   1. cp example.docker.env .env   → set DLA_ENCRYPTION_KEY (32 characters)
+#   2. docker compose up -d         → pulls the prebuilt images from ghcr.io
+#
+# To build the images yourself instead, run "docker compose up -d --build".
+# The web image is then built from a Delivr-Web checkout next to this repository
+# (override with DELIVR_WEB_PATH). Both services are opened directly to the browser,
+# so DELIVR_API_PUBLIC_URL / DELIVR_APP_PUBLIC_URL must be URLs the *browser* can reach.
+
+services:
+  api:
+    image: ghcr.io/delivr-project/delivr-api:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.build
+    restart: unless-stopped
+    environment:
+      DLA_APP_URL: ${DELIVR_APP_PUBLIC_URL:-http://localhost:14128}
+      DLA_ENCRYPTION_KEY: ${DLA_ENCRYPTION_KEY:?Set DLA_ENCRYPTION_KEY (32 characters) in .env}
+      DLA_LOG_LEVEL: ${DLA_LOG_LEVEL:-info}
+      DLA_DISABLE_DOCS: ${DLA_DISABLE_DOCS:-false}
+      DLA_DB_AUTO_MIGRATE: "true"
+      DLA_SMTP_HOST: ${DLA_SMTP_HOST:-}
+      DLA_SMTP_PORT: ${DLA_SMTP_PORT:-}
+      DLA_SMTP_USERNAME: ${DLA_SMTP_USERNAME:-}
+      DLA_SMTP_PASSWORD: ${DLA_SMTP_PASSWORD:-}
+      DLA_SMTP_FROM: ${DLA_SMTP_FROM:-}
+      DLA_SMTP_SECURE: ${DLA_SMTP_SECURE:-false}
+    volumes:
+      - delivr-api-data:/opt/delivr-api/data
+      - delivr-api-config:/opt/delivr-api/config
+    ports:
+      - "${DELIVR_API_PORT:-14123}:14123"
+
+  web:
+    image: ghcr.io/delivr-project/delivr-web:latest
+    build:
+      context: ${DELIVR_WEB_PATH:-../Delivr-Web}
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NUXT_PUBLIC_API_URL: ${DELIVR_API_PUBLIC_URL:-http://localhost:14123}/v1
+      NUXT_PUBLIC_APP_URL: ${DELIVR_APP_PUBLIC_URL:-http://localhost:14128}
+      NUXT_PUBLIC_IS_SIGNUP_ENABLED: ${DELIVR_ENABLE_SIGNUP:-false}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${DELIVR_WEB_PORT:-14128}:14128"
+
+volumes:
+  delivr-api-data:
+  delivr-api-config:

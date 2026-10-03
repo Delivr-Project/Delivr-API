@@ -1,0 +1,15 @@
+# Keep the Docker build context small and free of local state/secrets.
+.git
+.github
+.claude
+node_modules
+data
+config
+testdata
+tmp*
+coverage
+*.log
+.env
+.env.*
+!example.env
+# build/ is intentionally NOT ignored: docker/Dockerfile copies a prebuilt binary from build/bin
