@@ -25,11 +25,13 @@ function setTestEnv(rootDir: string) {
 
         DLA_ENCRYPTION_KEY: "67e3d03dc88682553deed5fa4484bd80a500783850efbb49f6912ad0935eedeb",
 
+        DLA_DB_CONNECTION_URL: path.join(rootDir, "db.sqlite"),
+        DLA_DB_AUTO_MIGRATE: true,
+        DLA_DB_MIGRATION_DIR: "./drizzle/migrations/sqlite",
+
         DLA_LOG_DIR: path.join(rootDir, "logs"),
         DLA_CONFIG_BASE_DIR: rootDir,
 
-        DLA_DB_CONNECTION_URL: path.join(rootDir, "db.sqlite"),
-        DLA_DB_AUTO_MIGRATE: true,
         DLA_MAX_ATTACHMENT_SIZE_MB: "25",
 
         DLA_SMTP_HOST: "127.0.0.1",
@@ -160,7 +162,8 @@ beforeAll(async () => {
     await DB.init(
         path.join(TMP_ROOT, "db.sqlite"),
         true,
-        TMP_ROOT
+        TMP_ROOT,
+        "./drizzle/migrations/sqlite"
     );
 
     // EmailService is NOT initialised here — tests that need it call

@@ -87,6 +87,7 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |
 | `DLA_DB_CONNECTION_URL` | Database connection string / path | `./data/db.sqlite` |
 | `DLA_DB_AUTO_MIGRATE` | Run migrations on startup | `true` |
+| `DLA_DB_MIGRATION_DIR` | Dir with the migrations files | `has to be set manually` |
 | `DLA_LOG_DIR` | Log output directory | `./data/logs` |
 | `DLA_CONFIG_BASE_DIR` | Config base directory | `./config` |
 | `DLA_SMTP_HOST` | Outbound SMTP host for system mail (e.g. password-reset emails) | — |

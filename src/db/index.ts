@@ -6,7 +6,7 @@ import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { mkdir as fs_mkdir } from 'fs/promises';
-import { dirname as path_dirname } from 'path';
+import { dirname as path_dirname, join as path_join } from "path";
 
 export class DB {
 
@@ -15,15 +15,20 @@ export class DB {
     static async init(
         path: string,
         autoMigrate: boolean = false,
-        configBaseDir: string
+        configBaseDir: string,
+        migrationsFolder: string
     ) {
-
         await fs_mkdir(path_dirname(path), { recursive: true });
+        await fs_mkdir(configBaseDir, { recursive: true });
 
         this.db = drizzle(path);
         if (autoMigrate) {
             Logger.info("Running database migrations...");
-            await migrate(this.db, { migrationsFolder: "drizzle/migrations/sqlite" });
+
+            if (Bun?.isStandaloneExecutable) {
+				migrationsFolder = path_join(import.meta.dir, migrationsFolder);
+			}
+
             Logger.info("Database migrations completed.");
         }
 
