@@ -74,3 +74,16 @@ jobs:
         body: ${{ github.event.inputs.release_notes }}
         prerelease: ${{ github.event.inputs.prerelease }}
         artifacts: ./binaries/*
+
+  docker:
+    needs: release
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ inputs.version }}
+      pre_release: ${{ inputs.prerelease && 'true' || 'false' }}
