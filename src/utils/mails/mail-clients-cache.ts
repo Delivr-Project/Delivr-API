@@ -1,5 +1,6 @@
 import { MailAccountsModel } from "../../api/versions/v1/routes/mail-accounts/model";
 import { IMAPAccount } from "./backends/imap";
+import { Logger } from "../logger";
 
 export class MailClientsCache {
 
@@ -33,12 +34,17 @@ export class MailClientsCache {
         return this.createClientData(settings);
     }
 
+    /** Never throws: a failed logout must not fail the deletion or update that dropped the client. */
     static async deleteClient(accountID: number): Promise<void> {
         const clientData = this.clients.get(accountID);
-        if (clientData) {
-            await clientData.imap.disconnect();
-        }
         this.clients.delete(accountID);
+        if (clientData) {
+            try {
+                await clientData.imap.disconnect();
+            } catch (error: any) {
+                Logger.warn(`Failed to disconnect the IMAP client of mail account ${accountID}`, error.message || error);
+            }
+        }
     }
 
     /**

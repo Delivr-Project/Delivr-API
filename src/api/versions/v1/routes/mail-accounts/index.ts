@@ -12,6 +12,7 @@ import { router as searchRouter } from "./search";
 import { router as specialUseRouter } from "./special-use";
 import { router as onboardingRouter } from "./onboarding";
 import { SpecialUseHandler } from "../../../../utils/services/specialUseService";
+import { AccountDeletionService } from "../../../../utils/services/accountDeletionService";
 import { AuthHandler } from "../../../../utils/authHandler";
 import { validator } from "hono-openapi";
 import { MailClientsCache } from "../../../../../utils/mails/mail-clients-cache";
@@ -483,18 +484,8 @@ router.delete('/:mailAccountID',
         await MailClientsCache.deleteClient(mailAccount.id);
 
         try {
-            await DB.instance().transaction(async (tx: DrizzleDB) => {
-                // Delete all mail identities linked to this mail account
-                await tx.delete(DB.Tables.mailIdentities).where(
-                    eq(DB.Tables.mailIdentities.mail_account_id, mailAccount.id)
-                );
-
-                // Drop the persisted special-use mapping for this account.
-                await SpecialUseHandler.deleteForAccount(mailAccount.id, tx);
-
-                await tx.delete(DB.Tables.mailAccounts).where(
-                    eq(DB.Tables.mailAccounts.id, mailAccount.id)
-                );
+            DB.instance().transaction((tx: DrizzleDB) => {
+                AccountDeletionService.deleteMailAccount(mailAccount.id, tx);
             });
         } catch (error: any) {
             Logger.error("Failed to delete mail account", error.stack || error.message || error);

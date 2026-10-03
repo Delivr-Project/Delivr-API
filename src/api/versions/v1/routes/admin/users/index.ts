@@ -7,6 +7,10 @@ import { APIResponseSpec, APIRouteSpec } from "../../../../../utils/specHelpers"
 import { AdminUsersModel } from "./model";
 import { AuthHandler, SessionHandler } from "../../../../../utils/authHandler";
 import { DOCS_TAGS } from "../../../docs";
+import { AccountDeletionService } from "../../../../../utils/services/accountDeletionService";
+import type { DrizzleDB } from "../../../../../../db/utils";
+import { MailClientsCache } from "../../../../../../utils/mails/mail-clients-cache";
+import { Logger } from "../../../../../../utils/logger";
 
 const TARGET_USER_KEY = "adminTargetUser";
 
@@ -260,13 +264,13 @@ router.delete('/:userId',
 
     APIRouteSpec.authenticated({
         summary: "Delete user",
-        description: "Permanently remove a Delivr account after verifying it has no owned packages.",
+        description: "Permanently remove a Delivr account together with its mail accounts, identities, preferences, sessions and API keys. Mail on the mail servers is not touched.",
         tags: [DOCS_TAGS.ADMIN_API.USERS],
 
         responses: APIResponseSpec.describeBasic(
             APIResponseSpec.successNoData("User deleted successfully"),
             APIResponseSpec.notFound("User not found"),
-            APIResponseSpec.badRequest("Cannot delete user while packages are assigned")
+            APIResponseSpec.serverError("Failed to delete user")
         )
     }),
 
@@ -274,17 +278,19 @@ router.delete('/:userId',
         // @ts-ignore
         const user = c.get(TARGET_USER_KEY) as DB.Models.User;
 
-        // Check for user data later
+        let mailAccountIDs: number[];
+        try {
+            mailAccountIDs = DB.instance().transaction((tx: DrizzleDB) => {
+                return AccountDeletionService.deleteUser(user.id, tx);
+            });
+        } catch (error: any) {
+            Logger.error("Failed to delete user", error.stack || error.message || error);
+            return APIResponse.serverError(c, "Failed to delete user");
+        }
 
-        await AuthHandler.invalidateAllAuthContextsForUser(user.id);
-
-        await DB.instance().delete(DB.Tables.passwordResets).where(
-            eq(DB.Tables.passwordResets.user_id, user.id)
-        ).run();
-
-        await DB.instance().delete(DB.Tables.users).where(
-            eq(DB.Tables.users.id, user.id)
-        ).run();
+        for (const mailAccountID of mailAccountIDs) {
+            await MailClientsCache.deleteClient(mailAccountID);
+        }
 
         return APIResponse.successNoData(c, "User deleted successfully");
     }

@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { APIResponse } from "../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
 import { AuthHandler, SessionHandler } from "../../../../utils/authHandler";
-import { UserPreferencesHandler } from "../../../../utils/preferences";
+import { AccountDeletionService } from "../../../../utils/services/accountDeletionService";
 import { DOCS_TAGS } from "../../docs";
 import { router as apiKeyRouter } from "./apikeys";
 import { router as preferencesRouter } from "./preferences";
@@ -212,22 +212,8 @@ router.delete('/',
                 return APIResponse.badRequest(c, "Please delete all mail accounts associated with this account before deleting the account");
             }
 
-            await DB.instance().transaction(async (tx: DrizzleDB) => {
-                // invalidate all sessions for the user
-                await AuthHandler.invalidateAllAuthContextsForUser(authContext.user_id, tx);
-
-                // delete password resets
-                await tx.delete(DB.Tables.passwordResets).where(
-                    eq(DB.Tables.passwordResets.user_id, authContext.user_id)
-                ).run();
-
-                // delete stored preferences
-                await UserPreferencesHandler.deleteAllForUser(authContext.user_id, tx);
-
-                // finally, delete the user account
-                await tx.delete(DB.Tables.users).where(
-                    eq(DB.Tables.users.id, authContext.user_id)
-                ).run();
+            DB.instance().transaction((tx: DrizzleDB) => {
+                AccountDeletionService.deleteUser(authContext.user_id, tx);
             });
             
             return APIResponse.successNoData(c, "Account deleted successfully");

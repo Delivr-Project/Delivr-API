@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test, beforeAll, spyOn } from "bun:test";
 import { API } from "../src/api";
 import { DB } from "../src/db";
-import { AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
+import { APIKeyHandler, AuthHandler, AuthUtils, SessionHandler } from "../src/api/utils/authHandler";
 import { randomUUID } from "crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { AuthModel } from "../src/api/versions/v1/routes/auth/model";
@@ -13,6 +13,7 @@ import { MailIdentitiesModel } from "../src/api/versions/v1/routes/mail-accounts
 import { MailboxesModel } from "../src/api/versions/v1/routes/mail-accounts/mailboxes/model";
 import { SpecialUseModel } from "../src/api/versions/v1/routes/mail-accounts/special-use/model";
 import { SpecialUse, SpecialUseHandler } from "../src/api/utils/services/specialUseService";
+import { AccountDeletionService } from "../src/api/utils/services/accountDeletionService";
 import { MailboxRessource } from "../src/utils/mails/ressources/mailbox";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MailAccountEncryption } from "../src/utils/crypto/mailCrypt";
@@ -1911,6 +1912,173 @@ describe("Login rate limiting", async () => {
 
         // Had the socket client been counted as "unknown", the in-process one would be locked out too.
         await attemptLogin(user.username, user.password, "198.51.100.3", 200);
+    });
+});
+
+/** Seeds a mail account with an identity, a special-use mapping, a preference, a session and an API key. */
+async function seedUserData(userID: number) {
+    const mailAccountID = (await seedMailAccount(userID)).id;
+
+    DB.instance().insert(DB.Tables.mailIdentities).values({
+        mail_account_id: mailAccountID,
+        display_name: "Seeded Identity",
+        email_address: `${randomUUID()}@example.com`,
+        is_default: true
+    }).run();
+
+    DB.instance().insert(DB.Tables.mailAccountSpecialUse).values({
+        mail_account_id: mailAccountID,
+        data: { sent: { path: "Sent", source: "flag" } }
+    }).run();
+
+    DB.instance().insert(DB.Tables.userPreferences).values({
+        user_id: userID,
+        key: "auto-mark-seen",
+        data: { enabled: false }
+    }).run();
+
+    await seedSession(userID);
+    await APIKeyHandler.createApiKey(userID, "Seeded API key");
+
+    return mailAccountID;
+}
+
+/** Every row stored for a user and one of their mail accounts, per table. */
+function storedUserData(userID: number, mailAccountID: number) {
+    return {
+        users: DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, userID)).all(),
+        mailAccounts: DB.instance().select().from(DB.Tables.mailAccounts).where(eq(DB.Tables.mailAccounts.id, mailAccountID)).all(),
+        mailIdentities: DB.instance().select().from(DB.Tables.mailIdentities).where(eq(DB.Tables.mailIdentities.mail_account_id, mailAccountID)).all(),
+        specialUse: DB.instance().select().from(DB.Tables.mailAccountSpecialUse).where(eq(DB.Tables.mailAccountSpecialUse.mail_account_id, mailAccountID)).all(),
+        preferences: DB.instance().select().from(DB.Tables.userPreferences).where(eq(DB.Tables.userPreferences.user_id, userID)).all(),
+        sessions: DB.instance().select().from(DB.Tables.sessions).where(eq(DB.Tables.sessions.user_id, userID)).all(),
+        apiKeys: DB.instance().select().from(DB.Tables.apiKeys).where(eq(DB.Tables.apiKeys.user_id, userID)).all(),
+    };
+}
+
+const NO_USER_DATA = {
+    users: [],
+    mailAccounts: [],
+    mailIdentities: [],
+    specialUse: [],
+    preferences: [],
+    sessions: [],
+    apiKeys: [],
+};
+
+describe("Admin User Routes", async () => {
+
+    let adminSessionToken: string;
+
+    beforeAll(async () => {
+        adminSessionToken = (await seedSession(testAdmin.id)).token;
+    });
+
+    test("DELETE /v1/admin/users/:userId removes the user and everything stored for them", async () => {
+        const user = await seedUser("user", {}, "DeleteMeP@ss1");
+        const mailAccountID = await seedUserData(user.id);
+
+        await makeAPIRequest(`/v1/admin/users/${user.id}`, {
+            method: "DELETE",
+            authToken: adminSessionToken
+        });
+
+        expect(storedUserData(user.id, mailAccountID)).toEqual(NO_USER_DATA);
+    });
+
+    test("DELETE /v1/admin/users/:userId leaves other users' data untouched", async () => {
+        const user = await seedUser("user", {}, "DeleteMeP@ss1");
+        await seedUserData(user.id);
+
+        const otherUser = await seedUser("user", {}, "KeepMeP@ss1");
+        const otherMailAccountID = await seedUserData(otherUser.id);
+
+        await makeAPIRequest(`/v1/admin/users/${user.id}`, {
+            method: "DELETE",
+            authToken: adminSessionToken
+        });
+
+        const kept = storedUserData(otherUser.id, otherMailAccountID);
+        for (const rows of Object.values(kept)) {
+            expect(rows.length).toBe(1);
+        }
+
+        AccountDeletionService.deleteUser(otherUser.id);
+    });
+
+    test("AccountDeletionService.deleteUser rolls back completely when its transaction fails", async () => {
+        const user = await seedUser("user", {}, "KeepMeP@ss1");
+        const mailAccountID = await seedUserData(user.id);
+
+        expect(() => DB.instance().transaction((tx) => {
+            AccountDeletionService.deleteUser(user.id, tx);
+            throw new Error("abort");
+        })).toThrow("abort");
+
+        // Let anything queued after the commit run: an async deleteUser would delete here, outside the transaction.
+        await Bun.sleep(1);
+
+        for (const rows of Object.values(storedUserData(user.id, mailAccountID))) {
+            expect(rows.length).toBe(1);
+        }
+
+        AccountDeletionService.deleteUser(user.id);
+    });
+});
+
+describe("Orphaned User Data Purge Migration", async () => {
+
+    // Referenced by name on purpose: renaming the file should fail this loudly
+    // rather than quietly testing nothing.
+    const MIGRATION_FILE = "drizzle/migrations/sqlite/0015_purge_orphaned_user_data.sql";
+
+    let keptUser: SeededUser;
+    let keptMailAccountID: number;
+    let removedUserID: number;
+    let orphanedMailAccountID: number;
+
+    async function runMigration() {
+        const sql = await Bun.file(MIGRATION_FILE).text();
+        for (const statement of sql.split("--> statement-breakpoint")) {
+            if (statement.trim() === "") continue;
+            DB.instance().$client.exec(statement);
+        }
+    }
+
+    beforeAll(async () => {
+        keptUser = await seedUser("user", {}, "KeepMeP@ss1");
+        keptMailAccountID = await seedUserData(keptUser.id);
+
+        const removedUser = await seedUser("user", {}, "DeleteMeP@ss1");
+        removedUserID = removedUser.id;
+        orphanedMailAccountID = await seedUserData(removedUser.id);
+
+        // What the admin route used to do: drop the user row and leave the rest behind.
+        DB.instance().delete(DB.Tables.users).where(eq(DB.Tables.users.id, removedUserID)).run();
+    });
+
+    test("removes everything that belonged to a user who no longer exists", async () => {
+        await runMigration();
+
+        expect(storedUserData(removedUserID, orphanedMailAccountID)).toEqual(NO_USER_DATA);
+    });
+
+    test("leaves data of existing users untouched", async () => {
+        for (const rows of Object.values(storedUserData(keptUser.id, keptMailAccountID))) {
+            expect(rows.length).toBe(1);
+        }
+    });
+
+    test("is idempotent", async () => {
+        await runMigration();
+
+        for (const rows of Object.values(storedUserData(keptUser.id, keptMailAccountID))) {
+            expect(rows.length).toBe(1);
+        }
+    });
+
+    afterAll(() => {
+        AccountDeletionService.deleteUser(keptUser.id);
     });
 });
 
