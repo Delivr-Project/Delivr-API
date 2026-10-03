@@ -1865,29 +1865,13 @@ describe("Login rate limiting", async () => {
         await attemptLogin(username, "wrong-password", clientIP, 429);
     }
 
-    test("ignores X-Forwarded-For unless DLA_TRUST_PROXY is set", async () => {
+    test("ignores X-Forwarded-For", async () => {
         const user = await seedUser("user", {}, "RateLimitP@ss1");
 
         await exhaustAttempts(user.username, "198.51.100.1");
 
         // A forged header must not get a client around the limit.
         await attemptLogin(user.username, user.password, "198.51.100.2", 429);
-    });
-
-    test("limits each forwarded client separately with DLA_TRUST_PROXY", async () => {
-        const config = ConfigHandler.getConfig()!;
-        config.DLA_TRUST_PROXY = true;
-
-        try {
-            const user = await seedUser("user", {}, "RateLimitP@ss1");
-
-            await exhaustAttempts(user.username, "198.51.100.1");
-
-            // Another client can still sign in to the same account.
-            await attemptLogin(user.username, user.password, "198.51.100.2", 200);
-        } finally {
-            config.DLA_TRUST_PROXY = false;
-        }
     });
 
     test("keys on the socket address of a real connection", async () => {

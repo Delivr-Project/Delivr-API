@@ -21,7 +21,6 @@ function setTestEnv(rootDir: string) {
         
         DLA_API_HOST: "::",
         DLA_API_PORT: "1",
-        DLA_TRUST_PROXY: false,
         DLA_DISABLE_DOCS: true,
 
         DLA_ENCRYPTION_KEY: "67e3d03dc88682553deed5fa4484bd80a500783850efbb49f6912ad0935eedeb",

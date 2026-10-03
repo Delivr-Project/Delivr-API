@@ -82,7 +82,6 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_APP_URL` | **Required.** URL of the Delivr web client | — |
 | `DLA_API_HOST` | Bind address | `::` |
 | `DLA_API_PORT` | Listen port | `14123` |
-| `DLA_TRUST_PROXY` | Read the client address from `X-Forwarded-For` for login rate limiting. Enable it only when the API is reachable solely through your reverse proxy | `false` |
 | `DLA_DISABLE_DOCS` | Disable the Scalar API reference | `false` |
 | `DLA_MAX_ATTACHMENT_SIZE_MB` | Maximum combined attachment size per composed mail, in MB, measured before encoding | `25` |
 | `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |

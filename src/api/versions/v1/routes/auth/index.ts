@@ -12,7 +12,6 @@ import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
 import { router as resetPasswordRouter } from "./reset-password";
 import { DOCS_TAGS } from "../../docs";
 import { Logger } from "../../../../../utils/logger";
-import { ConfigHandler } from "../../../../../utils/config";
 
 // Dummy bcrypt hash for timing-normalized login failures — prevents username enumeration
 // Generated once at module load so it's a valid, cost-equivalent hash
@@ -39,11 +38,6 @@ const LOGIN_CLEANUP_INTERVAL = setInterval(() => {
 LOGIN_CLEANUP_INTERVAL.unref();
 
 function getClientId(c: Context) {
-    if (ConfigHandler.getConfig()?.DLA_TRUST_PROXY) {
-        // The reverse proxy appends the address it saw, so the last entry is the one a client can't forge.
-        const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
-        if (forwarded) return forwarded;
-    }
     try {
         return getConnInfo(c).remote.address || "unknown";
     } catch {
