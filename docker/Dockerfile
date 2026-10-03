@@ -28,6 +28,6 @@ VOLUME /opt/delivr/api/data
 VOLUME /opt/delivr/api/config
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-	CMD curl -f http://localhost:14123/api/health || exit 1
+	CMD curl -f http://localhost:14123/health || exit 1
 
 ENTRYPOINT ["/opt/delivr/api/app/delivr-api"]

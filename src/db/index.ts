@@ -28,6 +28,8 @@ export class DB {
             if (Bun?.isStandaloneExecutable) {
 				migrationsFolder = path_join(import.meta.dir, migrationsFolder);
 			}
+            
+            await migrate(this.db, { migrationsFolder });
 
             Logger.info("Database migrations completed.");
         }
