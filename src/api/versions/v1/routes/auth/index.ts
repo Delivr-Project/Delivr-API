@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { getConnInfo } from "hono/bun";
 import { AuthModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../db";
@@ -11,6 +12,7 @@ import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
 import { router as resetPasswordRouter } from "./reset-password";
 import { DOCS_TAGS } from "../../docs";
 import { Logger } from "../../../../../utils/logger";
+import { ConfigHandler } from "../../../../../utils/config";
 
 // Dummy bcrypt hash for timing-normalized login failures — prevents username enumeration
 // Generated once at module load so it's a valid, cost-equivalent hash
@@ -37,9 +39,17 @@ const LOGIN_CLEANUP_INTERVAL = setInterval(() => {
 LOGIN_CLEANUP_INTERVAL.unref();
 
 function getClientId(c: Context) {
-    // @ts-ignore bun/hono provides a native request with connection info
-    const remote = (c.req.raw as any)?.remoteAddr?.hostname;
-    return remote || "unknown";
+    if (ConfigHandler.getConfig()?.DLA_TRUST_PROXY) {
+        // The reverse proxy appends the address it saw, so the last entry is the one a client can't forge.
+        const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
+        if (forwarded) return forwarded;
+    }
+    try {
+        return getConnInfo(c).remote.address || "unknown";
+    } catch {
+        // In-process requests (e.g. tests) have no socket to read the address from.
+        return "unknown";
+    }
 }
 
 function getLoginAttemptKey(clientId: string, username: string) {

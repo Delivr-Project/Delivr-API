@@ -1844,6 +1844,76 @@ describe("Mail Identity Backfill Migration", async () => {
     });
 });
 
+describe("Login rate limiting", async () => {
+
+    function attemptLogin(username: string, password: string, clientIP: string, expectedCode: number) {
+        return makeAPIRequest("/v1/auth/login", {
+            method: "POST",
+            body: { username, password },
+            additionalOptions: {
+                headers: { "x-forwarded-for": clientIP }
+            }
+        }, expectedCode);
+    }
+
+    // Five failed attempts per client and username are allowed; the sixth is refused.
+    async function exhaustAttempts(username: string, clientIP: string) {
+        for (let i = 0; i < 5; i++) {
+            await attemptLogin(username, "wrong-password", clientIP, 401);
+        }
+        await attemptLogin(username, "wrong-password", clientIP, 429);
+    }
+
+    test("ignores X-Forwarded-For unless DLA_TRUST_PROXY is set", async () => {
+        const user = await seedUser("user", {}, "RateLimitP@ss1");
+
+        await exhaustAttempts(user.username, "198.51.100.1");
+
+        // A forged header must not get a client around the limit.
+        await attemptLogin(user.username, user.password, "198.51.100.2", 429);
+    });
+
+    test("limits each forwarded client separately with DLA_TRUST_PROXY", async () => {
+        const config = ConfigHandler.getConfig()!;
+        config.DLA_TRUST_PROXY = true;
+
+        try {
+            const user = await seedUser("user", {}, "RateLimitP@ss1");
+
+            await exhaustAttempts(user.username, "198.51.100.1");
+
+            // Another client can still sign in to the same account.
+            await attemptLogin(user.username, user.password, "198.51.100.2", 200);
+        } finally {
+            config.DLA_TRUST_PROXY = false;
+        }
+    });
+
+    test("keys on the socket address of a real connection", async () => {
+        const user = await seedUser("user", {}, "RateLimitP@ss1");
+
+        // In-process requests have no socket, so serve the app for real on an ephemeral port.
+        const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: API.getApp().fetch });
+        try {
+            const loginOverSocket = (password: string) => fetch(`http://127.0.0.1:${server.port}/v1/auth/login`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: user.username, password })
+            }).then(response => response.status);
+
+            for (let i = 0; i < 5; i++) {
+                expect(await loginOverSocket("wrong-password")).toBe(401);
+            }
+            expect(await loginOverSocket("wrong-password")).toBe(429);
+        } finally {
+            server.stop(true);
+        }
+
+        // Had the socket client been counted as "unknown", the in-process one would be locked out too.
+        await attemptLogin(user.username, user.password, "198.51.100.3", 200);
+    });
+});
+
 describe("Mail Mailbox Routes", async () => {
 
     let mailIdentityTestUser: SeededUser;

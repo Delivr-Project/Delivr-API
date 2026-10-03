@@ -111,6 +111,7 @@ export class ConfigHandler {
 
         .add("DLA_API_HOST", false)
         .add("DLA_API_PORT", false)
+        .add("DLA_TRUST_PROXY", false, [true, false])
         .add("DLA_DISABLE_DOCS", false, [true, false])
         .add("DLA_ENCRYPTION_KEY", true)
 
