@@ -42,5 +42,5 @@ services:
       DELIVR_ENABLE_SIGNUP: false
     
     depends_on:
-      api:
+      delivr-api:
         condition: service_healthy

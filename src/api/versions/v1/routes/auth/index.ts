@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { getConnInfo } from "hono/bun";
 import { AuthModel } from './model'
 import { validator as zValidator } from "hono-openapi";
 import { DB } from "../../../../../db";
@@ -37,9 +38,12 @@ const LOGIN_CLEANUP_INTERVAL = setInterval(() => {
 LOGIN_CLEANUP_INTERVAL.unref();
 
 function getClientId(c: Context) {
-    // @ts-ignore bun/hono provides a native request with connection info
-    const remote = (c.req.raw as any)?.remoteAddr?.hostname;
-    return remote || "unknown";
+    try {
+        return getConnInfo(c).remote.address || "unknown";
+    } catch {
+        // In-process requests (e.g. tests) have no socket to read the address from.
+        return "unknown";
+    }
 }
 
 function getLoginAttemptKey(clientId: string, username: string) {

@@ -33,7 +33,7 @@ speaking IMAP and SMTP so your inbox stays yours.
 - 🔐 **JWT auth + API keys** — token-based sessions plus scoped API keys for programmatic access.
 - 🔒 **ECC crypto** — mail-backend credentials protected with elliptic-curve encryption and signing.
 - 📖 **First-class OpenAPI** — every route is documented via `hono-openapi` and browsable through an embedded [Scalar](https://scalar.com) reference.
-- 🗄️ **Bring your own database** — SQLite out of the box, with PostgreSQL and MySQL fully supported through Drizzle.
+- 🗄️ **Zero-setup database** — SQLite out of the box, with no separate database server to run. PostgreSQL and MySQL schemas exist and runtime support is planned ([#10](https://github.com/Delivr-Project/Delivr-API/issues/10)).
 - ⏰ **Scheduled tasks** — background jobs via the `cron` package.
 - ✅ **Integration-tested** — a mock IMAP/SMTP harness exercises the real request paths.
 
@@ -47,7 +47,7 @@ speaking IMAP and SMTP so your inbox stays yours.
 | ORM | **Drizzle ORM** + Drizzle Kit |
 | Validation | **Zod 4.x** + `@hono/standard-validator` |
 | API Docs | `hono-openapi` + `@scalar/hono-api-reference` |
-| Database | SQLite · PostgreSQL · MySQL |
+| Database | SQLite (PostgreSQL · MySQL planned) |
 | Mail | `imapflow` (IMAP) · `nodemailer` (SMTP) · `postal-mime` |
 | Crypto | `elliptic` (ECC) |
 
@@ -87,7 +87,7 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |
 | `DLA_DB_CONNECTION_URL` | Database connection string / path | `./data/db.sqlite` |
 | `DLA_DB_AUTO_MIGRATE` | Run migrations on startup | `true` |
-| `DLA_DB_MIGRATION_DIR` | Dir with the migrations files | `has to be set manually` |
+| `DLA_DB_MIGRATION_DIR` | Dir with the migrations files. The compiled binary resolves a relative path next to the executable, not the working directory | `has to be set manually` |
 | `DLA_LOG_DIR` | Log output directory | `./data/logs` |
 | `DLA_CONFIG_BASE_DIR` | Config base directory | `./config` |
 | `DLA_SMTP_HOST` | Outbound SMTP host for system mail (e.g. password-reset emails) | — |
@@ -112,8 +112,8 @@ The attachment limit counts the files' raw size. Base64 encoding makes the sent 
 | `bun run start` | Production entry point |
 | `bun run db:sqlite:generate` | Generate SQLite migrations |
 | `bun run db:sqlite:migrate` | Run SQLite migrations |
-| `bun run db:postgresql:generate` · `:migrate` | PostgreSQL migrations |
-| `bun run db:mysql:generate` · `:migrate` | MySQL migrations |
+| `bun run db:postgresql:generate` · `:migrate` | PostgreSQL migrations (schema only, runtime support planned) |
+| `bun run db:mysql:generate` · `:migrate` | MySQL migrations (schema only, runtime support planned) |
 
 ## 🗺️ Project Structure
 

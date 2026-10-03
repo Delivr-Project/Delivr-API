@@ -8,7 +8,7 @@
 - **ORM**: Drizzle ORM 0.45.x with Drizzle Kit 0.31.x
 - **Validation**: Zod 4.x + `@hono/standard-validator`
 - **OpenAPI**: `hono-openapi` + `@scalar/hono-api-reference`
-- **Database**: SQLite (default, via `@libsql/client`), PostgreSQL, MySQL
+- **Database**: SQLite at runtime (`drizzle-orm/bun-sqlite`); PostgreSQL and MySQL schemas are kept in sync, but runtime support isn't wired up yet (#10)
 - **Mail**: IMAP (`imapflow`) + SMTP (`nodemailer`) + `postal-mime` parsing
 - **Crypto**: `elliptic` (ECC), custom encryption utilities
 - **Scheduling**: `cron` package
@@ -77,13 +77,16 @@ src/
 
 - **API versioning**: Routes live under `src/api/versions/v{n}/routes/`. Each route module has an `index.ts` (router) and `model.ts` (Zod schemas).
 - **OpenAPI specs**: Use `hono-openapi` decorators on route handlers via `APIRouteSpec`/`APIResponseSpec` helpers in `specHelpers.ts` (`summary`, `description`, `tags`). Tags come from `DOCS_TAGS` in `versions/v1/docs/index.ts`. When adding a new tag, also register it in the `tags` array **and** an `x-tagGroups` group in `versions/v1/index.ts`, or it renders orphaned in Scalar. The spec is served at `/docs/v1/openapi` and the Scalar UI at `/docs/v1` (both mounted in `api/index.ts`, gated by `DLA_DISABLE_DOCS`).
-- **Database**: Schema files are per-dialect in `src/db/schema/`. Migrations managed via Drizzle Kit, schema ones with `bun db:sqlite:generate` and data ones with `drizzle-kit generate --custom --name=…`; both are plain SQL under `drizzle/migrations/sqlite/` and run from `DB.init()` when `DLA_DB_AUTO_MIGRATE` is set. A data migration is written to be idempotent (guard with `WHERE NOT EXISTS`) and can only use what SQL can see — the mail account connection data is encrypted, so an address or credential is not reachable from a migration.
+- **Database**: Schema files are per-dialect in `src/db/schema/`. Migrations managed via Drizzle Kit, schema ones with `bun db:sqlite:generate` and data ones with `drizzle-kit generate --custom --name=…`; both are plain SQL under `drizzle/migrations/sqlite/` and run from `DB.init()` unless `DLA_DB_AUTO_MIGRATE=false`. A data migration is written to be idempotent (guard with `WHERE NOT EXISTS`) and can only use what SQL can see — the mail account connection data is encrypted, so an address or credential is not reachable from a migration.
 - **Auth**: JWT-based auth via `authHandler.ts`. Middleware in `src/api/versions/v1/middleware/auth.ts`.
 - **Validation**: Zod schemas in `model.ts` files, validated via `@hono/standard-validator`.
 - **Tests**: Integration-heavy. `bunfig.toml` preloads `tests/helpers/preload.ts`, which builds the app with `API.init()` but never binds a port — requests go through `API.getApp().request()` in-process, so the suite runs while a dev server is up. Mock IMAP servers do listen: `11143` for the shared one, `11144`–`11148` for per-test servers.
 - **Config**: Environment-based config in `src/utils/config.ts`. See `example.env` for required vars.
 - **Crypto**: ECC-based encryption/signing utilities in `src/utils/crypto/`.
-- **Docker**: `docker/Dockerfile` packages a binary compiled beforehand (`bun run compile linux-x64-baseline --no-version-tag`, as CI does) together with `drizzle/migrations`, which the binary reads from disk. A relative `DLA_DB_MIGRATION_DIR` therefore has to be resolved next to the executable (`process.execPath`), not against `import.meta.dir`, which is Bun's virtual `/$bunfs/root` in a compiled binary. `docker/docker-compose.yml` runs the full stack (API + Delivr-Web) from the ghcr.io images; it requires *public* URLs, since the web client's SSR server calls the API through the same `DELIVR_API_URL` as the browser.
+- **Docker**: `docker/Dockerfile` packages a binary compiled beforehand (`bun run compile linux-x64-baseline --no-version-tag`, as CI does) together with `drizzle/migrations`, which the binary reads from disk. A relative `DLA_DB_MIGRATION_DIR` therefore has to be resolved next to the executable (`process.execPath`), not against `import.meta.dir`, which is Bun's virtual `/$bunfs/root` in a compiled binary. `docker/docker-compose.yml` runs the API alone and `docker/docker-compose.prodlike.yml` the full stack (API + Delivr-Web) from the ghcr.io images; it requires *public* URLs, since the web client's SSR server calls the API through the same `DELIVR_API_URL` as the browser.
+- **Client addresses**: login rate limiting keys on the socket address (`getConnInfo` from `hono/bun`). In-process test requests have no socket and fall back to `unknown`, so one test serves the app on an ephemeral port to cover the socket path.
+- **Deleting users and mail accounts** goes through `AccountDeletionService`. SQLite doesn't enforce the schema's foreign keys, so every table that references a user or mail account must be cleaned up there, or its rows are orphaned.
+- **Transactions are only atomic with a synchronous callback.** The bun-sqlite driver commits as soon as the `transaction()` callback returns, so an `async` callback commits at its first `await` and nothing after it rolls back. Many existing routes still pass `async` callbacks; new code that relies on rollback (like `AccountDeletionService`) must use `.run()`/`.all()`/`.get()` without `await`.
 
 ## Architecture Notes
 

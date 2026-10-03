@@ -26,7 +26,7 @@ export class Main {
 
         await DB.init(
             config.DLA_DB_CONNECTION_URL ?? "./data/db.sqlite",
-            config.DLA_DB_AUTO_MIGRATE,
+            config.DLA_DB_AUTO_MIGRATE ?? true,
             config.DLA_CONFIG_BASE_DIR ?? "./config",
             config.DLA_DB_MIGRATION_DIR
         );
@@ -43,7 +43,7 @@ export class Main {
         await API.init([config.DLA_APP_URL || "https://api.delivr.local"], config.DLA_DISABLE_DOCS === true);
 
         await API.start(
-            parseInt(config.DLA_API_PORT ?? "12151"),
+            parseInt(config.DLA_API_PORT ?? "14123"),
             config.DLA_API_HOST ?? "::"
         );
 
