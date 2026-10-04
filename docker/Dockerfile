@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 WORKDIR /opt/delivr/api
 
 COPY ./build/bin/delivr-api-linux-x64-baseline /opt/delivr/api/app/delivr-api
-COPY ./drizzle/migrations ./app/drizzle/migrations
 
 RUN chmod u+x /opt/delivr/api/app/delivr-api
 
