@@ -6,7 +6,7 @@ import { Logger } from '../utils/logger';
 import { ConfigHandler } from '../utils/config';
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 import { mkdir as fs_mkdir } from 'fs/promises';
-import { dirname as path_dirname, isAbsolute as path_isAbsolute, resolve as path_resolve } from "path";
+import { dirname as path_dirname, join as path_join } from "path";
 
 export class DB {
 
@@ -25,10 +25,25 @@ export class DB {
         if (autoMigrate) {
             Logger.info("Running database migrations...");
 
-            // In a compiled binary, import.meta.dir is Bun's virtual /$bunfs/root, but the
-            // migrations ship on disk next to the executable — resolve relative paths there.
-            if (Bun?.isStandaloneExecutable && !path_isAbsolute(migrationsFolder)) {
-                migrationsFolder = path_resolve(path_dirname(process.execPath), migrationsFolder);
+            //@ts-ignore
+            if (Bun?.isStandaloneExecutable) {
+                // `bun build --compile --asset ./drizzle/migrations` embeds the files as `migrations/...`
+				// next to the entry (`/$bunfs/root/migrations` on Linux) — without the `drizzle/` segment.
+				
+                let useDefaultMigrationsFolder = true;
+
+                for (const backend of ["sqlite", "postgresql", "mysql"]) {
+                    if (migrationsFolder.includes(backend)) {
+                        migrationsFolder = path_join(import.meta.dir, "migrations", backend);
+                        useDefaultMigrationsFolder = false;
+                        break;
+                    }
+                }
+
+                if (useDefaultMigrationsFolder) {
+                    Logger.info("No backend-specific migrations folder found in the provided path. Using default SQLite migrations folder.");
+                    migrationsFolder = path_join(import.meta.dir, "migrations", "sqlite");
+                }
             }
             
             await migrate(this.db, { migrationsFolder });
