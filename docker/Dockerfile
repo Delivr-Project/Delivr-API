@@ -19,7 +19,7 @@ ENV DLA_API_PORT=14123
 
 ENV DLA_DB_CONNECTION_URL=/opt/delivr/api/data/db.sqlite
 ENV DLA_DB_AUTO_MIGRATE=true
-ENV DLA_DB_MIGRATION_DIR=drizzle/migrations/sqlite
+ENV DLA_DB_MIGRATION_DIR=sqlite
 
 ENV DLA_LOG_DIR=/opt/delivr/api/data/logs
 ENV DLA_CONFIG_BASE_DIR=/opt/delivr/api/config
