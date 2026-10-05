@@ -1,3 +1,4 @@
+import { AppConstants } from "../../src/utils/constants";
 
 export enum Platforms {
     "linux-x64" = "bun-linux-x64-modern",
@@ -9,13 +10,14 @@ export type PlatformArg = keyof typeof Platforms | "auto";
 
 class CompilerCommand {
 
-    public sourcemap = true;
-    public minify = true;
-    public entrypoint = "./scripts/entrypoint.ts";
-    public outfile = "./build/bin/delivr-api";
-    public platform: PlatformArg = "auto";
-    public env: NodeJS.ProcessEnv = {};
-    private additionalArgs: string[] = [];
+	public sourcemap = true;
+	public minify = true;
+	public bytecode = true;
+	public entrypoint = "./scripts/entrypoint.ts";
+	public outfile = `./build/bin/${AppConstants.BINARY_NAME}`;
+	public platform: PlatformArg = "auto";
+	public env: NodeJS.ProcessEnv = {};
+	private additionalArgs: string[] = [];
 
     constructor(private baseCommand = "bun build --compile") {}
 
@@ -48,30 +50,32 @@ export class Compiler {
         versionInFileName: boolean
     ) {
         if (versionInFileName) {
-            this.command.outfile += `-v${version}`;
+            this.command.outfile += `-v${this.version}`;
         }
 
         this.command.platform = platform;
 
         if (platform !== "auto") {
-            if (Object.keys(Platforms).some(p => p === platform) === false) {
+            if (!Object.keys(Platforms).some((p) => p === platform)) {
                 throw new Error(`Invalid platform: ${platform}`);
             }
             this.command.outfile += `-${platform}`;
         }
         
-        this.command.env.APP_VERSION = version;
-    }
+        this.command.env.APP_VERSION = this.version;
+
+        this.command.addArg("--asset ./drizzle/migrations");
+	}
 
     async build() {
         try {
-            const output = await Bun.$`
-                echo "Building from sources. Version: ${this.version} Platform: ${this.platform}";
-                ${{ raw: this.command.getCommand() }}
-                `.text();
+            console.log(`Building from sources. Version: ${this.version} Platform: ${this.platform}`);
+
+            const output = await Bun.$`${{ raw: this.command.getCommand() }}`.text();
+
             console.log(output);
         } catch (err: any) {
-            console.log(`Failed: ${err.message}`);
+            console.log(`Compiling Failed:\n`, err);
         }
     }
 
