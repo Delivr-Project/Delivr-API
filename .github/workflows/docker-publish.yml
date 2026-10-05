@@ -56,7 +56,7 @@ jobs:
       - name: Run tests
         run: bun test
       - name: Build Binary
-        run: bun compile linux-x64-baseline ${{ inputs.version }} --no-version-tag
+        run: bun compile all ${{ inputs.version }} --no-version-tag
       
       - name: Setup Docker
         id: docker-setup
@@ -68,11 +68,24 @@ jobs:
           image-name: ${{ env.IMAGE_NAME }},
           dockerfile: Dockerfile
 
-      - name: Build Image
+      - name: Build Image AMD64
         uses: ./.github/workflows/docker-build-and-push
         with:
           registry: ${{ env.REGISTRY }}
           image-name: ${{ env.IMAGE_NAME }}
+          platforms: linux/amd64
           labels: ${{ steps.docker-setup.outputs.labels }}
           version: ${{ inputs.version }}
           pre_release: ${{ inputs.pre_release }}
+          dockerfile: Dockerfile.amd64
+
+      - name: Build Image ARM64
+        uses: ./.github/workflows/docker-build-and-push
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          platforms: linux/arm64
+          labels: ${{ steps.docker-setup.outputs.labels }}
+          version: ${{ inputs.version }}
+          pre_release: ${{ inputs.pre_release }}
+          dockerfile: Dockerfile.arm64
