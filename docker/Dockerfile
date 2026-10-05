@@ -1,3 +1,14 @@
+# The binaries are compiled beforehand (`bun compile all <version> --no-version-tag`).
+# Each stage holds one platform's binary, and BuildKit only builds the one that
+# TARGETARCH (amd64 / arm64, set per platform by `--platform`) selects.
+FROM scratch AS binary-amd64
+COPY ./build/bin/delivr-api-linux-x64-baseline /delivr-api
+
+FROM scratch AS binary-arm64
+COPY ./build/bin/delivr-api-linux-arm64 /delivr-api
+
+FROM binary-${TARGETARCH} AS binary
+
 FROM debian:stable-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates openssl \
@@ -5,9 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 
 WORKDIR /opt/delivr/api
 
-COPY ./build/bin/delivr-api-linux-x64-baseline /opt/delivr/api/app/delivr-api
-
-RUN chmod u+x /opt/delivr/api/app/delivr-api
+COPY --from=binary --chmod=755 /delivr-api /opt/delivr/api/app/delivr-api
 
 EXPOSE 14123/tcp
 

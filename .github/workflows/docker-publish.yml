@@ -65,27 +65,15 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           gh-token: ${{ secrets.GITHUB_TOKEN }}
-          image-name: ${{ env.IMAGE_NAME }},
+          image-name: ${{ env.IMAGE_NAME }}
+
+      - name: Build Image
+        uses: ./.github/workflows/docker-build-and-push
+        with:
+          registry: ${{ env.REGISTRY }}
+          image-name: ${{ env.IMAGE_NAME }}
+          platforms: linux/amd64,linux/arm64
+          labels: ${{ steps.docker-setup.outputs.labels }}
+          version: ${{ inputs.version }}
+          pre_release: ${{ inputs.pre_release }}
           dockerfile: Dockerfile
-
-      - name: Build Image AMD64
-        uses: ./.github/workflows/docker-build-and-push
-        with:
-          registry: ${{ env.REGISTRY }}
-          image-name: ${{ env.IMAGE_NAME }}
-          platforms: linux/amd64
-          labels: ${{ steps.docker-setup.outputs.labels }}
-          version: ${{ inputs.version }}
-          pre_release: ${{ inputs.pre_release }}
-          dockerfile: Dockerfile.amd64
-
-      - name: Build Image ARM64
-        uses: ./.github/workflows/docker-build-and-push
-        with:
-          registry: ${{ env.REGISTRY }}
-          image-name: ${{ env.IMAGE_NAME }}
-          platforms: linux/arm64
-          labels: ${{ steps.docker-setup.outputs.labels }}
-          version: ${{ inputs.version }}
-          pre_release: ${{ inputs.pre_release }}
-          dockerfile: Dockerfile.arm64
