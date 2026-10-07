@@ -7,9 +7,22 @@ import { APIResponse } from "../../../../../../utils/api-res";
 import { Logger } from "../../../../../../../utils/logger";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
 import { SpecialUseHandler } from "../../../../../../utils/services/specialUseService";
+import { IMAPAccount } from "../../../../../../../utils/mails/backends/imap";
+import type { MailAccountsModel } from "../../model";
 
 
 export const router = new Hono();
+
+
+// Used by /delete and /delete-all.
+async function deleteMails(mailAccount: MailAccountsModel.BASE, imap: IMAPAccount, mailboxPath: string, uids: IMAPAccount.UidRange, permanent: boolean) {
+    if (permanent) {
+        await imap.permanentlyDelete(mailboxPath, uids);
+    } else {
+        const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+        await imap.moveToTrash(mailboxPath, uids, trashPath);
+    }
+}
 
 
 router.post('/move',
@@ -113,18 +126,55 @@ router.post('/delete',
 
         try {
             await imap.connect();
-
-            if (body.permanent) {
-                await imap.permanentlyDelete(mailbox.path, body.uids);
-            } else {
-                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
-                await imap.moveToTrash(mailbox.path, body.uids, trashPath);
-            }
+            await deleteMails(mailAccount, imap, mailbox.path, body.uids, body.permanent);
 
             return APIResponse.success(c, "Mails deleted successfully", { success: true } satisfies MailBulkActionsModel.BulkDelete.Response);
         } catch (e) {
             Logger.error("Failed to bulk delete mails", e);
             return APIResponse.serverError(c, "Failed to delete mails");
+        }
+    }
+);
+
+router.post('/delete-all',
+
+    APIRouteSpec.authenticated({
+        summary: "Bulk Delete All Mails",
+        description: "Empty the mailbox: delete every mail in it, not just the loaded page, by moving them to Trash or permanently deleting them. Mails in the Trash folder itself are always deleted permanently.",
+        tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAIL_BULK_ACTIONS],
+
+        responses: APIResponseSpec.describeWithWrongInputs(
+            APIResponseSpec.success("All mails deleted successfully", MailBulkActionsModel.BulkDeleteAll.Response),
+            APIResponseSpec.notFound("Mailbox with specified path not found")
+        )
+    }),
+
+    validator('json', MailBulkActionsModel.BulkDeleteAll.Body),
+
+    async (c) => {
+        // @ts-ignore
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
+        // @ts-ignore
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
+
+        const body = c.req.valid('json');
+
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+
+        try {
+            await imap.connect();
+
+            // Like /delete, but for every mail. A min:max range keeps the command short.
+            const uids = await imap.getAllUids(mailbox.path);
+            if (uids.length > 0) {
+                await deleteMails(mailAccount, imap, mailbox.path, IMAPAccount.toUidRange(uids), body.permanent);
+            }
+            const deletedCount = uids.length;
+
+            return APIResponse.success(c, "All mails deleted successfully", { success: true, deletedCount } satisfies MailBulkActionsModel.BulkDeleteAll.Response);
+        } catch (e) {
+            Logger.error("Failed to delete all mails", e);
+            return APIResponse.serverError(c, "Failed to delete all mails");
         }
     }
 );

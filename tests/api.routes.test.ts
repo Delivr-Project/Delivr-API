@@ -26,6 +26,7 @@ import { SMTPAccount } from "../src/utils/mails/backends/smtp";
 import { MailParser } from "../src/utils/mails/parser";
 import { ConfigHandler } from "../src/utils/config";
 import { Logger } from "../src/utils/logger";
+import { ImapFlow } from "imapflow";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -3595,6 +3596,149 @@ describe("Mail Mailbox Mails Routes", async () => {
 
         const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Bulk Perm Delete" });
         expect(trashMails.length).toBe(0);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete-all moves every mail to trash", async () => {
+
+        await testIMAPClient.createMailbox("TestDeleteAll");
+
+        for (const subject of ["Delete All 1", "Delete All 2", "Delete All 3"]) {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAll/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { name: "Bulk Test", address: "bulk@test.com" },
+                    to: [{ name: "Receiver", address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "delete all test" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+        }
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAll/mail-bulk-actions/delete-all`, {
+            method: "POST",
+            authToken: session_token,
+            body: {},
+            expectedBodySchema: MailBulkActionsModel.BulkDeleteAll.Response
+        });
+
+        expect(data.success).toBe(true);
+        expect(data.deletedCount).toBe(3);
+
+        expect((await testIMAPClient.getMails("TestDeleteAll")).length).toBe(0);
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Delete All" });
+        expect(trashMails.length).toBeGreaterThanOrEqual(3);
+
+        // Already empty: no error, just 0
+        const again = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAll/mail-bulk-actions/delete-all`, {
+            method: "POST",
+            authToken: session_token,
+            body: {},
+            expectedBodySchema: MailBulkActionsModel.BulkDeleteAll.Response
+        });
+        expect(again.deletedCount).toBe(0);
+
+        await testIMAPClient.deleteMailbox("TestDeleteAll");
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete-all on Trash permanently empties it", async () => {
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Bulk Test", address: "bulk@test.com" },
+                to: [{ name: "Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Empty Trash",
+                body: { text: "empty trash test" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/Trash/mail-bulk-actions/delete-all`, {
+            method: "POST",
+            authToken: session_token,
+            body: {},
+            expectedBodySchema: MailBulkActionsModel.BulkDeleteAll.Response
+        });
+
+        expect(data.success).toBe(true);
+        expect(data.deletedCount).toBeGreaterThanOrEqual(1);
+        // Other tests share Trash, so only check our own mail
+        expect((await testIMAPClient.getMails("Trash", { searchString: "Empty Trash" })).length).toBe(0);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete-all with permanent=true skips trash", async () => {
+
+        await testIMAPClient.createMailbox("TestDeleteAllPerm");
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAllPerm/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Bulk Test", address: "bulk@test.com" },
+                to: [{ name: "Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Delete All Perm",
+                body: { text: "delete all perm test" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAllPerm/mail-bulk-actions/delete-all`, {
+            method: "POST",
+            authToken: session_token,
+            body: { permanent: true },
+            expectedBodySchema: MailBulkActionsModel.BulkDeleteAll.Response
+        });
+
+        expect(data.deletedCount).toBe(1);
+        expect((await testIMAPClient.getMails("TestDeleteAllPerm")).length).toBe(0);
+        expect((await testIMAPClient.getMails("Trash", { searchString: "Delete All Perm" })).length).toBe(0);
+
+        await testIMAPClient.deleteMailbox("TestDeleteAllPerm");
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mail-bulk-actions/delete-all reports a failed move as an error and keeps the mails", async () => {
+
+        await testIMAPClient.createMailbox("TestDeleteAllFails");
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAllFails/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Bulk Test", address: "bulk@test.com" },
+                to: [{ name: "Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Delete All Fails",
+                body: { text: "delete all fails test" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        // imapflow returns false on failure instead of throwing
+        const moveSpy = spyOn(ImapFlow.prototype, "messageMove").mockResolvedValue(false as any);
+        const copySpy = spyOn(ImapFlow.prototype, "messageCopy").mockResolvedValue(false as any);
+        try {
+            // No body on purpose, permanent defaults to false
+            const response = await API.getApp().request(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAllFails/mail-bulk-actions/delete-all`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${session_token}` }
+            });
+            expect(response.status).toBe(500);
+        } finally {
+            moveSpy.mockRestore();
+            copySpy.mockRestore();
+        }
+
+        expect((await testIMAPClient.getMails("TestDeleteAllFails")).length).toBe(1);
+        await testIMAPClient.deleteMailbox("TestDeleteAllFails");
     });
 
     test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/bulk-move with empty uids fails validation", async () => {
