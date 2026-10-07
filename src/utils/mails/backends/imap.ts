@@ -178,11 +178,10 @@ export class IMAPAccount {
                         { body: searchString }
                     ]
                 }, { uid: true });
-                uids = searchResults as number[];
+                if (!Array.isArray(searchResults)) throw new Error(`Failed to search the mails in ${mailbox}`);
+                uids = searchResults;
             } else {
-                // Get all message sequence numbers
-                const allMessages = await this.client.search({ all: true }, { uid: true });
-                uids = allMessages as number[];
+                uids = await this.searchAllUids(mailbox);
             }
 
             if (uids.length === 0) return [];
@@ -292,7 +291,7 @@ export class IMAPAccount {
         }
     }
 
-    async addFlags(mailbox: string, uids: number[], flags: string[]) {
+    async addFlags(mailbox: string, uids: IMAPAccount.UidRange, flags: string[]) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             await this.client.messageFlagsAdd(uids, flags, { uid: true });
@@ -301,7 +300,7 @@ export class IMAPAccount {
         }
     }
 
-    async removeFlags(mailbox: string, uids: number[], flags: string[]) {
+    async removeFlags(mailbox: string, uids: IMAPAccount.UidRange, flags: string[]) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
             await this.client.messageFlagsRemove(uids, flags, { uid: true });
@@ -310,19 +309,19 @@ export class IMAPAccount {
         }
     }
 
-    async moveToMailbox(mailbox: string, uids: number[], targetMailbox: string) {
+    async moveToMailbox(mailbox: string, uids: IMAPAccount.UidRange, targetMailbox: string) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.messageMove(uids, targetMailbox, { uid: true });
+            IMAPAccount.ensure(await this.client.messageMove(uids, targetMailbox, { uid: true }), `Failed to move mails from ${mailbox} to ${targetMailbox}`);
         } finally {
             lock.release();
         }
     }
 
-    async copyToMailbox(mailbox: string, uids: number[], targetMailbox: string) {
+    async copyToMailbox(mailbox: string, uids: IMAPAccount.UidRange, targetMailbox: string) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.messageCopy(uids, targetMailbox, { uid: true });
+            IMAPAccount.ensure(await this.client.messageCopy(uids, targetMailbox, { uid: true }), `Failed to copy mails from ${mailbox} to ${targetMailbox}`);
         } finally {
             lock.release();
         }
@@ -334,7 +333,7 @@ export class IMAPAccount {
      * ({@link SpecialUseHandler.resolveTrashPath}) rather than re-guessed here on
      * every delete.
      */
-    async moveToTrash(mailbox: string, uids: number[], trashPath: string) {
+    async moveToTrash(mailbox: string, uids: IMAPAccount.UidRange, trashPath: string) {
         // Deleting from within the Trash folder can't move anywhere further, and a
         // move onto itself would be a silent no-op that looks successful — treat it
         // as a permanent delete instead.
@@ -344,7 +343,7 @@ export class IMAPAccount {
 
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.messageMove(uids, trashPath, { uid: true });
+            IMAPAccount.ensure(await this.client.messageMove(uids, trashPath, { uid: true }), `Failed to move mails from ${mailbox} to ${trashPath}`);
         } finally {
             lock.release();
         }
@@ -354,13 +353,31 @@ export class IMAPAccount {
      * Permanently removes messages: imapflow's `messageDelete` flags the given
      * UIDs `\Deleted` and expunges them, unlike `addFlags` alone.
      */
-    async permanentlyDelete(mailbox: string, uids: number[]) {
+    async permanentlyDelete(mailbox: string, uids: IMAPAccount.UidRange) {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            await this.client.messageDelete(uids, { uid: true });
+            IMAPAccount.ensure(await this.client.messageDelete(uids, { uid: true }), `Failed to delete mails from ${mailbox}`);
         } finally {
             lock.release();
         }
+    }
+
+    /** Searched instead of using `exists`, which can be stale on a reused connection. */
+    async getAllUids(mailbox: string): Promise<number[]> {
+        let lock = await this.client.getMailboxLock(mailbox);
+        try {
+            return await this.searchAllUids(mailbox);
+        } finally {
+            lock.release();
+        }
+    }
+
+    /** Same as getAllUids, for callers that already hold the lock. */
+    private async searchAllUids(mailbox: string): Promise<number[]> {
+        const uids = await this.client.search({ all: true }, { uid: true });
+        // imapflow returns false/undefined instead of throwing
+        if (!Array.isArray(uids)) throw new Error(`Failed to list the mails in ${mailbox}`);
+        return uids;
     }
 
     /** Whether the server can expunge individual UIDs (RFC 4315 UIDPLUS). */
@@ -652,6 +669,25 @@ export class IMAPAccount {
 }
 
 export namespace IMAPAccount {
+
+    /** A UID list or a sequence set like "100:250". */
+    export type UidRange = number[] | string;
+
+    /** min:max of the UIDs. New mails get higher UIDs, so they're not included. */
+    export function toUidRange(uids: number[]): string {
+        let min = uids[0]!, max = uids[0]!;
+        for (const uid of uids) {
+            if (uid < min) min = uid;
+            if (uid > max) max = uid;
+        }
+        return `${min}:${max}`;
+    }
+
+    /** imapflow returns false/undefined on failure instead of throwing. */
+    export function ensure<T>(result: T | false | undefined, message: string): T {
+        if (result === false || result === undefined) throw new Error(message);
+        return result;
+    }
 
     export interface ConfigOptions {
         host: string;

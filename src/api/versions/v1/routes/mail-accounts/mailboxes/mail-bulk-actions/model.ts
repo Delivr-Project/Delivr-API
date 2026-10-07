@@ -48,6 +48,22 @@ export namespace MailBulkActionsModel.BulkDelete {
     export type Response = z.infer<typeof Response>;
 }
 
+export namespace MailBulkActionsModel.BulkDeleteAll {
+
+    export const Body = z.object({
+        permanent: z.boolean().default(false).describe("If true, permanently delete every mail. Otherwise, move them to Trash. Mails in the Trash folder itself are always deleted permanently.")
+    });
+
+    export type Body = z.infer<typeof Body>;
+
+    export const Response = z.object({
+        success: z.boolean(),
+        deletedCount: z.number().describe("Number of mails in the mailbox when it was emptied")
+    });
+
+    export type Response = z.infer<typeof Response>;
+}
+
 export namespace MailBulkActionsModel.BulkSetFlags {
 
     /** Only the provided flags are changed; `true` sets the flag, `false` clears it. */
