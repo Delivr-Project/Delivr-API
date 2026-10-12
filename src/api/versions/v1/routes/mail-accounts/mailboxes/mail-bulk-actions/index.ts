@@ -164,12 +164,11 @@ router.post('/delete-all',
         try {
             await imap.connect();
 
-            // Like /delete, but for every mail. A min:max range keeps the command short.
-            const uids = await imap.getAllUids(mailbox.path);
-            if (uids.length > 0) {
-                await deleteMails(mailAccount, imap, mailbox.path, IMAPAccount.toUidRange(uids), body.permanent);
-            }
-            const deletedCount = uids.length;
+            // Like /delete, but for every mail.
+            const trashPath = body.permanent
+                ? null
+                : await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+            const deletedCount = await imap.deleteAll(mailbox.path, trashPath);
 
             return APIResponse.success(c, "All mails deleted successfully", { success: true, deletedCount } satisfies MailBulkActionsModel.BulkDeleteAll.Response);
         } catch (e) {

@@ -3726,12 +3726,16 @@ describe("Mail Mailbox Mails Routes", async () => {
         const moveSpy = spyOn(ImapFlow.prototype, "messageMove").mockResolvedValue(false as any);
         const copySpy = spyOn(ImapFlow.prototype, "messageCopy").mockResolvedValue(false as any);
         try {
-            // No body on purpose, permanent defaults to false
+            // Empty body on purpose, permanent defaults to false
             const response = await API.getApp().request(`/v1/mail-accounts/${mailAccountID}/mailboxes/TestDeleteAllFails/mail-bulk-actions/delete-all`, {
                 method: "POST",
-                headers: { Authorization: `Bearer ${session_token}` }
+                headers: { Authorization: `Bearer ${session_token}`, "Content-Type": "application/json" },
+                body: "{}"
             });
             expect(response.status).toBe(500);
+            await expect(response.json()).resolves.toMatchObject({
+                message: "Failed to delete all mails"
+            });
         } finally {
             moveSpy.mockRestore();
             copySpy.mockRestore();
