@@ -7,22 +7,10 @@ import { APIResponse } from "../../../../../../utils/api-res";
 import { Logger } from "../../../../../../../utils/logger";
 import { MailClientsCache } from "../../../../../../../utils/mails/mail-clients-cache";
 import { SpecialUseHandler } from "../../../../../../utils/services/specialUseService";
-import { IMAPAccount } from "../../../../../../../utils/mails/backends/imap";
 import type { MailAccountsModel } from "../../model";
 
 
 export const router = new Hono();
-
-
-// Used by /delete and /delete-all.
-async function deleteMails(mailAccount: MailAccountsModel.BASE, imap: IMAPAccount, mailboxPath: string, uids: IMAPAccount.UidRange, permanent: boolean) {
-    if (permanent) {
-        await imap.permanentlyDelete(mailboxPath, uids);
-    } else {
-        const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
-        await imap.moveToTrash(mailboxPath, uids, trashPath);
-    }
-}
 
 
 router.post('/move',
@@ -126,7 +114,13 @@ router.post('/delete',
 
         try {
             await imap.connect();
-            await deleteMails(mailAccount, imap, mailbox.path, body.uids, body.permanent);
+
+            if (body.permanent) {
+                await imap.permanentlyDelete(mailbox.path, body.uids);
+            } else {
+                const trashPath = await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                await imap.moveToTrash(mailbox.path, body.uids, trashPath);
+            }
 
             return APIResponse.success(c, "Mails deleted successfully", { success: true } satisfies MailBulkActionsModel.BulkDelete.Response);
         } catch (e) {
