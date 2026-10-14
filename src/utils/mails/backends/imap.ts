@@ -362,17 +362,26 @@ export class IMAPAccount {
         }
     }
 
-    /** Searched instead of using `exists`, which can be stale on a reused connection. */
-    async getAllUids(mailbox: string): Promise<number[]> {
+    async deleteAll(mailbox: string, trashPath: string | null): Promise<number> {
         let lock = await this.client.getMailboxLock(mailbox);
         try {
-            return await this.searchAllUids(mailbox);
+            const uids = await this.searchAllUids(mailbox);
+            if (uids.length === 0) return 0;
+
+            // A min:max range keeps the command short.
+            const range = IMAPAccount.toUidRange(uids);
+            if (trashPath === null || trashPath.toLowerCase() === mailbox.toLowerCase()) {
+                IMAPAccount.ensure(await this.client.messageDelete(range, { uid: true }), `Failed to delete mails from ${mailbox}`);
+            } else {
+                IMAPAccount.ensure(await this.client.messageMove(range, trashPath, { uid: true }), `Failed to move mails from ${mailbox} to ${trashPath}`);
+            }
+            return uids.length;
         } finally {
             lock.release();
         }
     }
 
-    /** Same as getAllUids, for callers that already hold the lock. */
+    /** Searched instead of using `exists`, which can be stale on a reused connection. Callers hold the lock. */
     private async searchAllUids(mailbox: string): Promise<number[]> {
         const uids = await this.client.search({ all: true }, { uid: true });
         // imapflow returns false/undefined instead of throwing
