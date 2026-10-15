@@ -516,10 +516,16 @@ router.put('/:mailUID',
                 // The new mail replaces the old version, so remove it. Servers
                 // without UIDPLUS can't expunge a single UID, so they fall back
                 // to the Trash folder instead of expunging the whole mailbox.
-                const trashPath = imap.supportsUidExpunge()
-                    ? null
-                    : await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
-                await imap.deleteReplacedMails(mailbox.path, [mailData.uid], trashPath);
+                // The new version is already saved, so don't fail the request here;
+                // a retry would only append another copy.
+                try {
+                    const trashPath = imap.supportsUidExpunge()
+                        ? null
+                        : await SpecialUseHandler.resolveTrashPath(mailAccount.id, imap);
+                    await imap.deleteReplacedMails(mailbox.path, [mailData.uid], trashPath);
+                } catch (e) {
+                    Logger.error(`Replaced draft ${newUid}, but failed to remove the old version ${mailData.uid}`, e);
+                }
             } else if (body.flags) {
                 // Flag-only updates stay on the original IMAP message. Rebuilding the
                 // MIME message here would unnecessarily replace its UID and risk loss.
