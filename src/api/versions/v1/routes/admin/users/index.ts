@@ -85,7 +85,13 @@ router.post('/',
         )
     }),
 
-    zValidator("json", AdminUsersModel.Create.Body),
+    zValidator("json", AdminUsersModel.Create.Body, (result, c) => {
+        if (!result.success) {
+            const issue = result.error[0];
+            const field = issue?.path?.map(p => typeof p === "object" ? p.key : p).join(".");
+            return APIResponse.badRequest(c, field ? `${field}: ${issue?.message}` : "Your input is invalid");
+        }
+    }),
 
     async (c) => {
         const body = c.req.valid("json") as AdminUsersModel.Create.Body;

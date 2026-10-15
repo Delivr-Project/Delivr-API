@@ -1958,6 +1958,20 @@ describe("Admin User Routes", async () => {
         adminSessionToken = (await seedSession(testAdmin.id)).token;
     });
 
+    test("POST /v1/admin/users rejects an invalid username with an envelope naming the field", async () => {
+        const res = await API.getApp().request("/v1/admin/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${adminSessionToken}` },
+            body: JSON.stringify({ username: "Perf", display_name: "Perf", email: "perf@example.com", password: "Valid-Passw0rd!" })
+        });
+        const body = await res.json() as { success: boolean; code: number; message: string };
+
+        expect(res.status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(body.code).toBe(400);
+        expect(body.message).toStartWith("username: ");
+    });
+
     test("DELETE /v1/admin/users/:userId removes the user and everything stored for them", async () => {
         const user = await seedUser("user", {}, "DeleteMeP@ss1");
         const mailAccountID = await seedUserData(user.id);
