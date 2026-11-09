@@ -189,6 +189,7 @@ router.post('/',
                     mail_account_id: inserted.id,
                     display_name: identityDisplayName,
                     email_address: identityEmailAddress,
+                    description: body.identity?.description ?? null,
                     is_default: true
                 });
 

@@ -11,12 +11,20 @@ export namespace MailIdentitiesModel {
      */
     export const SIGNATURE = z.string().max(16384, "Signature must be at most 16384 characters").nullable();
 
+    /**
+     * Label that is only shown inside Delivr, to tell apart identities with the
+     * same display name (e.g. "Work" / "Newsletter"). Never sent to recipients.
+     */
+    export const DESCRIPTION = z.string().min(1, "Description must not be empty").max(255, "Description must be at most 255 characters").nullable();
+
     export const BASE = createSelectSchema(DB.Tables.mailIdentities, {
         id: z.int().positive(),
         created_at: z.int().positive(),
 
         email_address: z.email(),
         display_name: z.string().min(1).max(255),
+
+        description: DESCRIPTION,
 
         signature: SIGNATURE
     });
@@ -57,7 +65,8 @@ export namespace MailIdentitiesModel.CreateMailIdentity {
         created_at: true,
         mail_account_id: true
     }).extend({
-        // An identity without a signature simply omits it.
+        // An identity without a description or signature simply omits it.
+        description: MailIdentitiesModel.DESCRIPTION.optional(),
         signature: MailIdentitiesModel.SIGNATURE.optional()
     });
 

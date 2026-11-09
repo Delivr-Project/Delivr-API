@@ -3,6 +3,7 @@ import { DB } from "../../../../../db";
 import { z } from "zod";
 import { InetModels } from "../../../../utils/shared-models/inetModels";
 import { MailboxesModel } from "./mailboxes/model";
+import { MailIdentitiesModel } from "./identities/model";
 
 
 export namespace MailAccountsModel {
@@ -111,7 +112,8 @@ export namespace MailAccountsModel.CreateMailAccount {
         // which only works when that username is itself an email address.
         identity: z.object({
             display_name: z.string().min(1, "Identity display name must not be empty").max(255, "Identity display name must be at most 255 characters").optional(),
-            email_address: z.email()
+            email_address: z.email(),
+            description: MailIdentitiesModel.DESCRIPTION.optional()
         }).optional()
     });
     
