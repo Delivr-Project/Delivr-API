@@ -4319,6 +4319,37 @@ describe("Mail Search Routes", async () => {
         }
     });
 
+    test("GET /v1/mail-accounts/:mailAccountID/search finds mails in INBOX", async () => {
+
+        const subject = `Inbox quick search ${randomUUID()}`;
+        const rawMessage = [
+            "From: sender@example.com",
+            "To: testuser@example.com",
+            `Subject: ${subject}`,
+            `Message-ID: <${randomUUID()}@example.com>`,
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "Quick search body",
+            ""
+        ].join("\r\n");
+
+        const uid = await testIMAPClient.createMail("INBOX", rawMessage, []);
+        if (!uid) throw new Error("Failed to create quick search test mail");
+
+        try {
+            const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?q=${encodeURIComponent(subject)}`, {
+                authToken: session_token,
+                expectedBodySchema: SearchModel.QuickSearch.Response
+            });
+
+            const match = data.results.find(result => result.mailboxPath === "INBOX" && result.mail.uid === uid);
+            expect(match).toBeDefined();
+            expect(match?.mail.subject).toBe(subject);
+        } finally {
+            await testIMAPClient.deleteReplacedMails("INBOX", [uid]);
+        }
+    });
+
     test("GET /v1/mail-accounts/:mailAccountID/search with empty query fails", async () => {
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search?q=`, {

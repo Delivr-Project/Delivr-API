@@ -81,8 +81,7 @@ router.get('/',
                 },
                 order: query.order,
                 limit: query.limit,
-                offset: query.offset,
-                includeSpecialUse: excludeSpecialUse.length > 0 ? [] : undefined
+                offset: query.offset
             };
 
             // If we need to exclude folders, use the excludeMailboxes option
