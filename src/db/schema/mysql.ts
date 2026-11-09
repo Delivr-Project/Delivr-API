@@ -103,6 +103,10 @@
 //     display_name: text().notNull(),
 //     email_address: text().notNull(),
 
+//     // Label only shown inside Delivr, to tell apart identities that share a
+//     // display name. Never written into outgoing mails. Null means none.
+//     description: text(),
+
 //     // HTML signature appended to mails sent from this identity
 //     signature: text(),
 

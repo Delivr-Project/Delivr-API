@@ -112,6 +112,10 @@ export const mailIdentities = sqliteTable('mail_identities', {
     display_name: text().notNull(),
     email_address: text().notNull(),
 
+    // Label only shown inside Delivr, to tell apart identities that share a
+    // display name. Never written into outgoing mails. Null means none.
+    description: text(),
+
     // HTML signature appended to mails sent from this identity, as produced by
     // the compose editor. Null means the identity has none.
     signature: text(),

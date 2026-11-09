@@ -1012,7 +1012,8 @@ describe("Mail Account Routes", async () => {
 
             identity: {
                 display_name: "Explicit Sender",
-                email_address: "explicit@example.com"
+                email_address: "explicit@example.com",
+                description: "Work"
             }
         } satisfies MailAccountsModel.CreateMailAccount.Body;
 
@@ -1030,6 +1031,7 @@ describe("Mail Account Routes", async () => {
         expect(identities.length).toBe(1);
         expect(identities[0]?.email_address).toBe(mailAccountData.identity.email_address);
         expect(identities[0]?.display_name).toBe(mailAccountData.identity.display_name);
+        expect(identities[0]?.description).toBe(mailAccountData.identity.description);
         expect(identities[0]?.is_default).toBe(true);
     });
 
@@ -1644,6 +1646,78 @@ describe("Mail Identity Routes", async () => {
                 signature: "x".repeat(16385)
             }
         }, 400);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/identities stores a description", async () => {
+
+        const mailIdentityData = {
+            display_name: "Same Name",
+            email_address: "described@example.com",
+            is_default: false,
+            description: "Newsletter"
+        } satisfies MailIdentitiesModel.CreateMailIdentity.Body;
+
+        const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
+            method: "POST",
+            authToken: session_token,
+            body: mailIdentityData,
+            expectedBodySchema: MailIdentitiesModel.CreateMailIdentity.Response
+        });
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get()?.description).toBe(mailIdentityData.description);
+
+        // It comes back out through the read routes as stored.
+        const fetched = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            authToken: session_token,
+            expectedBodySchema: MailIdentitiesModel.GetByID.Response
+        });
+
+        expect(fetched.description).toBe(mailIdentityData.description);
+
+        // An omitted description leaves it untouched, `null` clears it.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { display_name: "Same Name Renamed" } satisfies MailIdentitiesModel.UpdateMailIdentity.Body
+        });
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get()?.description).toBe(mailIdentityData.description);
+
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "PUT",
+            authToken: session_token,
+            body: { description: null } satisfies MailIdentitiesModel.UpdateMailIdentity.Body
+        });
+
+        expect(DB.instance().select().from(DB.Tables.mailIdentities).where(
+            eq(DB.Tables.mailIdentities.id, data.id)
+        ).get()?.description).toBeNull();
+
+        // Leave the account with the single identity the delete tests expect.
+        await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities/${data.id}`, {
+            method: "DELETE",
+            authToken: session_token
+        });
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/identities rejects an empty or oversized description", async () => {
+
+        for (const description of ["", "x".repeat(256)]) {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/identities`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    display_name: "Bad Description",
+                    email_address: "baddescription@example.com",
+                    is_default: false,
+                    description
+                }
+            }, 400);
+        }
     });
 
     test("DELETE /v1/mail-accounts/:mailAccountID/identities/:mailIdentityID refuses to delete the last identity", async () => {
