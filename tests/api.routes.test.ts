@@ -27,6 +27,7 @@ import { MailParser } from "../src/utils/mails/parser";
 import { ConfigHandler } from "../src/utils/config";
 import { Logger } from "../src/utils/logger";
 import { ImapFlow } from "imapflow";
+import MailComposer from "nodemailer/lib/mail-composer";
 
 type SeededUser = Omit<DB.Models.User, "password_hash"> & { password: string };
 type SeededSession = Awaited<ReturnType<typeof SessionHandler.createSession>>;
@@ -3195,6 +3196,60 @@ describe("Mail Mailbox Mails Routes", async () => {
             authToken: session_token,
             body: mailData
         }, 404);
+    });
+
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails?view=summary matches the full view", async () => {
+        const mailbox = "SummaryView";
+        await testIMAPClient.createMailbox(mailbox);
+
+        try {
+            const build = (options: ConstructorParameters<typeof MailComposer>[0]) => new MailComposer(options).compile().build();
+            const from = "Sender <sender@test.com>";
+            const to = "receiver@test.com";
+
+            await testIMAPClient.createMail(mailbox, await build({
+                from, to, subject: "Small",
+                text: "Hello ".repeat(100),
+                html: "<p>Hello</p>",
+                attachments: [{ filename: "tiny.txt", content: "tiny" }]
+            }), []);
+            // over SUMMARY_SOURCE_BYTES, so the summary source is cut off
+            await testIMAPClient.createMail(mailbox, await build({
+                from, to, subject: "Large",
+                html: "<style>p { color: red }</style><p>Big &amp; bold</p>",
+                attachments: [
+                    { filename: "big.bin", content: Buffer.alloc(200 * 1024, 7) },
+                    { filename: "logo.png", content: Buffer.alloc(1000, 1), cid: "logo@test" }
+                ]
+            }), []);
+
+            const path = `/v1/mail-accounts/${mailAccountID}/mailboxes/${mailbox}/mails`;
+            const full = await makeAPIRequest(path, { authToken: session_token, expectedBodySchema: MailsModel.GetAll.Response });
+            const summary = await makeAPIRequest(`${path}?view=summary`, { authToken: session_token, expectedBodySchema: MailsModel.GetAll.Response });
+
+            expect(summary.map(mail => mail.uid)).toEqual(full.map(mail => mail.uid));
+
+            for (const [i, fullMail] of full.entries()) {
+                const summaryMail = summary[i];
+                if (!summaryMail) throw new Error(`summary is missing mail ${fullMail.uid}`);
+
+                const { body, attachments, ...headers } = summaryMail;
+                const { body: _fullBody, attachments: fullAttachments, ...fullHeaders } = fullMail;
+                expect(headers).toEqual(fullHeaders);
+                expect(body.html).toBeUndefined();
+                expect(body.text?.length ?? 0).toBeLessThanOrEqual(MailParser.PREVIEW_LENGTH);
+
+                expect(attachments.map(({ size, ...rest }) => rest)).toEqual(fullAttachments.map(({ size, ...rest }) => rest));
+                for (const [j, attachment] of attachments.entries()) {
+                    expect(Math.abs(attachment.size - (fullAttachments[j]?.size ?? 0))).toBeLessThan(16);
+                }
+            }
+
+            expect(summary.find(mail => mail.subject === "Large")?.body.text).toBe("Big & bold");
+            expect(summary.find(mail => mail.subject === "Small")?.body.text).toStartWith("Hello Hello");
+        } finally {
+            await testIMAPClient.deleteMailbox(mailbox);
+        }
     });
 
     test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID retrieves specific mail", async () => {

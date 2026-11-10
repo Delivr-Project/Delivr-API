@@ -50,7 +50,25 @@ describe("IMAP Mail Client Tests", () => {
         expect(inbox.recent).toBe(0);
         expect(inbox.unseen).toBe(5);
 
-    });    
+    });
+
+    test("parallel connect() calls share one connection", async () => {
+        const fresh = IMAPAccount.fromConfig({
+            host: "127.0.0.1",
+            port: 11143,
+            username: "testuser",
+            password: "testpass",
+            useSSL: "NONE"
+        });
+        const connect = spyOn((fresh as any).client, "connect");
+
+        await Promise.all([fresh.connect(), fresh.connect(), fresh.connect()]);
+        expect(connect).toHaveBeenCalledTimes(1);
+        expect(fresh.connected).toBe(true);
+        expect(fresh.isConnecting).toBe(false);
+
+        await fresh.disconnect();
+    });
 
 });
 

@@ -1,4 +1,5 @@
 import PostalMime, { type Header, type HeaderLine, type Attachment, type Address as AddressObject } from 'postal-mime';
+import type { MessageStructureObject } from 'imapflow';
 import type { Stream } from 'nodemailer/lib/xoauth2';
 import type { MailRessource } from './ressources/mail';
 
@@ -96,7 +97,7 @@ export class MailParser {
 
     }
 
-    private static parseRawFlags(rawFlags: Set<string> | string[]): MailRessource.MailFlags {
+    static parseRawFlags(rawFlags: Set<string> | string[]): MailRessource.MailFlags {
 
         const flagsArray = Array.isArray(rawFlags) ? rawFlags : Array.from(rawFlags);
 
@@ -274,6 +275,93 @@ export class MailParser {
         }
         
         return body;
+    }
+
+    static readonly PREVIEW_LENGTH = 256;
+
+    /** Plain-text preview of a body (text part, else stripped HTML). */
+    static getPreviewBody(body: MailRessource.MailBody): MailRessource.MailBody {
+        const source = body.text ?? (body.html ? MailParser.htmlToPreviewText(body.html) : '');
+        let preview = source.replace(/\s+/g, ' ').trim().slice(0, MailParser.PREVIEW_LENGTH);
+
+        // drop a half surrogate pair at the cut
+        if (/[\uD800-\uDBFF]$/.test(preview)) {
+            preview = preview.slice(0, -1);
+        }
+        return preview ? { text: preview } : {};
+    }
+
+    /** Visible text of (possibly truncated) HTML. */
+    private static htmlToPreviewText(html: string): string {
+        return html
+            .replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+            .replace(/<(head|style|script)\b[\s\S]*$/i, ' ') // cut off inside the block
+            .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
+            .replace(/<[^>]*(>|$)/g, ' ')
+            .replace(/&(nbsp|amp|lt|gt|quot|apos|#39|#x[0-9a-f]+|#\d+);/gi, (entity, name: string) => {
+                switch (name.toLowerCase()) {
+                    case 'nbsp': return ' ';
+                    case 'amp': return '&';
+                    case 'lt': return '<';
+                    case 'gt': return '>';
+                    case 'quot': return '"';
+                    case 'apos':
+                    case '#39': return "'";
+                }
+                const codePoint = name[1] === 'x' || name[1] === 'X'
+                    ? parseInt(name.slice(2), 16)
+                    : parseInt(name.slice(1), 10);
+                return codePoint > 0 && codePoint <= 0x10FFFF ? String.fromCodePoint(codePoint) : entity;
+            });
+    }
+
+    /**
+     * Attachments from BODYSTRUCTURE, classified like postal-mime so `id`s match.
+     * Sizes are estimated for base64 parts.
+     */
+    static attachmentsFromStructure(root: MessageStructureObject | undefined): MailRessource.MailAttachment[] {
+        if (!root) return [];
+
+        // postal-mime keeps quoted messages of bounce/abuse reports as attachments
+        const isReport = (node: MessageStructureObject): boolean =>
+            node.type === 'message/delivery-status'
+            || node.type === 'message/feedback-report'
+            || (node.type.startsWith('multipart/') && (node.childNodes ?? []).some(isReport));
+        const inlineRfc822 = !isReport(root);
+
+        const attachments: MailRessource.MailAttachment[] = [];
+        const walk = (node: MessageStructureObject) => {
+            const disposition = node.disposition || undefined;
+
+            const isContainer = node.type.startsWith('multipart/')
+                || (node.type === 'message/rfc822' && inlineRfc822 && (disposition ?? 'inline') === 'inline');
+            if (isContainer) {
+                for (const child of node.childNodes ?? []) walk(child);
+                return;
+            }
+
+            const isBodyText = (node.type === 'text/plain' || node.type === 'text/html') && disposition !== 'attachment';
+            if (isBodyText || !node.size) return;
+
+            attachments.push({
+                id: attachments.length,
+                filename: node.dispositionParameters?.filename || node.parameters?.name || undefined,
+                contentType: node.type,
+                size: MailParser.estimateDecodedSize(node.size, node.encoding),
+                contentId: node.id || undefined,
+                contentDisposition: disposition,
+            });
+        };
+        walk(root);
+
+        return attachments;
+    }
+
+    /** base64 lines are 76 chars + CRLF */
+    private static estimateDecodedSize(encodedSize: number, encoding: string | undefined): number {
+        if (encoding !== 'base64') return encodedSize;
+        const base64Chars = encodedSize - Math.ceil(encodedSize / 78) * 2;
+        return Math.max(0, Math.floor(base64Chars * 3 / 4));
     }
 
     private static getHeadersDict(lines: HeaderLine[]): MailRessource.MailHeaders {
