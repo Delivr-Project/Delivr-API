@@ -100,7 +100,13 @@ export namespace MailsModel.GetByUID {
 
 export namespace MailsModel.GetAll {
 
-    export const Query = ApiHelperModels.ListAll.QueryWithSearch;
+    export const Query = ApiHelperModels.ListAll.QueryWithSearch.extend({
+        view: z.enum(["full", "summary"]).default("full").describe(
+            "`summary`: `body` is only a short plain-text preview, attachment sizes of large mails are estimated. Much faster for lists."
+        )
+    });
+
+    export type Query = z.infer<typeof Query>;
 
     export const Response = z.array(MailsModel.Mail);
 

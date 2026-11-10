@@ -220,7 +220,13 @@ async function fileSentMail(imap: IMAPAccount, accountId: number, mailboxPath: s
 
 
 
-export const router = new Hono();
+/** Set by the `/:mailUID/*` middleware. */
+type Variables = {
+    mailData: MailRessource.IMail | Pick<MailRessource.IMail, "uid" | "flags">;
+    mailSource: Buffer;
+};
+
+export const router = new Hono<{ Variables: Variables }>();
 
 router.get('/',
 
@@ -254,7 +260,8 @@ router.get('/',
                 order: query.order,
                 limit: query.limit,
                 offset: query.offset,
-                searchString: query.searchString
+                searchString: query.searchString,
+                view: query.view
             });
 
             return APIResponse.success(c, "Mails retrieved successfully", mails satisfies MailsModel.GetAll.Response);
@@ -350,8 +357,23 @@ router.use('/:mailUID/*',
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
 
+        // move, flags and delete only need the UID and flags, not the whole mail
+        const path = c.req.path;
+        const needsUidAndFlagsOnly = (c.req.method === "POST" && (path.endsWith(`/mails/${mailUID}/move`) || path.endsWith(`/mails/${mailUID}/flags`)))
+            || (c.req.method === "DELETE" && path.endsWith(`/mails/${mailUID}`));
+
         try {
             await imap.connect();
+
+            if (needsUidAndFlagsOnly) {
+                const mailRef = await imap.getMailFlags(mailbox.path, mailUID);
+                if (!mailRef) {
+                    return APIResponse.notFound(c, "Mail with specified UID not found");
+                }
+                c.set("mailData", mailRef);
+                return await next();
+            }
+
             const snapshot = await imap.getMailSnapshot(mailbox.path, mailUID);
 
             if (!snapshot) {
@@ -632,7 +654,7 @@ router.post('/:mailUID/move',
         // @ts-ignore
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
         // @ts-ignore
-        const mailData = c.get("mailData") as MailRessource.IMail;
+        const mailData = c.get("mailData") as Pick<MailRessource.IMail, "uid" | "flags">;
         const body = c.req.valid('json');
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
@@ -670,7 +692,7 @@ router.post('/:mailUID/flags',
         // @ts-ignore
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
         // @ts-ignore
-        const mailData = c.get("mailData") as MailRessource.IMail;
+        const mailData = c.get("mailData") as Pick<MailRessource.IMail, "uid" | "flags">;
         const body = c.req.valid('json');
 
         const { toAdd, toRemove } = MailParser.getFlagChanges(body);
@@ -712,7 +734,7 @@ router.delete('/:mailUID',
         // @ts-ignore
         const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
         // @ts-ignore
-        const mailData = c.get("mailData") as MailRessource.IMail;
+        const mailData = c.get("mailData") as Pick<MailRessource.IMail, "uid" | "flags">;
         const query = c.req.valid('query');
 
         const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;

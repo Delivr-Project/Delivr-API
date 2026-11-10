@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { DB } from "../../db";
 import type { DrizzleDB } from "../../db/utils";
-import { randomBytes as crypto_randomBytes, createHash as crypto_createHash } from 'crypto';
+import { randomBytes as crypto_randomBytes, createHash as crypto_createHash, timingSafeEqual as crypto_timingSafeEqual } from 'node:crypto';
 import type { Context } from "hono";
 import type { UserAccountSettings } from "./shared-models/accountData";
 
@@ -53,8 +53,33 @@ export class AuthUtils {
         return Bun.password.hash(tokenBase);
     }
 
-    static verifyHashedTokenBase(tokenBase: string, hashedToken: string) {
-        return Bun.password.verify(tokenBase, hashedToken);
+    /** stored hash → sha256 of the secret that matched it */
+    protected static readonly verifiedTokenBases = new Map<string, Buffer>();
+    protected static readonly VERIFIED_TOKEN_BASES_MAX = 10_000;
+
+    /** Memoized: argon2id costs ~70 ms and 64 MB per call, and every request needs it. */
+    static async verifyHashedTokenBase(tokenBase: string, hashedToken: string) {
+        const cache = AuthUtils.verifiedTokenBases;
+        const digest = crypto_createHash('sha256').update(tokenBase).digest();
+
+        const known = cache.get(hashedToken);
+        if (known && crypto_timingSafeEqual(known, digest)) {
+            // refresh recency
+            cache.delete(hashedToken);
+            cache.set(hashedToken, known);
+            return true;
+        }
+
+        if (!(await Bun.password.verify(tokenBase, hashedToken))) {
+            return false;
+        }
+
+        cache.set(hashedToken, digest);
+        if (cache.size > AuthUtils.VERIFIED_TOKEN_BASES_MAX) {
+            const oldest = cache.keys().next().value;
+            if (oldest !== undefined) cache.delete(oldest);
+        }
+        return true;
     }
 
 }

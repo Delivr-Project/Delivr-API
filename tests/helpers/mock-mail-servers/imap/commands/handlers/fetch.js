@@ -163,9 +163,7 @@ fetchHandlers.BODY = function(connection, message, query) {
         start = partial.shift() || 0;
         length = partial.pop();
         value = value.substr(start, length ? length : 0);
-        if (query.partial.length === 2 && query.partial[1] > value.length) {
-            query.partial.pop();
-        }
+        // `query` is shared by every message of the FETCH, so it must not be changed here
     }
 
     return {

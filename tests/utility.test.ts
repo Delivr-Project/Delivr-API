@@ -1,4 +1,5 @@
-import { afterAll, describe, expect, test, beforeAll } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
+import { AuthUtils } from "../src/api/utils/authHandler";
 import { SMTPAccount } from "../src/utils/mails/backends/smtp";
 import { InetModels } from "../src/api/utils/shared-models/inetModels";
 import { ObjectEncryption } from "../src/utils/crypto/objectCrypt";
@@ -244,5 +245,24 @@ describe("Utility Tests", () => {
         expect(SMTPAccount.isMessageTooLargeError(new Error("Connection timeout"))).toBe(false);
         expect(SMTPAccount.isMessageTooLargeError("552 5.3.4 Message too big")).toBe(false);
         expect(SMTPAccount.isMessageTooLargeError(null)).toBe(false);
+    });
+});
+
+describe("AuthUtils.verifyHashedTokenBase", () => {
+    test("memoizes a verified token and still rejects wrong ones", async () => {
+        const base = AuthUtils.createBaseToken();
+        const hash = await AuthUtils.hashTokenBase(base);
+        const verify = spyOn(Bun.password, "verify");
+
+        try {
+            expect(await AuthUtils.verifyHashedTokenBase(base, hash)).toBe(true);
+            expect(await AuthUtils.verifyHashedTokenBase(base, hash)).toBe(true);
+            expect(verify).toHaveBeenCalledTimes(1);
+
+            expect(await AuthUtils.verifyHashedTokenBase(AuthUtils.createBaseToken(), hash)).toBe(false);
+            expect(await AuthUtils.verifyHashedTokenBase(base, await AuthUtils.hashTokenBase(AuthUtils.createBaseToken()))).toBe(false);
+        } finally {
+            verify.mockRestore();
+        }
     });
 });

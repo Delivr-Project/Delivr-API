@@ -12,6 +12,7 @@ export class IMAPAccount {
 
     protected readonly client: ImapFlow;
     protected isConnected: boolean = false;
+    protected pendingConnect: Promise<void> | null = null;
 
     /**
      * Use {@link IMAPAccount.fromSettings} or {@link IMAPAccount.fromConfig} to create an instance.
@@ -68,10 +69,17 @@ export class IMAPAccount {
 
     async connect() {
         if (!this.isConnected) {
-            await this.client.connect();
-            this.isConnected = true;
+            // concurrent callers share one connect
+            this.pendingConnect ??= this.client.connect()
+                .then(() => { this.isConnected = true; })
+                .finally(() => { this.pendingConnect = null; });
+            await this.pendingConnect;
         }
         return this;
+    }
+
+    get isConnecting() {
+        return this.pendingConnect !== null;
     }
 
     async disconnect() {
@@ -159,7 +167,7 @@ export class IMAPAccount {
     }
 
     async getMails(mailbox: string, options: IMAPAccount.GetMailsOptions = {}): Promise<MailRessource[]> {
-        const { order = 'newest', limit = 50, offset = 0, searchString } = options;
+        const { order = 'newest', limit = 50, offset = 0, searchString, view = 'full' } = options;
         
         let lock = await this.client.getMailboxLock(mailbox);
         try {
@@ -197,14 +205,20 @@ export class IMAPAccount {
             const paginatedUids = uids.slice(offset, offset + limit);
             if (paginatedUids.length === 0) return [];
 
-            const rawMails = await this.client.fetchAll(paginatedUids, {
-                envelope: true,
-                bodyStructure: true,
-                source: true,
-                flags: true
-            }, { uid: true });
-
-            const mails = await MailRessource.fromIMAPMessages(rawMails);
+            // a summary fetches only the start of each source
+            const mails = view === 'summary'
+                ? await MailRessource.summariesFromIMAPMessages(await this.client.fetchAll(paginatedUids, {
+                    flags: true,
+                    size: true,
+                    bodyStructure: true,
+                    source: { maxLength: MailRessource.SUMMARY_SOURCE_BYTES }
+                }, { uid: true }))
+                : await MailRessource.fromIMAPMessages(await this.client.fetchAll(paginatedUids, {
+                    envelope: true,
+                    bodyStructure: true,
+                    source: true,
+                    flags: true
+                }, { uid: true }));
 
             // Sort the results to maintain order after fetch
             if (order === 'newest') {
@@ -260,6 +274,18 @@ export class IMAPAccount {
         // Unfold continuation lines so a wrapped value is matched in one piece.
         const headers = (headerEnd === -1 ? raw : raw.slice(0, headerEnd)).replace(/\r?\n[ \t]+/g, ' ');
         return headers.match(/^message-id:[ \t]*(<[^>\r\n]+>)/im)?.[1] ?? null;
+    }
+
+    /** UID and flags of a mail, without downloading it. */
+    async getMailFlags(mailbox: string, uid: number): Promise<Pick<MailRessource.IMail, 'uid' | 'flags'> | null> {
+        const lock = await this.client.getMailboxLock(mailbox);
+        try {
+            const message = await this.client.fetchOne(uid, { flags: true }, { uid: true });
+            if (!message) return null;
+            return { uid: message.uid, flags: MailParser.parseRawFlags(message.flags ?? []) };
+        } finally {
+            lock.release();
+        }
     }
 
     /** Fetch and parse a mail while retaining the exact source from that fetch. */
@@ -711,6 +737,8 @@ export namespace IMAPAccount {
         limit?: number;
         offset?: number;
         searchString?: string;
+        /** `summary`: preview-only body, no full source download */
+        view?: 'full' | 'summary';
     }
 
     export interface SearchQuery {

@@ -72,6 +72,40 @@ export class MailRessource implements MailRessource.IMail {
         return mailRessources;
     }
 
+    /** Source bytes fetched for a summary: headers + start of the text. */
+    static readonly SUMMARY_SOURCE_BYTES = 64 * 1024;
+
+    /** List view of a mail: full headers, preview-only body. */
+    static async summaryFromIMAPMessage(mail: FetchMessageObject) {
+        if (!mail.source) {
+            return null;
+        }
+        const parsedMail = await MailParser.parseMail(mail.uid, mail.source, {
+            rawFlags: mail.flags
+        });
+
+        const isComplete = mail.source.length < MailRessource.SUMMARY_SOURCE_BYTES
+            || (mail.size !== undefined && mail.source.length >= mail.size);
+
+        return new MailRessource({
+            ...parsedMail,
+            body: MailParser.getPreviewBody(parsedMail.body),
+            // a cut-off source misses attachments, so read them from the structure
+            attachments: isComplete ? parsedMail.attachments : MailParser.attachmentsFromStructure(mail.bodyStructure)
+        });
+    }
+
+    static async summariesFromIMAPMessages(mails: FetchMessageObject[]) {
+        const mailRessources: MailRessource[] = [];
+        for (const mail of mails) {
+            const mailRessource = await MailRessource.summaryFromIMAPMessage(mail);
+            if (mailRessource) {
+                mailRessources.push(mailRessource);
+            }
+        }
+        return mailRessources;
+    }
+
     /**
      * Check if email has attachments
      * @returns True if email has attachments

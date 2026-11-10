@@ -30,6 +30,7 @@ class CompilerCommand {
             this.baseCommand,
             (this.sourcemap ? "--sourcemap" : ""),
             (this.minify ? "--minify" : ""),
+            (this.bytecode ? "--bytecode --format=esm" : ""),
             this.entrypoint,
             "--outfile", this.outfile,
             (this.platform === "auto" ? "" : `--target=${Platforms[this.platform]}`),

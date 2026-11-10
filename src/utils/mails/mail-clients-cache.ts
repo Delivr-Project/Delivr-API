@@ -9,7 +9,8 @@ export class MailClientsCache {
     static getClientData(accountID: number): MailClientsCache.ClientsData | null {
         const data = this.clients.get(accountID) || null;
         if (data) {
-            if (!data.imap.connected) {
+            // keep a client that is still connecting, or parallel requests open extra connections
+            if (!data.imap.connected && !data.imap.isConnecting) {
                 this.clients.delete(accountID);
                 return null;
             }
