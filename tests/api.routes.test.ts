@@ -310,6 +310,57 @@ describe("Account routes", async () => {
         expect(dbresult?.email).toBe(newUserData.email);
     });
 
+    test("PUT /v1/account without current password fails", async () => {
+
+        await makeAPIRequest("/v1/account", {
+            method: "PUT",
+            authToken: session_token,
+            body: { display_name: "No Password Name" }
+        }, 400);
+
+        const dbresult = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, testUser.id)).get();
+        expect(dbresult?.display_name).toBe(testUser.display_name);
+    });
+
+    test("PUT /v1/account with wrong current password fails", async () => {
+
+        await makeAPIRequest("/v1/account", {
+            method: "PUT",
+            authToken: session_token,
+            body: {
+                display_name: "Wrong Password Name",
+                email: "wrong-password@example.com",
+                current_password: `${testUser.password}-wrong`
+            }
+        }, 400);
+
+        const dbresult = DB.instance().select().from(DB.Tables.users).where(eq(DB.Tables.users.id, testUser.id)).get();
+        expect(dbresult?.display_name).toBe(testUser.display_name);
+        expect(dbresult?.email).toBe(testUser.email);
+
+        await makeAPIRequest("/v1/account", {
+            authToken: session_token
+        });
+    });
+
+    test("PUT /v1/account/password with wrong current password fails", async () => {
+
+        await makeAPIRequest("/v1/account/password", {
+            method: "PUT",
+            authToken: session_token,
+            body: {
+                current_password: `${testUser.password}-wrong`,
+                new_password: "OtherP@ssw0rd1"
+            }
+        }, 400);
+
+        await makeAPIRequest("/v1/auth/login", {
+            method: "POST",
+            body: { username: testUser.username, password: testUser.password },
+            expectedBodySchema: AuthModel.Login.Response
+        });
+    });
+
     test("PUT /v1/account try updating role fails", async () => {
         
         await makeAPIRequest("/v1/account", {

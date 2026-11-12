@@ -65,9 +65,10 @@ router.put('/',
         description: "Update information about the authenticated user's account.",
         tags: [DOCS_TAGS.ACCOUNT],
 
-        responses: APIResponseSpec.describeWithWrongInputs(
+        responses: APIResponseSpec.describeBasic(
             APIResponseSpec.successNoData("Account information updated successfully"), 
             APIResponseSpec.unauthorized("Your Auth Context is not a session"),
+            APIResponseSpec.badRequest("Current password is incorrect / Syntax or validation error in request"),
             APIResponseSpec.conflict("Username or email already in use")
         )
     }),
@@ -91,7 +92,7 @@ router.put('/',
         }
 
         if (!(await Bun.password.verify(current_password, user.password_hash))) {
-            return APIResponse.unauthorized(c, "Current password is incorrect");
+            return APIResponse.badRequest(c, "Current password is incorrect");
         }
 
         // Check for conflicts if changing username or email
@@ -158,7 +159,7 @@ router.put('/password',
             }
 
             if ((await Bun.password.verify(body.current_password, user.password_hash)) === false) {
-                return APIResponse.unauthorized(c, "Current password is incorrect");
+                return APIResponse.badRequest(c, "Current password is incorrect");
             }
 
             const newPasswordHash = await Bun.password.hash(body.new_password);
