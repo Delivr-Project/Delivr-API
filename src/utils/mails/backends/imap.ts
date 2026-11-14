@@ -224,14 +224,8 @@ export class IMAPAccount {
             const paginatedUids = uids.slice(offset, offset + limit);
             if (paginatedUids.length === 0) return [];
 
-            // a summary fetches only the start of each source
             const mails = view === 'summary'
-                ? await MailRessource.summariesFromIMAPMessages(await this.client.fetchAll(paginatedUids, {
-                    flags: true,
-                    size: true,
-                    bodyStructure: true,
-                    source: { maxLength: MailRessource.SUMMARY_SOURCE_BYTES }
-                }, { uid: true }))
+                ? await this.fetchSummaries(paginatedUids)
                 : await MailRessource.fromIMAPMessages(await this.client.fetchAll(paginatedUids, {
                     envelope: true,
                     bodyStructure: true,
@@ -250,6 +244,57 @@ export class IMAPAccount {
         } finally {
             lock.release();
         }
+    }
+
+    /**
+     * Summaries of the given mails, from the start of each source. Callers hold the lock.
+     *
+     * The first {@link MailRessource.SUMMARY_FIRST_BYTES} settle the headers and
+     * preview of most mails. Only those where the text goes on beyond them (long
+     * headers, HTML that starts with a large style block) get the rest up to
+     * {@link MailRessource.SUMMARY_SOURCE_BYTES} in a second FETCH.
+     */
+    private async fetchSummaries(uids: number[]): Promise<MailRessource[]> {
+        const firstBytes = MailRessource.SUMMARY_FIRST_BYTES;
+
+        const messages = await this.client.fetchAll(uids, {
+            flags: true,
+            size: true,
+            bodyStructure: true,
+            source: { maxLength: firstBytes }
+        }, { uid: true });
+
+        const summaries = new Map<number, MailRessource>();
+        const unsettled = new Map<number, (typeof messages)[number]>();
+
+        for (const message of messages) {
+            const summary = await MailRessource.summaryFromIMAPMessage(message, firstBytes);
+            if (!summary) continue;
+
+            summaries.set(message.uid, summary);
+            if (MailRessource.summaryNeedsMoreSource(message, summary, firstBytes)) {
+                unsettled.set(message.uid, message);
+            }
+        }
+
+        if (unsettled.size > 0) {
+            const rest = await this.client.fetchAll([...unsettled.keys()], {
+                source: { start: firstBytes, maxLength: MailRessource.SUMMARY_SOURCE_BYTES - firstBytes }
+            }, { uid: true });
+
+            for (const { uid, source } of rest) {
+                const message = unsettled.get(uid);
+                if (!message?.source || !source) continue;
+
+                const summary = await MailRessource.summaryFromIMAPMessage({
+                    ...message,
+                    source: Buffer.concat([message.source, source])
+                });
+                if (summary) summaries.set(uid, summary);
+            }
+        }
+
+        return [...summaries.values()];
     }
 
     /**
@@ -322,6 +367,124 @@ export class IMAPAccount {
             const mail = await MailRessource.fromIMAPMessage(message);
             if (!mail) return null;
             return { mail, source: message.source };
+        } finally {
+            lock.release();
+        }
+    }
+
+    /**
+     * A mail as shown to the user: headers, body and attachment metadata.
+     *
+     * Mails up to {@link MailParser.FULL_SOURCE_BYTES} come in one FETCH and are
+     * parsed whole. For larger ones {@link MailParser.planContentFetch} decides
+     * whether only the text parts are fetched, so attachments are neither
+     * downloaded nor parsed just to display the mail.
+     */
+    async getMailForDisplay(mailbox: string, uid: number): Promise<MailRessource | null> {
+        const lock = await this.client.getMailboxLock(mailbox);
+        try {
+            const message = await this.client.fetchOne(uid, {
+                flags: true,
+                size: true,
+                bodyStructure: true,
+                source: { maxLength: MailParser.FULL_SOURCE_BYTES }
+            }, { uid: true });
+
+            if (!message || !message.source) return null;
+
+            const isWhole = message.source.length < MailParser.FULL_SOURCE_BYTES
+                || (message.size !== undefined && message.source.length >= message.size);
+            if (isWhole) {
+                return await MailRessource.fromIMAPMessage(message);
+            }
+
+            const plan = MailParser.planContentFetch(message.size, message.bodyStructure);
+            const headers = plan.mode === 'partial' ? MailParser.headerBlockOf(message.source) : null;
+
+            if (plan.mode === 'partial' && headers) {
+                const parts = plan.textParts.length > 0
+                    ? await this.client.fetchOne(uid, { bodyParts: plan.textParts }, { uid: true })
+                    : null;
+                const textParts = (parts ? parts.bodyParts : undefined) ?? new Map<string, Buffer>();
+
+                if (plan.textParts.every(part => textParts.has(part))) {
+                    const parsedMail = await MailParser.parseMail(uid, MailParser.buildTextOnlySource(headers, plan.root, textParts), {
+                        rawFlags: message.flags
+                    });
+                    return new MailRessource({
+                        ...parsedMail,
+                        attachments: MailParser.attachmentsFromStructure(plan.root)
+                    });
+                }
+            }
+
+            const source = await this.fetchRestOfSource(uid, message.source, message.size);
+            if (!source) return null;
+
+            const mail = await MailRessource.fromIMAPMessage({ ...message, source });
+            if (!mail) return null;
+
+            // the attachment route reads a partial plan from the structure, so the ids have to come from there too
+            return plan.mode === 'partial'
+                ? new MailRessource({ ...mail, attachments: MailParser.attachmentsFromStructure(plan.root) })
+                : mail;
+        } finally {
+            lock.release();
+        }
+    }
+
+    /** Complete a source of which only the start was fetched. Callers hold the lock. */
+    private async fetchRestOfSource(uid: number, start: Buffer, size: number | undefined): Promise<Buffer | null> {
+        const rest = await this.client.fetchOne(uid, {
+            source: size !== undefined && size > start.length
+                ? { start: start.length, maxLength: size - start.length }
+                : true
+        }, { uid: true });
+
+        if (!rest || !rest.source) return null;
+        return size !== undefined && size > start.length ? Buffer.concat([start, rest.source]) : rest.source;
+    }
+
+    /**
+     * The decoded bytes of one attachment, addressed by its `id` in the mail's
+     * attachment list.
+     *
+     * Where {@link getMailForDisplay} read only the text, just this attachment's
+     * part is fetched. Otherwise the mail is parsed whole, like for display.
+     *
+     * @returns `null` if the mail doesn't exist, `attachment: null` if the id doesn't
+     */
+    async getAttachmentContent(mailbox: string, uid: number, attachmentId: number): Promise<{ attachment: MailParser.AttachmentContent | null } | null> {
+        const lock = await this.client.getMailboxLock(mailbox);
+        try {
+            const message = await this.client.fetchOne(uid, { size: true, bodyStructure: true }, { uid: true });
+            if (!message) return null;
+
+            const plan = MailParser.planContentFetch(message.size, message.bodyStructure);
+
+            if (plan.mode === 'partial') {
+                const attachment = plan.attachments[attachmentId];
+                if (!attachment) return { attachment: null };
+
+                const fetched = await this.client.fetchOne(uid, { bodyParts: [attachment.part] }, { uid: true });
+                const raw = fetched ? fetched.bodyParts?.get(attachment.part) : undefined;
+                if (!raw) return null;
+
+                return {
+                    attachment: {
+                        filename: attachment.filename,
+                        contentType: attachment.contentType || 'application/octet-stream',
+                        content: MailParser.decodeTransferEncoding(raw, attachment.encoding),
+                        contentId: attachment.contentId,
+                        contentDisposition: attachment.contentDisposition
+                    }
+                };
+            }
+
+            const whole = await this.client.fetchOne(uid, { source: true }, { uid: true });
+            if (!whole || !whole.source) return null;
+
+            return { attachment: await MailParser.getAttachmentContent(whole.source, attachmentId) };
         } finally {
             lock.release();
         }

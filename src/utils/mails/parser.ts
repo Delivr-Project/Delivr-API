@@ -316,12 +316,10 @@ export class MailParser {
     }
 
     /**
-     * Attachments from BODYSTRUCTURE, classified like postal-mime so `id`s match.
-     * Sizes are estimated for base64 parts.
+     * Body texts and attachments of a BODYSTRUCTURE, classified like postal-mime
+     * so the attachment order (and with it the `id`s) matches a full parse.
      */
-    static attachmentsFromStructure(root: MessageStructureObject | undefined): MailRessource.MailAttachment[] {
-        if (!root) return [];
-
+    private static readStructure(root: MessageStructureObject) {
         // postal-mime keeps quoted messages of bounce/abuse reports as attachments
         const isReport = (node: MessageStructureObject): boolean =>
             node.type === 'message/delivery-status'
@@ -329,32 +327,195 @@ export class MailParser {
             || (node.type.startsWith('multipart/') && (node.childNodes ?? []).some(isReport));
         const inlineRfc822 = !isReport(root);
 
-        const attachments: MailRessource.MailAttachment[] = [];
+        const textNodes: MessageStructureObject[] = [];
+        const attachmentNodes: MessageStructureObject[] = [];
+        let hasInlineMessage = false;
+
         const walk = (node: MessageStructureObject) => {
             const disposition = node.disposition || undefined;
 
-            const isContainer = node.type.startsWith('multipart/')
-                || (node.type === 'message/rfc822' && inlineRfc822 && (disposition ?? 'inline') === 'inline');
-            if (isContainer) {
+            const isInlineMessage = node.type === 'message/rfc822' && inlineRfc822 && (disposition ?? 'inline') === 'inline';
+            if (isInlineMessage) hasInlineMessage = true;
+
+            if (node.type.startsWith('multipart/') || isInlineMessage) {
                 for (const child of node.childNodes ?? []) walk(child);
                 return;
             }
 
             const isBodyText = (node.type === 'text/plain' || node.type === 'text/html') && disposition !== 'attachment';
-            if (isBodyText || !node.size) return;
-
-            attachments.push({
-                id: attachments.length,
-                filename: node.dispositionParameters?.filename || node.parameters?.name || undefined,
-                contentType: node.type,
-                size: MailParser.estimateDecodedSize(node.size, node.encoding),
-                contentId: node.id || undefined,
-                contentDisposition: disposition,
-            });
+            if (isBodyText) {
+                textNodes.push(node);
+            } else if (node.size) {
+                attachmentNodes.push(node);
+            }
         };
         walk(root);
 
-        return attachments;
+        return { textNodes, attachmentNodes, hasInlineMessage };
+    }
+
+    private static attachmentOfNode(node: MessageStructureObject, id: number): MailRessource.MailAttachment {
+        return {
+            id,
+            filename: node.dispositionParameters?.filename || node.parameters?.name || undefined,
+            contentType: node.type,
+            size: MailParser.estimateDecodedSize(node.size ?? 0, node.encoding),
+            contentId: node.id || undefined,
+            contentDisposition: node.disposition || undefined,
+        };
+    }
+
+    /**
+     * Attachments from BODYSTRUCTURE, classified like postal-mime so `id`s match.
+     * Sizes are estimated for base64 parts.
+     */
+    static attachmentsFromStructure(root: MessageStructureObject | undefined): MailRessource.MailAttachment[] {
+        if (!root) return [];
+        return MailParser.readStructure(root).attachmentNodes.map((node, id) => MailParser.attachmentOfNode(node, id));
+    }
+
+    /** Mails up to this size are fetched and parsed whole. */
+    static readonly FULL_SOURCE_BYTES = 512 * 1024;
+
+    /** Leaving the attachments on the mail server has to save at least this much. */
+    static readonly MIN_PARTIAL_SAVINGS_BYTES = 256 * 1024;
+
+    /**
+     * How to read a mail's content: whole, or only its text parts with the
+     * attachments fetched one by one when they are asked for.
+     *
+     * Depends on the size and structure alone, so the mail and the attachment
+     * routes always decide the same way and agree on the attachment `id`s.
+     */
+    static planContentFetch(size: number | undefined, root: MessageStructureObject | undefined): MailParser.ContentPlan {
+        const full: MailParser.ContentPlan = { mode: 'full' };
+
+        if (!root || size === undefined || size <= MailParser.FULL_SOURCE_BYTES) return full;
+        // a single part has nothing to leave out
+        if (!root.childNodes?.length) return full;
+
+        const { textNodes, attachmentNodes, hasInlineMessage } = MailParser.readStructure(root);
+
+        // an inline message's text belongs to the body, and its headers aren't part of the structure
+        if (hasInlineMessage) return full;
+
+        const textBytes = textNodes.reduce((sum, node) => sum + (node.size ?? 0), 0);
+        if (size - textBytes < MailParser.MIN_PARTIAL_SAVINGS_BYTES) return full;
+
+        if ([...textNodes, ...attachmentNodes].some(node => !node.part)) return full;
+
+        const hasBoundaries = (node: MessageStructureObject): boolean =>
+            !node.type.startsWith('multipart/')
+            || (!!node.parameters?.boundary && (node.childNodes ?? []).every(hasBoundaries));
+        if (!hasBoundaries(root)) return full;
+
+        return {
+            mode: 'partial',
+            root,
+            textParts: textNodes.map(node => node.part!),
+            attachments: attachmentNodes.map((node, id) => ({
+                ...MailParser.attachmentOfNode(node, id),
+                part: node.part!,
+                encoding: node.encoding || undefined
+            }))
+        };
+    }
+
+    /** The header block of a raw message including its closing empty line, or `null` if it is cut off. */
+    static headerBlockOf(source: Buffer): Buffer | null {
+        const crlf = source.indexOf('\r\n\r\n');
+        const lf = source.indexOf('\n\n');
+
+        if (crlf === -1 && lf === -1) return null;
+        if (lf !== -1 && (crlf === -1 || lf < crlf)) return source.subarray(0, lf + 2);
+        return source.subarray(0, crlf + 4);
+    }
+
+    /**
+     * A message with the original headers and MIME tree that contains only the
+     * given text parts. postal-mime builds the same body from it as from the
+     * whole mail, because attachments never take part in that.
+     *
+     * @param headers - the original header block ({@link headerBlockOf})
+     * @param textParts - undecoded part bodies by part number, as fetched from IMAP
+     */
+    static buildTextOnlySource(headers: Buffer, root: MessageStructureObject, textParts: Map<string, Buffer>): Buffer {
+        const chunks: Buffer[] = [headers];
+        const text = (value: string) => chunks.push(Buffer.from(value, 'latin1'));
+
+        const hasText = (node: MessageStructureObject): boolean =>
+            node.type.startsWith('multipart/')
+                ? (node.childNodes ?? []).some(hasText)
+                : !!node.part && textParts.has(node.part);
+
+        const quote = (value: string) => `"${value.replace(/(["\\])/g, '\\$1')}"`;
+
+        const emitChildren = (node: MessageStructureObject) => {
+            const boundary = node.parameters!.boundary;
+
+            for (const child of node.childNodes ?? []) {
+                if (!hasText(child)) continue;
+
+                text(`--${boundary}\r\n`);
+                if (child.type.startsWith('multipart/')) {
+                    text(`Content-Type: ${child.type}; boundary=${quote(child.parameters!.boundary!)}\r\n\r\n`);
+                    emitChildren(child);
+                } else {
+                    // charset, format=flowed and delsp decide how the text is decoded
+                    const parameters = Object.entries(child.parameters ?? {})
+                        .filter(([key, value]) => /^[\w-]+$/.test(key) && /^[\x20-\x7E]*$/.test(value))
+                        .map(([key, value]) => `; ${key}=${quote(value)}`)
+                        .join('');
+
+                    text(`Content-Type: ${child.type}${parameters}\r\n`);
+                    if (child.encoding) text(`Content-Transfer-Encoding: ${child.encoding}\r\n`);
+                    text('\r\n');
+                    chunks.push(textParts.get(child.part!)!);
+                }
+                text('\r\n');
+            }
+
+            text(`--${boundary}--\r\n`);
+        };
+        emitChildren(root);
+
+        return Buffer.concat(chunks);
+    }
+
+    /** Undo a part's Content-Transfer-Encoding; the bytes stay in their original charset. */
+    static decodeTransferEncoding(raw: Buffer, encoding: string | undefined): Uint8Array {
+        switch ((encoding ?? '').toLowerCase()) {
+            case 'base64': return Buffer.from(raw.toString('latin1'), 'base64');
+            case 'quoted-printable': return MailParser.decodeQuotedPrintable(raw);
+            default: return raw;
+        }
+    }
+
+    private static decodeQuotedPrintable(raw: Buffer): Buffer {
+        const isHex = (byte: number | undefined) =>
+            byte !== undefined && ((byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x46) || (byte >= 0x61 && byte <= 0x66));
+
+        const decoded = Buffer.allocUnsafe(raw.length);
+        let length = 0;
+
+        for (let i = 0; i < raw.length; i++) {
+            const byte = raw[i]!;
+
+            if (byte !== 0x3D) {
+                decoded[length++] = byte;
+            } else if (raw[i + 1] === 0x0D && raw[i + 2] === 0x0A) {
+                i += 2; // soft line break
+            } else if (raw[i + 1] === 0x0A) {
+                i += 1;
+            } else if (isHex(raw[i + 1]) && isHex(raw[i + 2])) {
+                decoded[length++] = parseInt(raw.toString('latin1', i + 1, i + 3), 16);
+                i += 2;
+            } else {
+                decoded[length++] = byte;
+            }
+        }
+
+        return decoded.subarray(0, length);
     }
 
     /** base64 lines are 76 chars + CRLF */
@@ -375,6 +536,24 @@ export class MailParser {
 }
 
 export namespace MailParser {
+
+    /** An attachment as found in the BODYSTRUCTURE, with what is needed to fetch its bytes. */
+    export interface StructureAttachment extends MailRessource.MailAttachment {
+        /** IMAP part number, e.g. `2` or `1.2` */
+        part: string;
+        /** Content-Transfer-Encoding of the part */
+        encoding?: string;
+    }
+
+    export type ContentPlan =
+        | { mode: 'full' }
+        | {
+            mode: 'partial';
+            root: MessageStructureObject;
+            /** part numbers of the body texts */
+            textParts: string[];
+            attachments: StructureAttachment[];
+        };
 
     /**
      * A single attachment's decoded bytes plus the metadata needed to serve it.

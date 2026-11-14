@@ -2,6 +2,7 @@ import { Logger } from "../utils/logger";
 import { authMiddlewareV1 } from "./versions/v1/middleware/auth";
 import { Hono } from "hono";
 import { prettyJSON } from "hono/pretty-json";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { HTTPException } from 'hono/http-exception'
 import type { APIVersionRouter } from "./utils/apiVersionRouter";
@@ -45,6 +46,9 @@ export class API {
 	) {
 
 		this.app = new Hono();
+
+		// mail lists and HTML bodies shrink to a fraction; small and binary responses are left alone
+		this.app.use(compress())
 
 		this.app.use(prettyJSON())
 

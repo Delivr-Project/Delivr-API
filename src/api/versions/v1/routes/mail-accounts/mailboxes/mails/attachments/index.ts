@@ -5,8 +5,11 @@ import { APIResponse } from "../../../../../../../utils/api-res";
 import { APIResponseSpec, APIRouteSpec } from "../../../../../../../utils/specHelpers";
 import { DOCS_TAGS } from "../../../../../docs";
 import { MailRessource } from "../../../../../../../../utils/mails/ressources/mail";
-import { MailParser } from "../../../../../../../../utils/mails/parser";
+import { MailClientsCache } from "../../../../../../../../utils/mails/mail-clients-cache";
 import { Logger } from "../../../../../../../../utils/logger";
+import type { MailAccountsModel } from "../../../model";
+import type { MailboxesModel } from "../../model";
+import { MailsModel } from "../model";
 
 /**
  * Build a `Content-Disposition` header value that is safe for arbitrary (incl.
@@ -59,7 +62,7 @@ router.get('/:attachmentId',
 
     APIRouteSpec.authenticated({
         summary: "Get Attachment Content",
-        description: "Stream the raw content of a single attachment. The message is fetched from IMAP and parsed on demand — the attachment is never stored or cached on the server.",
+        description: "Stream the raw content of a single attachment. It is fetched from IMAP on demand — the attachment is never stored or cached on the server.",
         tags: [DOCS_TAGS.MAIL_ACCOUNTS.MAILBOXES_MAILS_ATTACHMENTS],
 
         responses: {
@@ -81,17 +84,30 @@ router.get('/:attachmentId',
 
     async (c) => {
         // @ts-ignore
-        const mailData = c.get("mailData") as MailRessource.IMail;
+        const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         // @ts-ignore
-        const source = c.get("mailSource") as Buffer;
+        const mailbox = c.get("mailboxData") as MailboxesModel.BASE;
 
         // @ts-ignore
         const { attachmentId } = c.req.valid('param') as AttachmentsModel.Param;
         const query = c.req.valid('query');
 
-        try {
-            const attachment = await MailParser.getAttachmentContent(source, attachmentId);
+        const mailUID = MailsModel.Param.safeParse({ mailUID: c.req.param("mailUID") }).data?.mailUID;
+        if (mailUID === undefined) {
+            return APIResponse.notFound(c, "Mail with specified UID not found");
+        }
 
+        try {
+            // a large download must not hold up the connection the mail list uses
+            const imap = MailClientsCache.createOrGetClientData(mailAccount).imapBackground;
+            await imap.connect();
+
+            const result = await imap.getAttachmentContent(mailbox.path, mailUID, attachmentId);
+            if (!result) {
+                return APIResponse.notFound(c, "Mail with specified UID not found");
+            }
+
+            const attachment = result.attachment;
             if (!attachment) {
                 return APIResponse.notFound(c, "Attachment with specified ID not found");
             }
@@ -112,7 +128,7 @@ router.get('/:attachmentId',
                 }
             });
         } catch (e) {
-            Logger.error(`Failed to fetch attachment ${attachmentId} for mail UID ${mailData.uid}`, e);
+            Logger.error(`Failed to fetch attachment ${attachmentId} for mail UID ${mailUID}`, e);
             return APIResponse.serverError(c, "Failed to fetch attachment");
         }
     }
