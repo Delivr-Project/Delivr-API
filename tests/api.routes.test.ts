@@ -3252,6 +3252,172 @@ describe("Mail Mailbox Mails Routes", async () => {
         }
     });
 
+    test("GET .../mails?view=summary fetches more of the source only for mails whose preview needs it", async () => {
+        const mailbox = "SummaryBytes";
+        await testIMAPClient.createMailbox(mailbox);
+
+        const build = (options: ConstructorParameters<typeof MailComposer>[0]) => new MailComposer(options).compile().build();
+        const path = `/v1/mail-accounts/${mailAccountID}/mailboxes/${mailbox}/mails?view=summary`;
+        const fetchAll = spyOn(ImapFlow.prototype, "fetchAll");
+
+        try {
+            // the text ends long before the attachment, so the first bytes settle the preview
+            await testIMAPClient.createMail(mailbox, await build({
+                from: "sender@test.com", to: "receiver@test.com", subject: "Short text",
+                text: "See attached.",
+                attachments: [{ filename: "big.bin", content: Buffer.alloc(100 * 1024, 7) }]
+            }), []);
+
+            fetchAll.mockClear();
+            const first = await makeAPIRequest(path, { authToken: session_token, expectedBodySchema: MailsModel.GetAll.Response });
+
+            expect(first.map(mail => mail.body.text)).toEqual(["See attached."]);
+            expect(first[0]?.attachments.map(attachment => attachment.filename)).toEqual(["big.bin"]);
+            expect(fetchAll).toHaveBeenCalledTimes(1);
+
+            // the visible text starts after a style block larger than the first bytes
+            await testIMAPClient.createMail(mailbox, await build({
+                from: "sender@test.com", to: "receiver@test.com", subject: "Styled",
+                html: `<html><head><style>${".rule { color: #123456; margin: 0 auto; }\n".repeat(700)}</style></head><body><p>Sale now on</p>${"<p>More offers below.</p>".repeat(2000)}</body></html>`
+            }), []);
+
+            fetchAll.mockClear();
+            const second = await makeAPIRequest(path, { authToken: session_token, expectedBodySchema: MailsModel.GetAll.Response });
+
+            expect(second.find(mail => mail.subject === "Styled")?.body.text).toStartWith("Sale now on More offers below.");
+            expect(second.find(mail => mail.subject === "Short text")?.body.text).toBe("See attached.");
+            expect(fetchAll).toHaveBeenCalledTimes(2);
+            // only the styled mail is fetched again
+            expect(fetchAll.mock.calls[1]?.[0]).toHaveLength(1);
+        } finally {
+            fetchAll.mockRestore();
+            await testIMAPClient.deleteMailbox(mailbox);
+        }
+    });
+
+    test("GET .../mails/:mailUID reads a large mail without its attachments and still serves each of them", async () => {
+        const mailbox = "LargeMail";
+        await testIMAPClient.createMailbox(mailbox);
+
+        const buildTextOnlySource = spyOn(MailParser, "buildTextOnlySource");
+        const parseMail = spyOn(MailParser, "parseMail");
+
+        try {
+            const files = [
+                { filename: "logo.png", content: Buffer.from(Array.from({ length: 3000 }, (_, i) => i % 251)), cid: "logo@test" },
+                { filename: "big.bin", content: Buffer.from(Array.from({ length: 700 * 1024 }, (_, i) => (i * 31) % 256)) },
+                // latin1 bytes and CRLF line ends: must come back byte for byte
+                { filename: "Übersicht.csv", content: Buffer.from("Name;Wert\r\nÄpfel;3\r\nGrößen=Maße;7\r\n", "latin1"), contentType: "text/csv; charset=iso-8859-1", contentTransferEncoding: "quoted-printable" as const }
+            ];
+            const raw = await new MailComposer({
+                from: "Jörg Sender <sender@test.com>", to: "receiver@test.com", subject: "Große Datei für dich",
+                text: "Hallo,\n\nanbei die Übersicht – Grüße\n".repeat(20),
+                html: `<p>Hallo,</p><p>anbei die <b>Übersicht</b> – Grüße</p><img src="cid:logo@test">`,
+                attachments: files
+            }).compile().build();
+            expect(raw.length).toBeGreaterThan(MailParser.FULL_SOURCE_BYTES);
+
+            const uid = await testIMAPClient.createMail(mailbox, raw, []);
+            const mailPath = `/v1/mail-accounts/${mailAccountID}/mailboxes/${mailbox}/mails/${uid}`;
+
+            const whole = await MailParser.parseMail(uid!, raw, { rawFlags: [] });
+            expect(whole.attachments.map(attachment => attachment.filename)).toEqual(files.map(file => file.filename));
+
+            buildTextOnlySource.mockClear();
+            parseMail.mockClear();
+            const mail = await makeAPIRequest(mailPath, { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response });
+
+            // only the text parts were fetched and parsed
+            expect(buildTextOnlySource).toHaveBeenCalledTimes(1);
+            expect((parseMail.mock.calls[0]?.[1] as Buffer).length).toBeLessThan(16 * 1024);
+
+            const { attachments, flags: _flags, rawFlags: _rawFlags, ...rest } = mail;
+            const { attachments: _wholeMeta, flags: _wholeFlags, rawFlags: _wholeRawFlags, ...wholeRest } = MailsModel.GetByUID.Response.parse(whole);
+            expect(rest).toEqual(wholeRest);
+
+            expect(attachments.map(({ size, ...meta }) => meta)).toEqual(whole.attachments.map(({ size, ...meta }) => meta));
+            for (const [i, attachment] of attachments.entries()) {
+                expect(Math.abs(attachment.size - (whole.attachments[i]?.size ?? 0))).toBeLessThan(16);
+            }
+
+            const list = await makeAPIRequest(`${mailPath}/attachments`, { authToken: session_token, expectedBodySchema: AttachmentsModel.GetAll.Response });
+            expect(list).toEqual(attachments);
+
+            parseMail.mockClear();
+            for (const [id, file] of files.entries()) {
+                const res = await API.getApp().request(`${mailPath}/attachments/${id}`, {
+                    headers: { Authorization: `Bearer ${session_token}` }
+                });
+                expect(res.status).toBe(200);
+                expect(res.headers.get("content-type")).toBe(whole.attachments[id]!.contentType);
+                expect(Buffer.from(await res.arrayBuffer()).equals(file.content)).toBe(true);
+            }
+            // each attachment came as its own part, the mail was never parsed for it
+            expect(parseMail).not.toHaveBeenCalled();
+
+            await makeAPIRequest(`${mailPath}/attachments/3`, { authToken: session_token }, 404);
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${mailbox}/mails/999999/attachments/0`, { authToken: session_token }, 404);
+        } finally {
+            buildTextOnlySource.mockRestore();
+            parseMail.mockRestore();
+            await testIMAPClient.deleteMailbox(mailbox);
+        }
+    });
+
+    test("GET .../mails/:mailUID reads a large mail whole when its text is most of it", async () => {
+        const mailbox = "LargeText";
+        await testIMAPClient.createMailbox(mailbox);
+
+        const buildTextOnlySource = spyOn(MailParser, "buildTextOnlySource");
+
+        try {
+            const raw = await new MailComposer({
+                from: "sender@test.com", to: "receiver@test.com", subject: "Long read",
+                html: `<p>${"Lorem ipsum dolor sit amet. ".repeat(25_000)}</p>`,
+                attachments: [{ filename: "note.txt", content: "just a note" }]
+            }).compile().build();
+            expect(raw.length).toBeGreaterThan(MailParser.FULL_SOURCE_BYTES);
+
+            const uid = await testIMAPClient.createMail(mailbox, raw, []);
+            const mailPath = `/v1/mail-accounts/${mailAccountID}/mailboxes/${mailbox}/mails/${uid}`;
+            const whole = await MailParser.parseMail(uid!, raw, { rawFlags: [] });
+
+            buildTextOnlySource.mockClear();
+            const mail = await makeAPIRequest(mailPath, { authToken: session_token, expectedBodySchema: MailsModel.GetByUID.Response });
+
+            expect(buildTextOnlySource).not.toHaveBeenCalled();
+            expect(mail.body).toEqual(whole.body);
+            expect(mail.attachments).toEqual(whole.attachments);
+
+            const res = await API.getApp().request(`${mailPath}/attachments/0`, {
+                headers: { Authorization: `Bearer ${session_token}` }
+            });
+            expect(await res.text()).toBe("just a note");
+        } finally {
+            buildTextOnlySource.mockRestore();
+            await testIMAPClient.deleteMailbox(mailbox);
+        }
+    });
+
+    test("responses are compressed for clients that accept it", async () => {
+        const path = `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails?view=summary`;
+
+        const plain = await API.getApp().request(path, {
+            headers: { Authorization: `Bearer ${session_token}` }
+        });
+        expect(plain.headers.get("content-encoding")).toBeNull();
+        const expected = await plain.json();
+
+        const compressed = await API.getApp().request(path, {
+            headers: { Authorization: `Bearer ${session_token}`, "Accept-Encoding": "gzip, deflate, br" }
+        });
+        expect(compressed.status).toBe(200);
+        expect(compressed.headers.get("content-encoding")).toBe("gzip");
+
+        const body = Bun.gunzipSync(new Uint8Array(await compressed.arrayBuffer()));
+        expect(JSON.parse(new TextDecoder().decode(body))).toEqual(expected);
+    });
+
     test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID retrieves specific mail", async () => {
 
         const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${createdMailUID}`, {

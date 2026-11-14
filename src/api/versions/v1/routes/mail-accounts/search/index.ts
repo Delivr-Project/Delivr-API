@@ -58,7 +58,7 @@ router.get('/',
         const mailAccount = c.get("mailAccount") as MailAccountsModel.BASE;
         const query = c.req.valid('query');
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imapBackground;
 
         try {
             await imap.connect();
@@ -136,7 +136,7 @@ router.post('/',
         const query = c.req.valid('query');
         const body = c.req.valid('json');
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imapBackground;
 
         try {
             await imap.connect();
@@ -229,7 +229,7 @@ router.post('/count',
         const query = c.req.valid('query');
         const body = c.req.valid('json');
 
-        const imap = MailClientsCache.createOrGetClientData(mailAccount).imap;
+        const imap = MailClientsCache.createOrGetClientData(mailAccount).imapBackground;
 
         try {
             await imap.connect();

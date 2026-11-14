@@ -362,6 +362,14 @@ router.use('/:mailUID/*',
         const needsUidAndFlagsOnly = (c.req.method === "POST" && (path.endsWith(`/mails/${mailUID}/move`) || path.endsWith(`/mails/${mailUID}/flags`)))
             || (c.req.method === "DELETE" && path.endsWith(`/mails/${mailUID}`));
 
+        // updating a draft and sending work on the raw source
+        const needsSource = c.req.method === "PUT" || (c.req.method === "POST" && path.endsWith(`/mails/${mailUID}/send`));
+
+        // an attachment's content is fetched by its own route, part by part
+        if (c.req.method === "GET" && path.includes(`/mails/${mailUID}/attachments/`)) {
+            return await next();
+        }
+
         try {
             await imap.connect();
 
@@ -371,6 +379,16 @@ router.use('/:mailUID/*',
                     return APIResponse.notFound(c, "Mail with specified UID not found");
                 }
                 c.set("mailData", mailRef);
+                return await next();
+            }
+
+            if (!needsSource) {
+                const mail = await imap.getMailForDisplay(mailbox.path, mailUID);
+                if (!mail) {
+                    return APIResponse.notFound(c, "Mail with specified UID not found");
+                }
+                // @ts-ignore
+                c.set("mailData", mail);
                 return await next();
             }
 

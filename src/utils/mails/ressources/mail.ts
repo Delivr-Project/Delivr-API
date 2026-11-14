@@ -1,4 +1,4 @@
-import type { FetchMessageObject } from "imapflow";
+import type { FetchMessageObject, MessageStructureObject } from "imapflow";
 import { MailParser } from "../parser";
 
 export class MailRessource implements MailRessource.IMail {
@@ -72,11 +72,24 @@ export class MailRessource implements MailRessource.IMail {
         return mailRessources;
     }
 
-    /** Source bytes fetched for a summary: headers + start of the text. */
+    /** Most source bytes fetched for a summary: headers + start of the text. */
     static readonly SUMMARY_SOURCE_BYTES = 64 * 1024;
 
-    /** List view of a mail: full headers, preview-only body. */
-    static async summaryFromIMAPMessage(mail: FetchMessageObject) {
+    /** Source bytes fetched first; enough for the headers and preview of most mails. */
+    static readonly SUMMARY_FIRST_BYTES = 16 * 1024;
+
+    /** Whether `mail.source`, fetched with the given limit, is the whole mail. */
+    private static hasWholeSource(mail: FetchMessageObject, sourceLimit: number) {
+        return !!mail.source
+            && (mail.source.length < sourceLimit || (mail.size !== undefined && mail.source.length >= mail.size));
+    }
+
+    /**
+     * List view of a mail: full headers, preview-only body.
+     *
+     * @param sourceLimit - the limit `mail.source` was fetched with
+     */
+    static async summaryFromIMAPMessage(mail: FetchMessageObject, sourceLimit = MailRessource.SUMMARY_SOURCE_BYTES) {
         if (!mail.source) {
             return null;
         }
@@ -84,8 +97,7 @@ export class MailRessource implements MailRessource.IMail {
             rawFlags: mail.flags
         });
 
-        const isComplete = mail.source.length < MailRessource.SUMMARY_SOURCE_BYTES
-            || (mail.size !== undefined && mail.source.length >= mail.size);
+        const isComplete = MailRessource.hasWholeSource(mail, sourceLimit);
 
         return new MailRessource({
             ...parsedMail,
@@ -93,6 +105,52 @@ export class MailRessource implements MailRessource.IMail {
             // a cut-off source misses attachments, so read them from the structure
             attachments: isComplete ? parsedMail.attachments : MailParser.attachmentsFromStructure(mail.bodyStructure)
         });
+    }
+
+    /**
+     * Whether a summary built from the first `sourceLimit` bytes could still
+     * change with more of the source: the headers are cut off, or the preview is
+     * short although the text goes on beyond the fetched bytes.
+     */
+    static summaryNeedsMoreSource(mail: FetchMessageObject, summary: MailRessource, sourceLimit: number) {
+        if (!mail.source || MailRessource.hasWholeSource(mail, sourceLimit)) return false;
+
+        const headers = MailParser.headerBlockOf(mail.source);
+        if (!headers) return true;
+
+        // the cut can drop half a surrogate pair, hence one less
+        if ((summary.body.text?.length ?? 0) >= MailParser.PREVIEW_LENGTH - 1) return false;
+
+        return !MailRessource.textEndsWithin(mail.bodyStructure, mail.source.length - headers.length);
+    }
+
+    /**
+     * Whether every body text ends within the first `bodyBytes` of the body,
+     * estimated generously from the part sizes (the real offsets aren't known).
+     */
+    private static textEndsWithin(root: MessageStructureObject | undefined, bodyBytes: number) {
+        if (!root) return false;
+
+        const PART_OVERHEAD_BYTES = 512; // boundary line and part headers
+        let offset = 0;
+        let textEnd = 0;
+
+        const walk = (node: MessageStructureObject) => {
+            offset += PART_OVERHEAD_BYTES;
+
+            if (node.childNodes?.length) {
+                for (const child of node.childNodes) walk(child);
+                return;
+            }
+
+            offset += node.size ?? 0;
+            if ((node.type === 'text/plain' || node.type === 'text/html') && node.disposition !== 'attachment') {
+                textEnd = offset;
+            }
+        };
+        walk(root);
+
+        return textEnd > 0 && textEnd + PART_OVERHEAD_BYTES <= bodyBytes;
     }
 
     static async summariesFromIMAPMessages(mails: FetchMessageObject[]) {

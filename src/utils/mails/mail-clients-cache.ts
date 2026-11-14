@@ -12,6 +12,7 @@ export class MailClientsCache {
             // keep a client that is still connecting, or parallel requests open extra connections
             if (!data.imap.connected && !data.imap.isConnecting) {
                 this.clients.delete(accountID);
+                this.disconnect(accountID, data);
                 return null;
             }
             data.lastUsedAt = Date.now();
@@ -22,6 +23,7 @@ export class MailClientsCache {
     static createClientData(settings: MailAccountsModel.BASE): MailClientsCache.ClientsData {
         return this.clients.set(settings.id, {
             imap: IMAPAccount.fromSettings(settings),
+            imapBackground: IMAPAccount.fromSettings(settings),
             lastUsedAt: Date.now()
         })
         .get(settings.id)!;
@@ -40,8 +42,15 @@ export class MailClientsCache {
         const clientData = this.clients.get(accountID);
         this.clients.delete(accountID);
         if (clientData) {
+            await this.disconnect(accountID, clientData);
+        }
+    }
+
+    /** Closes both connections of a client; never throws. */
+    private static async disconnect(accountID: number, clientData: MailClientsCache.BaseClientsData): Promise<void> {
+        for (const imap of [clientData.imap, clientData.imapBackground]) {
             try {
-                await clientData.imap.disconnect();
+                await imap.disconnect();
             } catch (error: any) {
                 Logger.warn(`Failed to disconnect the IMAP client of mail account ${accountID}`, error.message || error);
             }
@@ -56,15 +65,15 @@ export class MailClientsCache {
         for (const [accountID, clientData] of this.clients.entries().toArray()) {
             // 15 Minutes
             if (now - clientData.lastUsedAt > 15 * 60 * 1000) {
-                await clientData.imap.disconnect();
                 this.clients.delete(accountID);
+                await this.disconnect(accountID, clientData);
             }
         }
     }
 
     static async clearAllClients() {
         for (const [accountID, client] of this.clients.entries()) {
-            await client.imap.disconnect();
+            await this.disconnect(accountID, client);
         }
         this.clients.clear();
     }
@@ -74,12 +83,18 @@ export class MailClientsCache {
 export namespace MailClientsCache {
 
     export interface BaseClientsData {
+        /** the connection every request uses unless it is slow */
         imap: IMAPAccount;
+        /**
+         * A second connection for work that takes long (attachment downloads,
+         * searches). imapflow runs one command at a time per connection, so on
+         * `imap` such work would hold up the mail list. Connects on first use.
+         */
+        imapBackground: IMAPAccount;
     }
 
     export interface ClientsData extends BaseClientsData {
         lastUsedAt: number;
-        imap: IMAPAccount;
     }
 
 }

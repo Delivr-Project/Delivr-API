@@ -1,6 +1,7 @@
 import { describe, expect, beforeAll, afterAll, test, spyOn } from "bun:test";
 import { IMAPAccount } from "../src/utils/mails/backends/imap";
 import { MockIMAPServer } from "./helpers/mock-mail-servers/imap/server";
+import { MailClientsCache } from "../src/utils/mails/mail-clients-cache";
 
 
 describe("IMAP Mail Client Tests", () => {
@@ -312,6 +313,45 @@ describe("IMAP createMail returns the new UID", () => {
 
         search.mockResolvedValueOnce([]);
         expect(await account.createMail("Drafts", draft)).toBeNull();
+    });
+
+});
+
+describe("MailClientsCache", () => {
+
+    const settings = {
+        id: 987_654,
+        created_at: Date.now(),
+        display_name: "Cache test",
+        owner_user_id: 1,
+        is_default: false,
+        smtp_host: "127.0.0.1", smtp_port: 11125, smtp_username: "testuser", smtp_password: "testpass", smtp_encryption: "NONE" as const,
+        imap_host: "127.0.0.1", imap_port: 11143, imap_username: "testuser", imap_password: "testpass", imap_encryption: "NONE" as const
+    };
+
+    test("keeps a second connection for slow work and closes both with the client", async () => {
+        const client = MailClientsCache.createOrGetClientData(settings);
+        expect(client.imapBackground).not.toBe(client.imap);
+
+        try {
+            await client.imap.connect();
+            // the second connection is only opened by the work that needs it
+            expect(client.imapBackground.connected).toBe(false);
+
+            await client.imapBackground.connect();
+            expect(MailClientsCache.getClientData(settings.id)).toBe(client);
+
+            // both work at the same time
+            const [mails, mailboxes] = await Promise.all([client.imap.getMails("INBOX", { limit: 1, view: "summary" }), client.imapBackground.getMailboxes()]);
+            expect(mails).toHaveLength(1);
+            expect(mailboxes.length).toBeGreaterThan(0);
+        } finally {
+            await MailClientsCache.deleteClient(settings.id);
+        }
+
+        expect(client.imap.connected).toBe(false);
+        expect(client.imapBackground.connected).toBe(false);
+        expect(MailClientsCache.getClientData(settings.id)).toBeNull();
     });
 
 });

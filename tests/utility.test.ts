@@ -266,3 +266,71 @@ describe("AuthUtils.verifyHashedTokenBase", () => {
         }
     });
 });
+
+describe("MailParser content fetch planning", () => {
+
+    const text = (part: string, size = 2_000) => ({ part, type: "text/plain", size, encoding: "7bit" });
+    const file = (part: string, size = 900_000) => ({ part, type: "application/pdf", size, encoding: "base64", disposition: "attachment" });
+    const mixed = (childNodes: object[], boundary: string | null = "outer") => ({
+        type: "multipart/mixed",
+        parameters: boundary ? { boundary } : {},
+        childNodes
+    }) as any;
+
+    test("reads only the text of a large mail with attachments", () => {
+        const plan = MailParser.planContentFetch(1_000_000, mixed([text("1"), file("2")]));
+
+        expect(plan.mode).toBe("partial");
+        if (plan.mode !== "partial") return;
+        expect(plan.textParts).toEqual(["1"]);
+        expect(plan.attachments.map(({ id, part, encoding }) => ({ id, part, encoding }))).toEqual([{ id: 0, part: "2", encoding: "base64" }]);
+    });
+
+    test("reads the mail whole when that is as cheap or the structure can't be rebuilt", () => {
+        const structure = mixed([text("1"), file("2")]);
+
+        // small, of unknown size, or a single part
+        expect(MailParser.planContentFetch(MailParser.FULL_SOURCE_BYTES, structure).mode).toBe("full");
+        expect(MailParser.planContentFetch(undefined, structure).mode).toBe("full");
+        expect(MailParser.planContentFetch(1_000_000, text("1", 1_000_000) as any).mode).toBe("full");
+
+        // the text is nearly all of it
+        expect(MailParser.planContentFetch(1_000_000, mixed([text("1", 900_000), file("2", 50_000)])).mode).toBe("full");
+
+        // a forwarded message shown inline contributes to the body
+        const forwarded = { part: "2", type: "message/rfc822", size: 900_000, childNodes: [text("2.1")] };
+        expect(MailParser.planContentFetch(1_000_000, mixed([text("1"), forwarded])).mode).toBe("full");
+
+        // no boundary to rebuild the multipart with
+        expect(MailParser.planContentFetch(1_000_000, mixed([text("1"), file("2")], null)).mode).toBe("full");
+    });
+
+    test("keeps a forwarded message that is attached as an attachment", () => {
+        const attached = { part: "2", type: "message/rfc822", size: 900_000, disposition: "attachment", childNodes: [text("2.1")] };
+        const plan = MailParser.planContentFetch(1_000_000, mixed([text("1"), attached]));
+
+        expect(plan.mode).toBe("partial");
+        if (plan.mode !== "partial") return;
+        expect(plan.textParts).toEqual(["1"]);
+        expect(plan.attachments.map(attachment => attachment.part)).toEqual(["2"]);
+    });
+
+    test("finds the end of the header block", () => {
+        expect(MailParser.headerBlockOf(Buffer.from("A: 1\r\nB: 2\r\n\r\nbody\n\nmore"))?.toString()).toBe("A: 1\r\nB: 2\r\n\r\n");
+        expect(MailParser.headerBlockOf(Buffer.from("A: 1\nB: 2\n\nbody\r\n\r\nmore"))?.toString()).toBe("A: 1\nB: 2\n\n");
+        expect(MailParser.headerBlockOf(Buffer.from("A: 1\r\nB: cut off"))).toBeNull();
+    });
+
+    test("decodes transfer encodings without touching the bytes", () => {
+        const decode = (raw: string, encoding?: string) => Buffer.from(MailParser.decodeTransferEncoding(Buffer.from(raw, "latin1"), encoding));
+
+        expect(decode("SGVs\r\nbG8=\r\n", "base64").toString()).toBe("Hello");
+        expect(decode("SGVsbG8=", "BASE64").toString()).toBe("Hello");
+
+        // soft line breaks, encoded bytes, and a `=` that encodes nothing
+        expect(decode("Gr=F6=DFe =3D 4=\r\n2 a=zb\r\n", "quoted-printable").toString("latin1")).toBe("Größe = 42 a=zb\r\n");
+
+        expect(decode("as is\r\n", "8bit").toString()).toBe("as is\r\n");
+        expect(decode("as is\r\n").toString()).toBe("as is\r\n");
+    });
+});
