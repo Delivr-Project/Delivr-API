@@ -10,7 +10,7 @@ export const authMiddlewareV1 = createMiddleware(async (c, next) => {
 
         if (
             c.req.path.startsWith("/v1/auth/login") || c.req.path.startsWith("/v1/auth/signup") ||
-            c.req.path.startsWith("/v1/auth/reset-password")
+            c.req.path.startsWith("/v1/auth/reset-password") || c.req.path.startsWith("/v1/auth/passkey")
         ) {
             AuthHandler.AuthContext.set(c, { type: 'unauthenticated' } satisfies AuthHandler.UnauthenticatedAuthContext as any);
 
@@ -28,7 +28,7 @@ export const authMiddlewareV1 = createMiddleware(async (c, next) => {
 
         if (
             c.req.path.startsWith("/v1/auth/login") || c.req.path.startsWith("/v1/auth/signup") ||
-            c.req.path.startsWith("/v1/auth/reset-password")
+            c.req.path.startsWith("/v1/auth/reset-password") || c.req.path.startsWith("/v1/auth/passkey")
         ) {
             AuthHandler.AuthContext.set(c, { type: 'unauthenticated' } satisfies AuthHandler.UnauthenticatedAuthContext as any);
 

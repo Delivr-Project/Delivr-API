@@ -14,6 +14,10 @@ services:
     
       DLA_DISABLE_DOCS: false
 
+      # Set to true only when the port above is reachable solely through a reverse proxy
+      # that appends X-Forwarded-For (e.g. published as "127.0.0.1:14123:14123").
+      DLA_TRUST_PROXY: false
+
       DLA_ENCRYPTION_KEY: "Your32CharacterEncryptionKeyHere"
 
       DLA_MAX_ATTACHMENT_SIZE_MB: 25
