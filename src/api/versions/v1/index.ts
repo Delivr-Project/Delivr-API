@@ -55,6 +55,7 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                     "Account",
                     "Account / API Keys",
                     "Account / Preferences",
+                    "Account / Passkeys",
                     "Authentication",
                 ]
             },
@@ -99,6 +100,14 @@ const openAPIConfig: Partial<GenerateSpecOptions> = {
                 summary: "Preferences",
                 parent: "Account",
                 description: "Endpoints for managing account preferences (e.g. remote email content policy)",
+            },
+            {
+                name: "Account / Passkeys",
+                // @ts-ignore - Scalar's "x-displayName" isn't part of the OpenAPI tag type
+                "x-displayName": "Passkeys",
+                summary: "Passkeys",
+                parent: "Account",
+                description: "Endpoints for managing the passkeys used to sign in",
             },
 
             {
