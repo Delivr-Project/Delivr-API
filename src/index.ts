@@ -1,3 +1,4 @@
+import "./polyfills";
 import { API } from "./api";
 import { DB } from "./db";
 import { ConfigHandler } from "./utils/config";

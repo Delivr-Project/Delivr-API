@@ -137,6 +137,8 @@ export namespace DB.Tables {
     export const metadata = TableSchema.metadata;
     export const userPreferences = TableSchema.userPreferences;
     export const mailAccountSpecialUse = TableSchema.mailAccountSpecialUse;
+
+    export const userPasskeys = TableSchema.userPasskeys;
 }
 
 export namespace DB.Models {
@@ -150,4 +152,6 @@ export namespace DB.Models {
 
     export type Metadata = typeof DB.Tables.metadata.$inferSelect;
     export type UserPreference = typeof DB.Tables.userPreferences.$inferSelect;
+
+    export type UserPasskey = typeof DB.Tables.userPasskeys.$inferSelect;
 }

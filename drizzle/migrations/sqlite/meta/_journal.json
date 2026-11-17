@@ -120,6 +120,13 @@
       "when": 1794241212227,
       "tag": "0016_abnormal_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794482519629,
+      "tag": "0017_tiny_thunderball",
+      "breakpoints": true
     }
   ]
 }

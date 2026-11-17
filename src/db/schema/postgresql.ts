@@ -137,3 +137,18 @@
 // }, (table) => [
 //     uniqueIndex('user_preferences_user_id_key_unique').on(table.user_id, table.key)
 // ]);
+
+// export const userPasskeys = pgTable('user_passkeys', {
+//     id: text().primaryKey(),
+//     user_id: integer().notNull().references(() => users.id),
+//     created_at: SQLUtils.getCreatedAtColumn(),
+//     name: text().notNull(),
+//     public_key: text().notNull(),
+//     counter: integer().notNull().default(0),
+//     transports: text({ mode: 'json' }).$type<string[]>().notNull(),
+//     device_type: text({ enum: ["singleDevice", "multiDevice"] }).notNull(),
+//     backed_up: integer({ mode: "boolean" }).notNull().default(false),
+//     last_used_at: integer()
+// }, (table) => [
+//     index('user_passkeys_user_id_idx').on(table.user_id)
+// ]);
