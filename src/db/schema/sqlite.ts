@@ -2,6 +2,7 @@ import {
     sqliteTable,
     integer,
     text,
+    index,
     uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 import { SQLUtils } from '../utils';
@@ -161,4 +162,23 @@ export const mailAccountSpecialUse = sqliteTable('mail_account_special_use', {
     data: text({ mode: 'json' }).$type<Record<string, { path: string; source: 'flag' | 'guess' | 'user' }>>().notNull()
 }, (table) => [
     uniqueIndex('mail_account_special_use_account_unique').on(table.mail_account_id)
+]);
+
+/**
+ * @deprecated Use DB.Tables.userPasskeys instead
+ */
+export const userPasskeys = sqliteTable('user_passkeys', {
+    id: text().primaryKey(),
+    user_id: integer().notNull().references(() => users.id),
+    created_at: SQLUtils.getCreatedAtColumn("sqlite"),
+
+    name: text().notNull(),
+    public_key: text().notNull(),
+    counter: integer().notNull().default(0),
+    transports: text({ mode: 'json' }).$type<string[]>().notNull(),
+    device_type: text({ enum: ["singleDevice", "multiDevice"] }).notNull(),
+    backed_up: integer({ mode: "boolean" }).notNull().default(false),
+    last_used_at: integer()
+}, (table) => [
+    index('user_passkeys_user_id_idx').on(table.user_id)
 ]);

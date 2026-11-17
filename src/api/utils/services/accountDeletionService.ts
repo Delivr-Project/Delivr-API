@@ -58,6 +58,10 @@ export class AccountDeletionService {
             eq(DB.Tables.apiKeys.user_id, userID)
         ).run();
 
+        tx.delete(DB.Tables.userPasskeys).where(
+            eq(DB.Tables.userPasskeys.user_id, userID)
+        ).run();
+
         tx.delete(DB.Tables.users).where(
             eq(DB.Tables.users.id, userID)
         ).run();
