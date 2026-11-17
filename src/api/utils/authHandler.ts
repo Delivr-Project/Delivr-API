@@ -15,6 +15,14 @@ export class AuthUtils {
         return user.role;
     }
 
+    static async verifyUserPassword(userID: number, password: string, tx: DrizzleDB = DB.instance()) {
+        const user = tx.select().from(DB.Tables.users).where(eq(DB.Tables.users.id, userID)).get();
+        if (!user || !(await Bun.password.verify(password, user.password_hash))) {
+            return null;
+        }
+        return user;
+    }
+
     static createRandomTokenID() {
         return crypto_randomBytes(32).toString('hex');
     }
