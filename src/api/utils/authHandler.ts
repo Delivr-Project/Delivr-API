@@ -382,6 +382,10 @@ export namespace AuthHandler.AuthContext {
         return authContext;
     }
 
+    export function isAuthenticated(c: Context) {
+        return (get(c) as AuthHandler.AuthContext | AuthHandler.UnauthenticatedAuthContext).type !== 'unauthenticated';
+    }
+
     export function getAsSession(c: Context): AuthHandler.SessionAuthContext {
         return AuthHandler.AuthContext.get(c) as AuthHandler.SessionAuthContext;
     }
