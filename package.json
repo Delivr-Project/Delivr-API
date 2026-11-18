@@ -21,34 +21,34 @@
         "start": "bun run scripts/entrypoint.ts"
     },
     "devDependencies": {
-        "@cleverjs/cli": "^2.3.0",
+        "@cleverjs/cli": "^2.4.0",
         "@hey-api/openapi-ts": "0.95.0",
-        "@types/bun": "^1.4.2",
+        "@types/bun": "^1.4.4",
         "@types/elliptic": "^6.4.18",
-        "@types/jsdom": "^28.0.1",
-        "@types/nodemailer": "^8.0.0",
+        "@types/jsdom": "^28.0.3",
+        "@types/nodemailer": "^8.0.2",
         "big.js": "^7.0.1",
-        "drizzle-kit": "^0.31.10",
+        "drizzle-kit": "^0.31.11",
         "imap-handler": "^0.1.12"
     },
     "peerDependencies": {
         "typescript": "^6.0.2"
     },
     "dependencies": {
-        "@cleverjs/utils": "^1.1.9",
-        "@hono/standard-validator": "^0.2.2",
-        "@libsql/client": "^0.17.2",
-        "@scalar/hono-api-reference": "^0.10.7",
+        "@cleverjs/utils": "^1.2.5",
+        "@hono/standard-validator": "^0.2.3",
+        "@libsql/client": "^0.17.4",
+        "@scalar/hono-api-reference": "^0.10.20",
         "cron": "^4.4.0",
-        "drizzle-orm": "^0.45.2",
+        "drizzle-orm": "^0.45.4",
         "drizzle-zod": "^0.8.3",
         "elliptic": "^6.6.1",
-        "hono": "^4.12.12",
-        "hono-openapi": "^1.3.0",
-        "imapflow": "^1.3.1",
+        "hono": "^4.13.19",
+        "hono-openapi": "^1.6.0",
+        "imapflow": "^1.7.8",
         "low-level": "^1.2.5",
-        "nodemailer": "^8.0.5",
-        "postal-mime": "^2.7.4",
-        "zod": "^4.3.6"
+        "nodemailer": "^8.0.11",
+        "postal-mime": "^2.7.6",
+        "zod": "^4.6.7"
     }
 }
