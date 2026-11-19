@@ -2222,6 +2222,28 @@ describe("Mail Mailbox Routes", async () => {
         expect(await testIMAPClient.getMailbox(mailboxData.path)).not.toBeNull();
     });
 
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath finds folders with % in their name", async () => {
+
+        for (const path of ["INBOX/Sale 100%", "INBOX/Ab%41"]) {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
+                method: "POST",
+                authToken: session_token,
+                body: { path } satisfies MailboxesModel.Create.Body
+            });
+
+            const url = `/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(path)}`;
+            try {
+                const mailbox = await makeAPIRequest(url, {
+                    authToken: session_token,
+                    expectedBodySchema: MailboxesModel.GetByPath.Response
+                });
+                expect(mailbox.path).toBe(path);
+            } finally {
+                await makeAPIRequest(url, { method: "DELETE", authToken: session_token });
+            }
+        }
+    });
+
     test("GET /v1/mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
 
         const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {

@@ -24,14 +24,9 @@ export namespace MailboxesModel {
     export type BASE = Utils.SameType<z.infer<typeof BASE>, MailboxRessource.IMailbox>;
 
     export const Params = z.object({
-        mailboxPath: z.codec(
-            z.string().meta({ title: "URI-encoded mailbox path" }),
-            z.string().meta({ title: "Decoded mailbox path" }),
-            {
-                encode: (val) => encodeURIComponent(val),
-                decode: (val) => decodeURIComponent(val)
-            }
-        )
+        // Hono hands over path params already decoded once, which is how clients encode
+        // them (`encodeURIComponent`). Decoding again broke paths containing `%`.
+        mailboxPath: z.string().meta({ title: "URI-encoded mailbox path" })
     });
     export type Params = z.infer<typeof Params>;
 
