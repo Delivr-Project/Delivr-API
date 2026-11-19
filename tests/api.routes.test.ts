@@ -4611,6 +4611,58 @@ describe("Mail Search Routes", async () => {
         }
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/search/count counts without downloading mails", async () => {
+
+        const subject = `Count probe ${randomUUID()}`;
+        const uids: number[] = [];
+        for (let i = 0; i < 2; i++) {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { address: "count@test.com" },
+                    to: [{ address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "counted, never fetched" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const fetchAll = spyOn(ImapFlow.prototype, "fetchAll");
+        try {
+            for (const body of [{ subject }, { subject, hasAttachment: false }]) {
+                const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search/count?mailboxes=INBOX`, {
+                    method: "POST",
+                    authToken: session_token,
+                    body,
+                    expectedBodySchema: SearchModel.Count.Response
+                });
+
+                expect(data.total).toBe(2);
+                expect(data.breakdown).toEqual([{ mailboxPath: "INBOX", mailboxName: "INBOX", count: 2 }]);
+            }
+
+            // Only the attachment filter needs a fetch, and that one only reads the structure.
+            expect(fetchAll).toHaveBeenCalledTimes(1);
+            for (const [, query] of fetchAll.mock.calls) {
+                expect(query).not.toHaveProperty("source");
+                expect(query).not.toHaveProperty("envelope");
+            }
+        } finally {
+            fetchAll.mockRestore();
+            for (const uid of uids) {
+                await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}?permanent=true`, {
+                    method: "DELETE",
+                    authToken: session_token
+                });
+            }
+        }
+    });
+
     test("POST /v1/mail-accounts/:mailAccountID/search/count without criteria fails", async () => {
 
         const searchBody = {};

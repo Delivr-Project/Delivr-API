@@ -234,7 +234,6 @@ router.post('/count',
         try {
             await imap.connect();
 
-            // Get count by doing search with high limit and no offset
             const excludeSpecialUse = buildExcludedSpecialUse(query as SearchModel.CrossFolderSearch.Query);
             const allMailboxes = await imap.getMailboxes();
             
@@ -248,8 +247,8 @@ router.post('/count',
                 excludeMailboxes.push(...specialUsePaths);
             }
 
-            // Do a search with a very high limit to get all results for counting
-            const results = await imap.searchMailsAcrossFolders({
+            // Counted from the IMAP search results; no message is downloaded.
+            const breakdown = await imap.countMailsAcrossFolders({
                 query: {
                     text: body.text,
                     subject: body.subject,
@@ -265,25 +264,8 @@ router.post('/count',
                     draft: body.draft
                 },
                 mailboxes: targetMailboxes,
-                excludeMailboxes: excludeMailboxes.length > 0 ? excludeMailboxes : undefined,
-                limit: 10000, // High limit for counting
-                offset: 0
+                excludeMailboxes: excludeMailboxes.length > 0 ? excludeMailboxes : undefined
             });
-
-            // Calculate breakdown by mailbox
-            const breakdownMap = new Map<string, { mailboxPath: string; mailboxName: string; count: number }>();
-            for (const result of results) {
-                const existing = breakdownMap.get(result.mailboxPath);
-                if (existing) {
-                    existing.count++;
-                } else {
-                    breakdownMap.set(result.mailboxPath, {
-                        mailboxPath: result.mailboxPath,
-                        mailboxName: result.mailboxName,
-                        count: 1
-                    });
-                }
-            }
 
             let mailboxesToSearchCount: number;
             if (targetMailboxes && targetMailboxes.length > 0) {
@@ -293,9 +275,9 @@ router.post('/count',
             }
 
             return APIResponse.success(c, "Count completed successfully", {
-                total: results.length,
+                total: breakdown.reduce((sum, mailbox) => sum + mailbox.count, 0),
                 mailboxesSearched: mailboxesToSearchCount,
-                breakdown: Array.from(breakdownMap.values()).sort((a, b) => b.count - a.count)
+                breakdown: breakdown.sort((a, b) => b.count - a.count)
             } satisfies SearchModel.Count.Response);
         } catch (e) {
             Logger.error("Failed to count search results", e);
