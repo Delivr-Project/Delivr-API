@@ -2244,6 +2244,16 @@ describe("Mail Mailbox Routes", async () => {
         }
     });
 
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/status reports empty folders", async () => {
+
+        const status = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent("INBOX/Social Media")}/status`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetMailboxStatus.Response
+        });
+
+        expect(status).toEqual({ messages: 0, unseen: 0, recent: 0 });
+    });
+
     test("GET /v1/mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
 
         const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {

@@ -130,7 +130,8 @@ export class IMAPAccount {
                 unseen: true,
                 recent: true
             });
-            if (!raw_status || !raw_status.messages || !raw_status.unseen || !raw_status.recent) {
+            // 0 is a valid count, only a missing one is a failure
+            if (!raw_status || raw_status.messages === undefined || raw_status.unseen === undefined || raw_status.recent === undefined) {
                 return null;
             }
             return {
