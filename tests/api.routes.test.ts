@@ -3554,6 +3554,37 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBe(0);
     });
 
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with permanent=false moves to Trash", async () => {
+
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Query Boolean Test", address: "querybool@test.com" },
+                to: [{ name: "Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Mail with permanent=false",
+                body: { text: "The string false must not read as true" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const path = `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`;
+
+        // Anything but true/false/1/0 is rejected instead of being read as true.
+        await makeAPIRequest(`${path}?permanent=yes`, { method: "DELETE", authToken: session_token }, 400);
+
+        await makeAPIRequest(`${path}?permanent=false`, {
+            method: "DELETE",
+            authToken: session_token,
+            expectedBodySchema: MailsModel.Delete.Response
+        });
+
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Mail with permanent=false" });
+        expect(trashMails.length).toBe(1);
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {

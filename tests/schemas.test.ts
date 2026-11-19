@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { UserDataPolicys } from "../src/api/utils/shared-models/accountData";
+import { z } from "zod";
+import { ApiHelperModels } from "../src/api/utils/shared-models/api-helper-models";
 
 
 describe("User Account Policy Schema Testing", () => {
@@ -64,4 +66,31 @@ describe("User Account Policy Schema Testing", () => {
 
     });
     
+});
+
+describe("Query boolean schema", () => {
+
+    const optional = ApiHelperModels.queryBoolean(z.boolean().optional());
+    const withDefault = ApiHelperModels.queryBoolean(z.boolean().default(true));
+
+    test("reads true/false/1/0 and real booleans", () => {
+        expect(optional.parse("true")).toBe(true);
+        expect(optional.parse("false")).toBe(false);
+        expect(optional.parse("1")).toBe(true);
+        expect(optional.parse("0")).toBe(false);
+        expect(optional.parse(true)).toBe(true);
+        expect(optional.parse(false)).toBe(false);
+    });
+
+    test("keeps optional and default", () => {
+        expect(optional.parse(undefined)).toBeUndefined();
+        expect(withDefault.parse(undefined)).toBe(true);
+        expect(withDefault.parse("false")).toBe(false);
+    });
+
+    test("rejects anything else", () => {
+        for (const value of ["yes", "no", "", "TRUE", "2", "null", 1, 0, null]) {
+            expect(optional.safeParse(value).success).toBe(false);
+        }
+    });
 });

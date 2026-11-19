@@ -256,7 +256,7 @@ export namespace MailsModel.Send {
 export namespace MailsModel.Delete {
 
     export const Query = z.object({
-        permanent: z.coerce.boolean().default(false).describe("If true, permanently delete the mail. Otherwise, move to Trash.")
+        permanent: ApiHelperModels.queryBoolean(z.boolean().default(false)).describe("If true, permanently delete the mail. Otherwise, move to Trash.")
     });
 
     export type Query = z.infer<typeof Query>;
