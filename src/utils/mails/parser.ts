@@ -291,11 +291,55 @@ export class MailParser {
         return preview ? { text: preview } : {};
     }
 
+    /**
+     * Removes `<head>`, `<style>`, `<script>` and `<title>` blocks. An unclosed head, style
+     * or script block cuts off the rest (truncated HTML ends inside one); an unclosed title
+     * only loses its tag.
+     *
+     * A scan instead of a `<(style|…)\b[\s\S]*?<\/\1>` regex: with many unclosed opening
+     * tags that regex searches to the end once per tag, and a mail made of `<style`
+     * repeated blocked the server for most of a second per list request.
+     */
+    private static stripHiddenBlocks(html: string): string {
+        const lower = html.toLowerCase();
+        const openTag = /<(head|style|script|title)\b/gi;
+        const unclosed = new Set<string>();
+        let text = '';
+        let pos = 0;
+        let match: RegExpExecArray | null;
+
+        while ((match = openTag.exec(html)) !== null) {
+            const name = match[1]!.toLowerCase();
+            const close = unclosed.has(name) ? -1 : MailParser.findClosingTag(lower, name, openTag.lastIndex);
+
+            if (close === -1) {
+                // No closing tag after this one means none after any later one either.
+                unclosed.add(name);
+                if (name !== 'title') return text + html.slice(pos, match.index) + ' ';
+                continue;
+            }
+
+            text += html.slice(pos, match.index) + ' ';
+            pos = close;
+            openTag.lastIndex = close;
+        }
+        return text + html.slice(pos);
+    }
+
+    /** Index just past `</name>` (whitespace allowed before `>`) at or after `from`, or -1. */
+    private static findClosingTag(lower: string, name: string, from: number): number {
+        const needle = `</${name}`;
+        for (let i = lower.indexOf(needle, from); i !== -1; i = lower.indexOf(needle, i + needle.length)) {
+            let end = i + needle.length;
+            while (end < lower.length && /\s/.test(lower[end]!)) end++;
+            if (lower[end] === '>') return end + 1;
+        }
+        return -1;
+    }
+
     /** Visible text of (possibly truncated) HTML. */
     private static htmlToPreviewText(html: string): string {
-        return html
-            .replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, ' ')
-            .replace(/<(head|style|script)\b[\s\S]*$/i, ' ') // cut off inside the block
+        return MailParser.stripHiddenBlocks(html)
             .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
             .replace(/<[^>]*(>|$)/g, ' ')
             .replace(/&(nbsp|amp|lt|gt|quot|apos|#39|#x[0-9a-f]+|#\d+);/gi, (entity, name: string) => {

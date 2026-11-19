@@ -266,3 +266,36 @@ describe("AuthUtils.verifyHashedTokenBase", () => {
         }
     });
 });
+
+describe("MailParser.getPreviewBody", () => {
+
+    const preview = (html: string) => MailParser.getPreviewBody({ html }).text;
+
+    test("drops head, style, script and title blocks", () => {
+        expect(preview('<html><head><title>T</title><style>p{color:red}</style></head><body><p>Hello <b>world</b></p><script>x()</script> bye</body></html>'))
+            .toBe("Hello world bye");
+        expect(preview('<style type="text/css">a{}</style  >Text')).toBe("Text");
+        expect(preview('<STYLE>a{}</Style>Text')).toBe("Text");
+    });
+
+    test("an unclosed head, style or script block cuts off the rest", () => {
+        expect(preview('Before<style>p{color:red} and more')).toBe("Before");
+        expect(preview('Before<script>never closed')).toBe("Before");
+    });
+
+    test("an unclosed title only loses its tag", () => {
+        expect(preview('<title>Subject line and text')).toBe("Subject line and text");
+    });
+
+    test("a closing tag must really close the block", () => {
+        expect(preview('<style>a{}</styles></style>Text')).toBe("Text");
+    });
+
+    test("stays fast on many unclosed opening tags", () => {
+        for (const tag of ["<style", "<title", "<head", "<style></stylex"]) {
+            const start = performance.now();
+            preview(tag.repeat(20_000) + "tail");
+            expect(performance.now() - start).toBeLessThan(200);
+        }
+    });
+});
