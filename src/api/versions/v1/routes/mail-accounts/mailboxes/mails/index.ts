@@ -23,8 +23,14 @@ import { ConfigHandler } from "../../../../../../../utils/config";
 
 
 
-function formatEmailAddress(addr: { name?: string; address: string }): string {
-    return addr.name ? `"${addr.name}" <${addr.address}>` : addr.address;
+/**
+ * Address for `MailComposer`, always as an object so nodemailer quotes the name and keeps
+ * the address a single mailbox. A hand-built `"name" <address>` string is parsed again,
+ * so a name like `Bob" <evil@example.com>, "x` (taken from a mail being replied to)
+ * added a recipient.
+ */
+function formatEmailAddress(addr: { name?: string; address: string }): Mail.Address {
+    return { name: addr.name ?? "", address: addr.address };
 }
 
 /** Attachment handed to `MailComposer`, held in memory only while composing. */

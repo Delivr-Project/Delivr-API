@@ -3585,6 +3585,39 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBe(1);
     });
 
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails keeps display names inside their address", async () => {
+
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: 'Jane "JJ" Doe', address: "jane@test.com" },
+                to: [{ name: 'Bob" <evil@attacker.test>, "x', address: "bob@test.com" }],
+                cc: [{ name: "Doe, John", address: "john@test.com" }],
+                bcc: [],
+                subject: "Display name escaping",
+                body: { text: "A display name must not add a recipient" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        try {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+
+            expect(mail.from).toEqual({ name: 'Jane "JJ" Doe', address: "jane@test.com" });
+            expect(mail.to).toEqual([{ name: 'Bob" <evil@attacker.test>, "x', address: "bob@test.com" }]);
+            expect(mail.cc).toEqual([{ name: "Doe, John", address: "john@test.com" }]);
+        } finally {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}?permanent=true`, {
+                method: "DELETE",
+                authToken: session_token
+            });
+        }
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
