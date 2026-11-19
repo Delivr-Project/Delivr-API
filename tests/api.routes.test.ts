@@ -2222,6 +2222,38 @@ describe("Mail Mailbox Routes", async () => {
         expect(await testIMAPClient.getMailbox(mailboxData.path)).not.toBeNull();
     });
 
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath finds folders with % in their name", async () => {
+
+        for (const path of ["INBOX/Sale 100%", "INBOX/Ab%41"]) {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
+                method: "POST",
+                authToken: session_token,
+                body: { path } satisfies MailboxesModel.Create.Body
+            });
+
+            const url = `/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent(path)}`;
+            try {
+                const mailbox = await makeAPIRequest(url, {
+                    authToken: session_token,
+                    expectedBodySchema: MailboxesModel.GetByPath.Response
+                });
+                expect(mailbox.path).toBe(path);
+            } finally {
+                await makeAPIRequest(url, { method: "DELETE", authToken: session_token });
+            }
+        }
+    });
+
+    test("GET /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/status reports empty folders", async () => {
+
+        const status = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/${encodeURIComponent("INBOX/Social Media")}/status`, {
+            authToken: session_token,
+            expectedBodySchema: MailboxesModel.GetMailboxStatus.Response
+        });
+
+        expect(status).toEqual({ messages: 0, unseen: 0, recent: 0 });
+    });
+
     test("GET /v1/mail-accounts/:mailAccountID/mailboxes retrieves mail mailboxes", async () => {
 
         const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes`, {
@@ -3554,6 +3586,70 @@ describe("Mail Mailbox Mails Routes", async () => {
         expect(trashMails.length).toBe(0);
     });
 
+    test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with permanent=false moves to Trash", async () => {
+
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: "Query Boolean Test", address: "querybool@test.com" },
+                to: [{ name: "Receiver", address: "receiver@test.com" }],
+                cc: [],
+                bcc: [],
+                subject: "Mail with permanent=false",
+                body: { text: "The string false must not read as true" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        const path = `/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`;
+
+        // Anything but true/false/1/0 is rejected instead of being read as true.
+        await makeAPIRequest(`${path}?permanent=yes`, { method: "DELETE", authToken: session_token }, 400);
+
+        await makeAPIRequest(`${path}?permanent=false`, {
+            method: "DELETE",
+            authToken: session_token,
+            expectedBodySchema: MailsModel.Delete.Response
+        });
+
+        const trashMails = await testIMAPClient.getMails("Trash", { searchString: "Mail with permanent=false" });
+        expect(trashMails.length).toBe(1);
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails keeps display names inside their address", async () => {
+
+        const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+            method: "POST",
+            authToken: session_token,
+            body: {
+                from: { name: 'Jane "JJ" Doe', address: "jane@test.com" },
+                to: [{ name: 'Bob" <evil@attacker.test>, "x', address: "bob@test.com" }],
+                cc: [{ name: "Doe, John", address: "john@test.com" }],
+                bcc: [],
+                subject: "Display name escaping",
+                body: { text: "A display name must not add a recipient" }
+            },
+            expectedBodySchema: MailsModel.Create.Response
+        });
+
+        try {
+            const mail = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}`, {
+                authToken: session_token,
+                expectedBodySchema: MailsModel.GetByUID.Response
+            });
+
+            expect(mail.from).toEqual({ name: 'Jane "JJ" Doe', address: "jane@test.com" });
+            expect(mail.to).toEqual([{ name: 'Bob" <evil@attacker.test>, "x', address: "bob@test.com" }]);
+            expect(mail.cc).toEqual([{ name: "Doe, John", address: "john@test.com" }]);
+        } finally {
+            await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${created.uid}?permanent=true`, {
+                method: "DELETE",
+                authToken: session_token
+            });
+        }
+    });
+
     test("DELETE /v1/mail-accounts/:mailAccountID/mailboxes/:mailboxPath/mails/:mailUID with invalid UID fails", async () => {
 
         await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/999999`, {
@@ -4544,6 +4640,58 @@ describe("Mail Search Routes", async () => {
             expect(item.mailboxPath).toBeDefined();
             expect(item.mailboxName).toBeDefined();
             expect(item.count).toBeGreaterThanOrEqual(0);
+        }
+    });
+
+    test("POST /v1/mail-accounts/:mailAccountID/search/count counts without downloading mails", async () => {
+
+        const subject = `Count probe ${randomUUID()}`;
+        const uids: number[] = [];
+        for (let i = 0; i < 2; i++) {
+            const created = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails`, {
+                method: "POST",
+                authToken: session_token,
+                body: {
+                    from: { address: "count@test.com" },
+                    to: [{ address: "receiver@test.com" }],
+                    cc: [],
+                    bcc: [],
+                    subject,
+                    body: { text: "counted, never fetched" }
+                },
+                expectedBodySchema: MailsModel.Create.Response
+            });
+            uids.push(created.uid);
+        }
+
+        const fetchAll = spyOn(ImapFlow.prototype, "fetchAll");
+        try {
+            for (const body of [{ subject }, { subject, hasAttachment: false }]) {
+                const data = await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/search/count?mailboxes=INBOX`, {
+                    method: "POST",
+                    authToken: session_token,
+                    body,
+                    expectedBodySchema: SearchModel.Count.Response
+                });
+
+                expect(data.total).toBe(2);
+                expect(data.breakdown).toEqual([{ mailboxPath: "INBOX", mailboxName: "INBOX", count: 2 }]);
+            }
+
+            // Only the attachment filter needs a fetch, and that one only reads the structure.
+            expect(fetchAll).toHaveBeenCalledTimes(1);
+            for (const [, query] of fetchAll.mock.calls) {
+                expect(query).not.toHaveProperty("source");
+                expect(query).not.toHaveProperty("envelope");
+            }
+        } finally {
+            fetchAll.mockRestore();
+            for (const uid of uids) {
+                await makeAPIRequest(`/v1/mail-accounts/${mailAccountID}/mailboxes/INBOX/mails/${uid}?permanent=true`, {
+                    method: "DELETE",
+                    authToken: session_token
+                });
+            }
         }
     });
 

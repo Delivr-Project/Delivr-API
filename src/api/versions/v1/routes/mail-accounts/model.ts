@@ -2,6 +2,7 @@ import { createInsertSchema, createSelectSchema, createUpdateSchema } from "driz
 import { DB } from "../../../../../db";
 import { z } from "zod";
 import { InetModels } from "../../../../utils/shared-models/inetModels";
+import { ApiHelperModels } from "../../../../utils/shared-models/api-helper-models";
 import { MailboxesModel } from "./mailboxes/model";
 import { MailIdentitiesModel } from "./identities/model";
 
@@ -48,7 +49,7 @@ export namespace MailAccountsModel {
 export namespace MailAccountsModel.GetMailAccountByID {
 
     export const Query = z.object({
-        withMailboxes: z.coerce.boolean().optional().default(false)
+        withMailboxes: ApiHelperModels.queryBoolean(z.boolean().default(false))
     });
 
     export type Query = z.infer<typeof Query>;

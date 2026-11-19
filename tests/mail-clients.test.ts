@@ -42,13 +42,14 @@ describe("IMAP Mail Client Tests", () => {
     test("Get INBOX Status", async () => {
 
         const inbox = await account.getMailboxStatus("INBOX");
-        expect(inbox).toBeDefined();
+        // Other test files share this mock server, so the counts come from the folder itself.
+        const mails = await account.getMails("INBOX", { limit: 1000, view: "summary" });
 
-        if (!inbox) return;
-
-        expect(inbox.messages).toBe(6);
-        expect(inbox.recent).toBe(0);
-        expect(inbox.unseen).toBe(5);
+        expect(inbox).toEqual({
+            messages: mails.length,
+            unseen: mails.filter(mail => !mail.flags?.seen).length,
+            recent: 0
+        });
 
     });
 

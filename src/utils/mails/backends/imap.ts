@@ -130,7 +130,8 @@ export class IMAPAccount {
                 unseen: true,
                 recent: true
             });
-            if (!raw_status || !raw_status.messages || !raw_status.unseen || !raw_status.recent) {
+            // 0 is a valid count, only a missing one is a failure
+            if (!raw_status || raw_status.messages === undefined || raw_status.unseen === undefined || raw_status.recent === undefined) {
                 return null;
             }
             return {
@@ -442,43 +443,99 @@ export class IMAPAccount {
         await this.addFlags(mailbox, uids, ['\\Deleted']);
     }
 
+    /** Mailboxes a cross-folder search looks in. */
+    private async getSearchMailboxes(options: IMAPAccount.CrossFolderMailboxOptions): Promise<MailboxListResponse[]> {
+        const {
+            mailboxes: targetMailboxes,
+            excludeMailboxes = [],
+            includeSpecialUse = ['\\Sent', '\\Drafts', '\\Trash', '\\Junk', '\\Archive']
+        } = options;
+
+        const allMailboxes = await this.client.list();
+
+        if (targetMailboxes && targetMailboxes.length > 0) {
+            return allMailboxes.filter(mb => targetMailboxes.includes(mb.path));
+        }
+        // Exclude specified mailboxes and optionally special-use folders
+        return allMailboxes.filter(mb => {
+            if (excludeMailboxes.includes(mb.path)) return false;
+            // If includeSpecialUse is empty, exclude special-use folders
+            if (includeSpecialUse.length === 0 && mb.specialUse) return false;
+            return true;
+        });
+    }
+
+    /**
+     * UIDs (and, with `withDates`, dates) of a mailbox's matches. Only metadata is fetched,
+     * never the message source, and only when it's needed: the date for sorting, the body
+     * structure for `hasAttachment`, which IMAP SEARCH can't express. Errors are logged and
+     * count as no matches, so one broken folder doesn't fail the whole search.
+     */
+    private async findMatches(mailbox: MailboxListResponse, query: IMAPAccount.SearchQuery, withDates: boolean): Promise<{ uid: number; date: number }[]> {
+        const needsAttachmentInfo = query.hasAttachment !== undefined;
+        let lock;
+        try {
+            lock = await this.client.getMailboxLock(mailbox.path);
+
+            // Searched even when `exists` says 0: that count can be stale (see getMails).
+            const searchResults = await this.client.search(IMAPAccount.buildSearchCriteria(query), { uid: true });
+
+            // Ensure searchResults is an array (might be empty or non-array in edge cases)
+            const uids: number[] = Array.isArray(searchResults) ? searchResults : [];
+
+            if (uids.length === 0 || (!withDates && !needsAttachmentInfo)) {
+                return uids.map(uid => ({ uid, date: 0 }));
+            }
+
+            const metaMails = await this.client.fetchAll(uids, {
+                uid: true,
+                ...(withDates ? { envelope: true, internalDate: true } : {}),
+                ...(needsAttachmentInfo ? { bodyStructure: true } : {})
+            }, { uid: true });
+
+            const matches: { uid: number; date: number }[] = [];
+            for (const meta of metaMails) {
+                if (needsAttachmentInfo) {
+                    const hasAttachment = IMAPAccount.bodyStructureHasAttachment(meta.bodyStructure);
+                    if (query.hasAttachment ? !hasAttachment : hasAttachment) {
+                        continue;
+                    }
+                }
+
+                const dateValue = meta.envelope?.date ?? meta.internalDate;
+                matches.push({ uid: meta.uid, date: dateValue ? new Date(dateValue).getTime() : 0 });
+            }
+            return matches;
+        } catch (e) {
+            Logger.error(`Failed to search mailbox ${mailbox.path}`, e);
+            return [];
+        } finally {
+            lock?.release();
+        }
+    }
+
+    /**
+     * Number of matches per mailbox (mailboxes without any are left out). Counts from the
+     * search results alone, without downloading a single message.
+     */
+    async countMailsAcrossFolders(options: IMAPAccount.CrossFolderMailboxOptions & { query: IMAPAccount.SearchQuery }): Promise<IMAPAccount.CrossFolderSearchCount[]> {
+        const counts: IMAPAccount.CrossFolderSearchCount[] = [];
+        for (const mailbox of await this.getSearchMailboxes(options)) {
+            const count = (await this.findMatches(mailbox, options.query, false)).length;
+            if (count > 0) {
+                counts.push({ mailboxPath: mailbox.path, mailboxName: mailbox.name, count });
+            }
+        }
+        return counts;
+    }
+
     /**
      * Search for mails across all mailboxes or specified mailboxes
      * @param options - Search options including query parameters and folder filters
      * @returns Array of search results with mailbox path information
      */
     async searchMailsAcrossFolders(options: IMAPAccount.CrossFolderSearchOptions): Promise<IMAPAccount.CrossFolderSearchResult[]> {
-        const { 
-            query, 
-            mailboxes: targetMailboxes,
-            excludeMailboxes = [],
-            includeSpecialUse = ['\\Sent', '\\Drafts', '\\Trash', '\\Junk', '\\Archive'],
-            order = 'newest',
-            limit = 50,
-            offset = 0
-        } = options;
-
-        // Get all mailboxes if not specified
-        let mailboxesToSearch: MailboxListResponse[];
-        const allMailboxes = await this.client.list();
-        
-        if (targetMailboxes && targetMailboxes.length > 0) {
-            mailboxesToSearch = allMailboxes.filter(mb => targetMailboxes.includes(mb.path));
-        } else {
-            // Exclude specified mailboxes and optionally special-use folders
-            mailboxesToSearch = allMailboxes.filter(mb => {
-                if (excludeMailboxes.includes(mb.path)) return false;
-                // If includeSpecialUse is empty, exclude special-use folders
-                if (includeSpecialUse.length === 0 && mb.specialUse) return false;
-                return true;
-            });
-        }
-
-        const searchCriteria = IMAPAccount.buildSearchCriteria(query);
-
-        // `has:attachment` can't be expressed as IMAP SEARCH criteria, so it is
-        // evaluated from each match's bodyStructure during phase 1.
-        const needsAttachmentInfo = query.hasAttachment !== undefined;
+        const { query, order = 'newest', limit = 50, offset = 0 } = options;
 
         // ── Phase 1: collect lightweight metadata for every match ──
         // Only envelope/date (+ bodyStructure when filtering by attachment) is
@@ -495,52 +552,14 @@ export class IMAPAccount {
 
         const matches: LightMatch[] = [];
 
-        for (const mailbox of mailboxesToSearch) {
-            let lock;
-            try {
-                lock = await this.client.getMailboxLock(mailbox.path);
-
-                // Searched even when `exists` says 0: that count can be stale (see getMails).
-                const searchResults = await this.client.search(searchCriteria, { uid: true });
-
-                // Ensure searchResults is an array (might be empty or non-array in edge cases)
-                const uids: number[] = Array.isArray(searchResults) ? searchResults : [];
-
-                if (uids.length === 0) {
-                    lock.release();
-                    continue;
-                }
-
-                const metaMails = await this.client.fetchAll(uids, {
-                    uid: true,
-                    envelope: true,
-                    internalDate: true,
-                    ...(needsAttachmentInfo ? { bodyStructure: true } : {})
-                }, { uid: true });
-
-                for (const meta of metaMails) {
-                    if (needsAttachmentInfo) {
-                        const hasAttachment = IMAPAccount.bodyStructureHasAttachment(meta.bodyStructure);
-                        if (query.hasAttachment ? !hasAttachment : hasAttachment) {
-                            continue;
-                        }
-                    }
-
-                    const dateValue = meta.envelope?.date ?? meta.internalDate;
-                    matches.push({
-                        mailboxPath: mailbox.path,
-                        mailboxName: mailbox.name,
-                        specialUse: mailbox.specialUse,
-                        uid: meta.uid,
-                        date: dateValue ? new Date(dateValue).getTime() : 0
-                    });
-                }
-
-                lock.release();
-            } catch (e) {
-                if (lock) lock.release();
-                Logger.error(`Failed to search mailbox ${mailbox.path}`, e);
-                // Continue with other mailboxes
+        for (const mailbox of await this.getSearchMailboxes(options)) {
+            for (const match of await this.findMatches(mailbox, query, true)) {
+                matches.push({
+                    mailboxPath: mailbox.path,
+                    mailboxName: mailbox.name,
+                    specialUse: mailbox.specialUse,
+                    ...match
+                });
             }
         }
 
@@ -768,15 +787,24 @@ export namespace IMAPAccount {
         draft?: boolean;
     }
 
-    export interface CrossFolderSearchOptions {
-        /** Search query parameters */
-        query: SearchQuery;
+    export interface CrossFolderMailboxOptions {
         /** Specific mailboxes to search (searches all if not specified) */
         mailboxes?: string[];
         /** Mailboxes to exclude from search */
         excludeMailboxes?: string[];
         /** Which special-use folders to include (default: all) */
         includeSpecialUse?: string[];
+    }
+
+    export interface CrossFolderSearchCount {
+        mailboxPath: string;
+        mailboxName: string;
+        count: number;
+    }
+
+    export interface CrossFolderSearchOptions extends CrossFolderMailboxOptions {
+        /** Search query parameters */
+        query: SearchQuery;
         /** Sort order by date */
         order?: 'newest' | 'oldest';
         /** Maximum number of results */

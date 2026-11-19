@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MailsModel } from "../mailboxes/mails/model";
 import type { Utils } from "../../../../../../utils";
 import type { IMAPAccount } from "../../../../../../utils/mails/backends/imap";
+import { ApiHelperModels } from "../../../../../utils/shared-models/api-helper-models";
 
 export namespace SearchModel {
 
@@ -33,23 +34,23 @@ export namespace SearchModel {
             .describe("Return messages before this date (Unix timestamp in milliseconds)"),
         
         /** Filter by attachment presence */
-        hasAttachment: z.coerce.boolean().optional()
+        hasAttachment: ApiHelperModels.queryBoolean(z.boolean().optional())
             .describe("Filter emails by attachment presence"),
         
         /** Filter by seen/read status */
-        seen: z.coerce.boolean().optional()
+        seen: ApiHelperModels.queryBoolean(z.boolean().optional())
             .describe("Filter by read/unread status (true = read, false = unread)"),
         
         /** Filter by flagged/starred status */
-        flagged: z.coerce.boolean().optional()
+        flagged: ApiHelperModels.queryBoolean(z.boolean().optional())
             .describe("Filter by flagged/starred status"),
         
         /** Filter by answered status */
-        answered: z.coerce.boolean().optional()
+        answered: ApiHelperModels.queryBoolean(z.boolean().optional())
             .describe("Filter by replied-to status"),
         
         /** Filter by draft status */
-        draft: z.coerce.boolean().optional()
+        draft: ApiHelperModels.queryBoolean(z.boolean().optional())
             .describe("Filter by draft status")
     });
 
@@ -102,15 +103,15 @@ export namespace SearchModel.CrossFolderSearch {
             .describe("Comma-separated list of mailbox paths to exclude from search"),
 
         /** Whether to include Trash folder in search */
-        includeTrash: z.coerce.boolean().default(false)
+        includeTrash: ApiHelperModels.queryBoolean(z.boolean().default(false))
             .describe("Include Trash/Deleted items folder in search"),
 
         /** Whether to include Spam/Junk folder in search */
-        includeSpam: z.coerce.boolean().default(false)
+        includeSpam: ApiHelperModels.queryBoolean(z.boolean().default(false))
             .describe("Include Spam/Junk folder in search"),
 
         /** Whether to include Drafts folder in search */
-        includeDrafts: z.coerce.boolean().default(true)
+        includeDrafts: ApiHelperModels.queryBoolean(z.boolean().default(true))
             .describe("Include Drafts folder in search")
     });
 
@@ -174,11 +175,11 @@ export namespace SearchModel.QuickSearch {
             .describe("Number of results to skip for pagination"),
 
         /** Whether to include Trash folder in search */
-        includeTrash: z.coerce.boolean().default(false)
+        includeTrash: ApiHelperModels.queryBoolean(z.boolean().default(false))
             .describe("Include Trash/Deleted items folder in search"),
 
         /** Whether to include Spam/Junk folder in search */
-        includeSpam: z.coerce.boolean().default(false)
+        includeSpam: ApiHelperModels.queryBoolean(z.boolean().default(false))
             .describe("Include Spam/Junk folder in search")
     });
 
