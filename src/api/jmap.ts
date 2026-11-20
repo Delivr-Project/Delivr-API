@@ -143,9 +143,9 @@ jmapRouter.get("/.well-known/jmap", async c => {
         accounts: accountMap,
         primaryAccounts: { [MAIL]: accounts[0] ? accountIdFor(accounts[0].id) : null },
         apiUrl: "/jmap/api",
-        downloadUrl: "/jmap/download/{accountId}/{blobId}/{name}",
-        uploadUrl: "/jmap/upload/{accountId}/",
-        eventSourceUrl: "/jmap/event",
+        downloadUrl: null,
+        uploadUrl: null,
+        eventSourceUrl: null,
         state: "0"
     });
 });
@@ -180,16 +180,31 @@ async function method(name: string, args: any, auth: AuthHandler.AuthContext): P
     if (type === "Email" && (action === "get" || action === "query")) {
         const mailboxes = await client.getMailboxes();
         const wanted = action === "get" ? new Set(args.ids || []) : null;
+        const filter = args.filter || {};
+        const mailboxFilter = typeof filter.inMailbox === "string" ? [filter.inMailbox] : filter.inMailbox;
+        const selectedMailboxes = Array.isArray(mailboxFilter)
+            ? mailboxes.filter(m => mailboxFilter.includes(mailboxId(accountId, m.path)))
+            : mailboxes;
         const result: any[] = [];
-        for (const mailbox of mailboxes) {
-            const mails = await client.getMails(mailbox.path, { limit: args.limit || 256, offset: args.position || 0, view: "full" });
+        const notFound = new Set<string>(args.ids || []);
+        for (const mailbox of selectedMailboxes) {
+            const mails = await client.getMails(mailbox.path, {
+                limit: action === "get" ? 1_000_000 : (args.limit || 256),
+                offset: action === "get" ? 0 : (args.position || 0),
+                searchString: typeof filter.text === "string" ? filter.text : undefined,
+                view: "full"
+            });
             for (const mail of mails) {
                 const item = toEmail(accountId, mailbox.path, mail);
-                if (!wanted || wanted.has(item.id)) result.push(item);
+                if (wanted && !wanted.has(item.id)) continue;
+                if (filter.isUnread === true && mail.flags?.seen) continue;
+                if (filter.isFlagged === true && !mail.flags?.flagged) continue;
+                if (wanted) notFound.delete(item.id);
+                result.push(item);
             }
         }
         if (action === "query") return ["Email/query", { accountId, queryState: "0", canCalculateChanges: false, position: 0, ids: result.map(m => m.id), total: result.length }];
-        return ["Email/get", { accountId, state: "0", list: result, notFound: [] }];
+        return ["Email/get", { accountId, state: "0", list: result, notFound: [...notFound] }];
     }
     return error("unknownMethod");
 }
@@ -204,8 +219,12 @@ jmapRouter.post("/jmap/api", async c => {
             responses.push([...error("invalidArguments"), null]);
             continue;
         }
-        const response = await method(call[0], call[1] || {}, auth);
-        responses.push([...response, call[2]]);
+        try {
+            const response = await method(call[0], call[1] || {}, auth);
+            responses.push([...response, call[2]]);
+        } catch {
+            responses.push(["error", { type: "serverFail" }, call[2]]);
+        }
     }
     return c.json(responses);
 });
