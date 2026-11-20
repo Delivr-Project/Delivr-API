@@ -8,6 +8,7 @@ import type { APIVersionRouter } from "./utils/apiVersionRouter";
 import { openAPIRouteHandler } from "hono-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { APIv1Router } from "./versions/v1";
+import { jmapRouter } from "./jmap";
 
 export class API {
 
@@ -91,6 +92,7 @@ export class API {
 		});
 
 		this.registerVersion(new APIv1Router, disableDocs);
+		this.app.route("/", jmapRouter);
 
 		this.app.get("/health", (c) => {
 			return c.json({
