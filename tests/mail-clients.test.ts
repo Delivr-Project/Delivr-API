@@ -70,6 +70,38 @@ describe("IMAP Mail Client Tests", () => {
         await fresh.disconnect();
     });
 
+    test("getMailbox with cached reuses a recent LIST", async () => {
+        const fresh = await IMAPAccount.fromConfig({
+            host: "127.0.0.1",
+            port: 11143,
+            username: "testuser",
+            password: "testpass",
+            useSSL: "NONE"
+        }).connect();
+        const list = spyOn((fresh as any).client, "list");
+
+        try {
+            expect(await fresh.getMailbox("INBOX", { cached: true })).not.toBeNull();
+            expect(await fresh.getMailbox("INBOX", { cached: true })).not.toBeNull();
+            expect(list).toHaveBeenCalledTimes(1);
+
+            // a miss lists again, the default never uses the cache
+            expect(await fresh.getMailbox("CacheTestMissing", { cached: true })).toBeNull();
+            expect(list).toHaveBeenCalledTimes(2);
+            await fresh.getMailbox("INBOX");
+            expect(list).toHaveBeenCalledTimes(3);
+
+            // own changes clear it
+            await fresh.createMailbox("CacheTest");
+            expect(await fresh.getMailbox("CacheTest", { cached: true })).not.toBeNull();
+            await fresh.deleteMailbox("CacheTest");
+            expect(await fresh.getMailbox("CacheTest", { cached: true })).toBeNull();
+        } finally {
+            list.mockRestore();
+            await fresh.disconnect();
+        }
+    });
+
 });
 
 describe("IMAP createMail returns the new UID", () => {

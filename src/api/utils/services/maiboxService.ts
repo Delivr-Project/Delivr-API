@@ -16,7 +16,8 @@ export class MailboxService {
 
         try {
             await imap.connect();
-            const mailbox = await imap.getMailbox(mailboxPath) satisfies MailboxesModel.BASE | null;
+            // runs on every request under a mailbox, so reuse a recent LIST
+            const mailbox = await imap.getMailbox(mailboxPath, { cached: true }) satisfies MailboxesModel.BASE | null;
 
             if (!mailbox) {
                 return APIResponse.notFound(c, "Mailbox with specified path not found");

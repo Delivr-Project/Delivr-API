@@ -14,6 +14,10 @@ export class IMAPAccount {
     protected isConnected: boolean = false;
     protected pendingConnect: Promise<void> | null = null;
 
+    /** last LIST without status, reused by {@link getMailbox} */
+    protected mailboxList: { listedAt: number; mailboxes: MailboxListResponse[] } | null = null;
+    static readonly MAILBOX_LIST_TTL_MS = 60_000;
+
     /**
      * Use {@link IMAPAccount.fromSettings} or {@link IMAPAccount.fromConfig} to create an instance.
      */
@@ -106,21 +110,33 @@ export class IMAPAccount {
                 }
             });
         } else {
-            return MailboxRessource.fromIMAPMailboxes(await this.client.list({
+            const mailboxes = await this.client.list({
                 statusQuery: {
                     messages: true,
                     unseen: true,
                     recent: true
                 }
-            }));
+            });
+            this.rememberMailboxList(mailboxes.map(({ status: _status, ...mailbox }) => mailbox));
+            return MailboxRessource.fromIMAPMailboxes(mailboxes);
         }
     }
 
-    async getMailbox(path: string): Promise<MailboxRessource | null> {
-        const mailboxes = await this.client.list();
-        const mailbox = mailboxes.find(mb => mb.path === path);
+    /**
+     * `cached`: may answer from a LIST up to {@link MAILBOX_LIST_TTL_MS} old, so a mailbox
+     * deleted by another client can still be found. A miss always lists again.
+     */
+    async getMailbox(path: string, options: { cached?: boolean } = {}): Promise<MailboxRessource | null> {
+        const isRecent = options.cached && this.mailboxList && Date.now() - this.mailboxList.listedAt < IMAPAccount.MAILBOX_LIST_TTL_MS;
+        const mailbox = (isRecent ? this.mailboxList?.mailboxes.find(mb => mb.path === path) : undefined)
+            ?? this.rememberMailboxList(await this.client.list()).find(mb => mb.path === path);
         if (!mailbox) return null;
         return MailboxRessource.fromIMAPMailbox(mailbox);
+    }
+
+    protected rememberMailboxList(mailboxes: MailboxListResponse[]) {
+        this.mailboxList = { listedAt: Date.now(), mailboxes };
+        return mailboxes;
     }
 
     async getMailboxStatus(path: string): Promise<MailboxRessource.MailboxStatus | null> {
@@ -144,6 +160,7 @@ export class IMAPAccount {
     }
 
     async createMailbox(path: string) {
+        this.mailboxList = null;
         const result = await this.client.mailboxCreate(path);
         if (path !== result.path || !result.created) {
             return false;
@@ -151,6 +168,7 @@ export class IMAPAccount {
     }
 
     async renameMailbox(oldPath: string, newPath: string) {
+        this.mailboxList = null;
         const result = await this.client.mailboxRename(oldPath, newPath);
         if (oldPath !== result.path || newPath !== result.newPath) {
             return false;
@@ -159,6 +177,7 @@ export class IMAPAccount {
     }
 
     async deleteMailbox(path: string) {
+        this.mailboxList = null;
         const result = await this.client.mailboxDelete(path);
         if (path !== result.path) {
             return false;
