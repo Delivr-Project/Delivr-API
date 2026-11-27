@@ -11,6 +11,7 @@ import { AccountDeletionService } from "../../../../utils/services/accountDeleti
 import { DOCS_TAGS } from "../../docs";
 import { router as apiKeyRouter } from "./apikeys";
 import { router as preferencesRouter } from "./preferences";
+import { router as passkeysRouter } from "./passkeys";
 import { Logger } from "../../../../../utils/logger";
 
 export const router = new Hono().basePath('/account');
@@ -228,3 +229,4 @@ router.delete('/',
 
 router.route("/", apiKeyRouter);
 router.route("/", preferencesRouter);
+router.route("/", passkeysRouter);

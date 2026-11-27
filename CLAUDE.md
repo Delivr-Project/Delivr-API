@@ -11,6 +11,7 @@
 - **Database**: SQLite at runtime (`drizzle-orm/bun-sqlite`); PostgreSQL and MySQL schemas are kept in sync, but runtime support isn't wired up yet (#10)
 - **Mail**: IMAP (`imapflow`) + SMTP (`nodemailer`) + `postal-mime` parsing
 - **Crypto**: `elliptic` (ECC), custom encryption utilities
+- **Passkeys**: `@simplewebauthn/server` (WebAuthn), loaded lazily
 - **Scheduling**: `cron` package
 
 ## Project Structure
@@ -18,14 +19,18 @@
 ```
 src/
 ├── index.ts                  # Entry point
+├── polyfills.ts              # `reflect-metadata`, imported first by index.ts
 ├── api/
 │   ├── index.ts              # API router setup
 │   ├── utils/                # Shared API utilities
 │   │   ├── api-res.ts        # Response helpers
 │   │   ├── apiVersionRouter.ts
 │   │   ├── authHandler.ts    # Auth middleware
+│   │   ├── clientIP.ts       # Client address for rate limiting (`DLA_TRUST_PROXY`)
+│   │   ├── expiringStore.ts  # In-memory TTL store (passkey challenges)
 │   │   ├── metadata.ts
 │   │   ├── preferences.ts
+│   │   ├── rateLimiters.ts   # In-memory request limiter
 │   │   ├── specHelpers.ts    # OpenAPI spec helpers
 │   │   ├── shared-models/    # Shared Zod models
 │   │   └── services/         # Business logic services
@@ -37,8 +42,8 @@ src/
 │           ├── docs/
 │           │   └── index.ts  # OpenAPI tag definitions (DOCS_TAGS)
 │           └── routes/       # Route modules (auth, account, mail-accounts, bimi, admin)
-│                              #   auth → reset-password
-│                              #   account → apikeys, preferences
+│                              #   auth → reset-password, passkey
+│                              #   account → apikeys, preferences, passkeys
 │                              #   mail-accounts → identities, search, mailboxes (nested)
 │                              #     mailboxes → mail-bulk-actions, mails → attachments
 ├── db/
@@ -84,7 +89,7 @@ src/
 - **Config**: Environment-based config in `src/utils/config.ts`. See `example.env` for required vars.
 - **Crypto**: ECC-based encryption/signing utilities in `src/utils/crypto/`.
 - **Docker**: `docker/Dockerfile` packages a binary compiled beforehand (`bun compile all <version> --no-version-tag`, as CI does); it builds for `linux/amd64` and `linux/arm64` in one `buildx` call, picking `delivr-api-linux-x64-baseline` or `delivr-api-linux-arm64` by `TARGETARCH`, so both land under the same multi-platform tag together with `drizzle/migrations`, which the binary reads from disk. A relative `DLA_DB_MIGRATION_DIR` therefore has to be resolved next to the executable (`process.execPath`), not against `import.meta.dir`, which is Bun's virtual `/$bunfs/root` in a compiled binary. `docker/docker-compose.yml` runs the API alone and `docker/docker-compose.prodlike.yml` the full stack (API + Delivr-Web) from the ghcr.io images; it requires *public* URLs, since the web client's SSR server calls the API through the same `DELIVR_API_URL` as the browser.
-- **Client addresses**: login rate limiting keys on the socket address (`getConnInfo` from `hono/bun`). In-process test requests have no socket and fall back to `unknown`, so one test serves the app on an ephemeral port to cover the socket path.
+- **Client addresses**: the password-login rate limiter keys on the socket address (`getConnInfo` from `hono/bun`). In-process test requests have no socket and fall back to `unknown`, so one test serves the app on an ephemeral port to cover the socket path. The passkey login limiter uses `getClientIP` (`api/utils/clientIP.ts`) instead: the last `X-Forwarded-For` entry with `DLA_TRUST_PROXY`, otherwise the socket address. Loopback and unknown addresses yield `null` (no per-client limit), and IPv6 clients are counted per /64.
 - **Deleting users and mail accounts** goes through `AccountDeletionService`. SQLite doesn't enforce the schema's foreign keys, so every table that references a user or mail account must be cleaned up there, or its rows are orphaned.
 - **Transactions are only atomic with a synchronous callback.** The bun-sqlite driver commits as soon as the `transaction()` callback returns, so an `async` callback commits at its first `await` and nothing after it rolls back. Many existing routes still pass `async` callbacks; new code that relies on rollback (like `AccountDeletionService`) must use `.run()`/`.all()`/`.get()` without `await`.
 
@@ -102,5 +107,8 @@ src/
 - **Every mail account has at least one sender identity**: `POST /mail-accounts` creates the account and its default identity in one transaction, taking the address from the optional `identity` body field or, failing that, from the SMTP username when that is an email address — neither means a 400, because an account with no address can't send. `DELETE .../identities/:id` refuses the account's last identity with a 409, and deleting the default hands that flag to the oldest remaining identity. Accounts predating the rule are backfilled by the `0014_backfill_default_mail_identities` migration. It cannot read the account's own address — that lives in the encrypted connection blob — so it builds the identity from the owner's `users.email` and leaves it **non-default**, which keeps a possibly-wrong address out of the composer's preselected sender (the account's decrypted SMTP address is listed first). Users correct it under the account's Identities settings. Each identity also carries an optional `signature` (nullable HTML, max 16 KB) that the web composer appends to mails sent from it; omitting the field on a `PUT` leaves it untouched, `null` clears it. The same goes for the optional `description` (nullable, 1–255 chars): a label shown only inside Delivr to tell apart identities that share a display name — it is never written into outgoing mails.
 - **BIMI is resolved live, never persisted**: the `bimi/:domain` route uses `BimiService` to read the sender domain's BIMI DNS record and return the brand `logoUrl`. Only DNS metadata is read — the logo SVG is never fetched or stored server-side; the client loads it directly.
 - **Bulk mail actions** (`mailboxes/.../mail-bulk-actions`) apply move/copy/delete/flag operations to many UIDs in a single IMAP round-trip, separate from the per-mail routes under `mails/`. `delete-all` does the same as `delete` for every mail in the folder, using a `min:max` UID range. The move/copy/delete methods in `IMAPAccount` throw when imapflow returns `false`/`undefined` (that's how it reports failures); the flag methods don't, because a no-op STORE also returns `false`.
+- **Passkeys** (`user_passkeys`, `PasskeyService`) are an alternative to the password, not a second factor: `POST /auth/passkey/options` + `POST /auth/passkey` sign in with a passkey that verified the user (PIN, biometrics), and the password login is unchanged. The WebAuthn relying party is the host of `DLA_APP_URL`. Adding a passkey needs the current password (wrong → 400, never 401, which the web client treats as an expired session). There is no two-factor authentication yet. If it comes, it belongs in the password login only — after the password check in `POST /auth/login`, before `SessionHandler.createSession` — because a verified passkey already covers both factors; the passkey routes stay as they are.
+- **Passkey challenges and the passkey login rate limit live in process memory** (`ExpiringStore`, `RequestLimiter`; 5-minute challenges): a restart drops them and several instances would not share them.
+- **`@simplewebauthn/server` is loaded on first use** (`PasskeyService.loadWebAuthn`), not at startup — a static import costs every start ~50 ms in the compiled binary. It needs `reflect-metadata`, which `src/polyfills.ts` loads before everything else: in the compiled binary the bundled `tsyringe` otherwise throws when the library loads.
 - **Outbound system mail** (e.g. password-reset emails) uses the `DLA_SMTP_*` config vars — distinct from the per-account IMAP/SMTP credentials stored encrypted in `mail_accounts`.
 - The `data/` directory contains runtime data (SQLite DB files, etc.).

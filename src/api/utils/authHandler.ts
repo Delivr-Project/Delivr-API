@@ -15,6 +15,14 @@ export class AuthUtils {
         return user.role;
     }
 
+    static async verifyUserPassword(userID: number, password: string, tx: DrizzleDB = DB.instance()) {
+        const user = tx.select().from(DB.Tables.users).where(eq(DB.Tables.users.id, userID)).get();
+        if (!user || !(await Bun.password.verify(password, user.password_hash))) {
+            return null;
+        }
+        return user;
+    }
+
     static createRandomTokenID() {
         return crypto_randomBytes(32).toString('hex');
     }
@@ -372,6 +380,10 @@ export namespace AuthHandler.AuthContext {
             throw new Error("Auth context not set in context");
         }
         return authContext;
+    }
+
+    export function isAuthenticated(c: Context) {
+        return (get(c) as AuthHandler.AuthContext | AuthHandler.UnauthenticatedAuthContext).type !== 'unauthenticated';
     }
 
     export function getAsSession(c: Context): AuthHandler.SessionAuthContext {

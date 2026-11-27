@@ -83,6 +83,7 @@ All configuration is environment-based (see [`example.env`](./example.env)):
 | `DLA_API_HOST` | Bind address | `::` |
 | `DLA_API_PORT` | Listen port | `14123` |
 | `DLA_DISABLE_DOCS` | Disable the Scalar API reference | `false` |
+| `DLA_TRUST_PROXY` | Take the client address for the passkey login rate limit from the last `X-Forwarded-For` entry. Enable it only when every request comes through a reverse proxy that appends the header | `false` |
 | `DLA_MAX_ATTACHMENT_SIZE_MB` | Maximum combined attachment size per composed mail, in MB, measured before encoding | `25` |
 | `DLA_ENCRYPTION_KEY` | **Required. 32-character** key for credential encryption | — |
 | `DLA_DB_CONNECTION_URL` | Database connection string / path | `./data/db.sqlite` |

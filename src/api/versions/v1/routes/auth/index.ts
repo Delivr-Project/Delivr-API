@@ -10,6 +10,7 @@ import { APIResponse } from "../../../../utils/api-res";
 import { AuthHandler, SessionHandler } from "../../../../utils/authHandler";
 import { APIResponseSpec, APIRouteSpec } from "../../../../utils/specHelpers";
 import { router as resetPasswordRouter } from "./reset-password";
+import { router as passkeyLoginRouter } from "./passkey";
 import { DOCS_TAGS } from "../../docs";
 import { Logger } from "../../../../../utils/logger";
 
@@ -219,3 +220,4 @@ router.post('/logout',
 );
 
 router.route('/', resetPasswordRouter);
+router.route('/', passkeyLoginRouter);

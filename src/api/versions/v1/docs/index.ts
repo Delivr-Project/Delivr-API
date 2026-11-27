@@ -5,6 +5,7 @@ export const DOCS_TAGS = {
     ACCOUNT: "Account",
     ACCOUNT_API_KEYS: "Account / API Keys",
     ACCOUNT_PREFERENCES: "Account / Preferences",
+    ACCOUNT_PASSKEYS: "Account / Passkeys",
 
     AUTHENTICATION: "Authentication",
 
